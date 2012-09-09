@@ -1,28 +1,23 @@
-var inputTag = document.createElement('div');
-inputTag.style.cssText = 'position:absolute; padding: 5px; border: solid 1px #000';
-inputTag.draggable = true;
-inputTag.ondragend = function(e) {
-  var rect = e.target.getBoundingClientRect();
-  inputTag.style.left = e.pageX;
-  inputTag.style.top  = e.pageY - rect.height;
-}
+/* wema v3.0 - https://github.com/kan/wema */
+(function($){
+    var inputTag = $('<div style="position:absolute; padding: 5px; border: solid 1px #000"' +
+                          'draggable="true" />');
+    inputTag.bind('dragend', function(e) {
+      var rect = e.target.getBoundingClientRect();
+      $(this).css('left', e.pageX)
+             .css('top',  e.pageY - rect.height);
+    })
+      .append('<textarea id="tag_text" style="width: 20em; height: 4em"></textarea><br />')
+      .append('<input type="button" value="close" />')
+      .append('<input type="button" value="post" />')
+      .hide();
 
-var text = document.createElement('textarea');
-text.id = 'tag_text';
-text.style.cssText = 'width: 20em; height: 4em';
+    $('body').append(inputTag)
+             .bind('dblclick', function(e) {
+      inputTag.css('left', e.pageX)
+              .css('top',  e.pageY)
+              .show();
+    });
 
-var button = document.createElement('input');
-button.type = 'button';
-button.value = 'post';
-button.onclick = function(e) {
-}
+}(Zepto || jQuery));
 
-inputTag.appendChild(text);
-inputTag.appendChild(button);
-
-var body = document.getElementsByTagName('body')[0];
-body.ondblclick = function(e) {
-  inputTag.style.left = e.pageX;
-  inputTag.style.top  = e.pageY;
-  body.appendChild(inputTag);
-}
