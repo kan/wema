@@ -1,0 +1,3 @@
+[submodule "t/lib/qunit-tap"]
+	path = t/lib/qunit-tap
+	url = git://github.com/twada/qunit-tap.git
