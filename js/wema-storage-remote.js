@@ -56,7 +56,7 @@ var WemaStorage = {
 };
 
 (function($) {
-    WemaStorage.socket = new WebSocket('ws://localhost:8080/');
+    WemaStorage.socket = new WebSocket('ws://localhost:8080/handle');
     WemaStorage.socket.onopen = function() { console.log('web socket open') }
     WemaStorage.socket.onmessage = function(ev) {
         var tagInfo = JSON.parse(ev.data);
