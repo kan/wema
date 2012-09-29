@@ -3,6 +3,7 @@ var WemaStorage = {
     tagDomain: 'net.fushihara.wema.tag',
 
     generateTagHandler: function(tagInfo) { },
+    clearAllTagsHandler: function() { },
 
     saveTag: function(text, left, top) {
         var tagStr = JSON.stringify({'text': text,                                                            
@@ -16,7 +17,6 @@ var WemaStorage = {
     },
 
     updateTag: function(id, text, left, top) {
-        alert(id, text);
         var tagStr = JSON.stringify({'text': text,                                                            
             'left': left,
             'top': top});
@@ -36,6 +36,7 @@ var WemaStorage = {
             }
         }
         WemaStorage.tagNumber = 0; // reset
+        WemaStorage.clearAllTagsHandler();
     },
 
     loadAllTags: function() {

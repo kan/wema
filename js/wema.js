@@ -31,6 +31,10 @@
         $('body').append(tag);
     };
 
+    WemaStorage.clearAllTagsHandler = function() {
+        $('div.wema-tag').each(function(index) { $(this).remove() });
+    }
+
     var inputTag = $(TAGDIV);
 
     var tagText = $('<textarea style="width: 20em; height: 4em"></textarea>');
@@ -41,7 +45,6 @@
     var clearBtn = $('<input type="button" value="clear all tags" />')
       .bind('click', function(e) {
         WemaStorage.clearAllTags();
-        $('div.wema-tag').each(function(index) { $(this).remove() });
       });
 
     var postBtn = $('<input type="button" value="post" />')

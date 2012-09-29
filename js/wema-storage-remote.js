@@ -4,6 +4,7 @@ var WemaStorage = {
     socket: {},
 
     generateTagHandler: function(tagInfo) { },
+    clearAllTagsHandler: function() { },
 
     saveTag: function(text, left, top) {
         var tagStr = JSON.stringify({'text': text,                                                            
@@ -23,35 +24,19 @@ var WemaStorage = {
     },
 
     clearAllTags: function() {
-        var i = 0;
-        while(true) {
-            var tagStr = localStorage.getItem(WemaStorage.tagDomain + i);
-            if (tagStr) {
-                localStorage.removeItem(WemaStorage.tagDomain + i);
-                i++;
-            } else {
-                break;
-            }
-        }
-        WemaStorage.tagNumber = 0; // reset
+        (function($) {
+            $.post('/clear_all_tags', function(data) { });
+        }(Zepto || jQuery));
     },
 
     loadAllTags: function() {
-        /*
-        WemaStorage.tagNumber = 0;
-
-        while(true) {
-            var tagStr = localStorage.getItem(WemaStorage.tagDomain + WemaStorage.tagNumber);                                                                 
-            if (tagStr) {
-                var tagInfo = JSON.parse(tagStr);
-                tagInfo.tagId = WemaStorage.tagDomain + WemaStorage.tagNumber;
-                WemaStorage.generateTagHandler(tagInfo);
-                WemaStorage.tagNumber++;
-            } else {
-                break;
-            }
-        }
-        */
+        (function($) {
+            $.get('/list', function(data) {
+                $.each(JSON.parse(data), function(index, item) {
+                    WemaStorage.generateTagHandler(item);
+                });
+            });
+        }(Zepto || jQuery));
     },
 };
 
@@ -60,6 +45,12 @@ var WemaStorage = {
     WemaStorage.socket.onopen = function() { console.log('web socket open') }
     WemaStorage.socket.onmessage = function(ev) {
         var tagInfo = JSON.parse(ev.data);
-        WemaStorage.generateTagHandler(tagInfo);
+        if (tagInfo.action) {
+            if (tagInfo.action == 'clear_all_tags') {
+                WemaStorage.clearAllTagsHandler();
+            }
+        } else {
+            WemaStorage.generateTagHandler(tagInfo);
+        }
     }
 }(Zepto || jQuery));

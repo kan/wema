@@ -11,7 +11,7 @@ use Plack::Request;
 use JSON qw();
 use Data::UUID::Base64URLSafe;
 
-my $db = {};
+my %db;
 my %member;
 my $DATA = do { local $/; <DATA> };
 
@@ -26,8 +26,15 @@ my $psgi_app = sub {
         return $res->finalize;
     }
     elsif ($req->path eq '/list') {
-        $res->content_type('text/html; charset=utf8');
-        $res->content();
+        $res->content_type('application/json; charset=utf8');
+        $res->content(JSON::encode_json([values %db]));
+        return $res->finalize;
+    }
+    elsif ($req->path eq '/clear_all_tags' && $req->method eq 'POST') {
+        undef %db;
+        $res->content_type('application/json; charset=utf8');
+        my $msg = Protocol::WebSocket::Frame->new(JSON::encode_json({ action => 'clear_all_tags' }))->to_bytes;
+        $_->push_write($msg) for values %member;
         return $res->finalize;
     }
     elsif ($req->path eq '/handle') {
@@ -58,7 +65,7 @@ my $psgi_app = sub {
                             $json->{tagId} = Data::UUID::Base64URLSafe->new->create_b64_urlsafe;
                         }
 
-                        $db->{$json->{tagId}} = $json;
+                        $db{$json->{tagId}} = $json;
                         my $msg = Protocol::WebSocket::Frame->new(JSON::encode_json($json))->to_bytes;
                         $_->push_write($msg) for values %member;
                     }
