@@ -3,6 +3,7 @@ var WemaStorage = {
     tagDomain: 'net.fushihara.wema.tag',
 
     generateTagHandler: function(tagInfo) { },
+    clearTagHandler: function() { },
     clearAllTagsHandler: function() { },
 
     saveTag: function(text, left, top) {
@@ -22,6 +23,11 @@ var WemaStorage = {
             'top': top});
 
         localStorage.setItem(id, tagStr);
+    },
+
+    clearTag: function(id) {
+        localStorage.removeItem(id);
+        WemaStorage.clearTagHandler(id);
     },
 
     clearAllTags: function() {

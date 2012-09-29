@@ -1,8 +1,11 @@
 /* wema v3.0 - https://github.com/kan/wema */
 (function($){
 
-    var TAGDIV = '<div style="position:absolute; padding: 5px; border: solid 1px #000"' +
+    var TAGDIV = '<div style="position:absolute; padding: 5px; border: solid 1px gray"' +
                       'draggable="true" />';
+
+    var TAGMENUDIV = '<div style="text-align: right;">';
+    var DELETEMENU = '<a href="#" style="color: #66f; font-size: 0.8em;">DEL</a></div>';
 
     var tagDragHandler = function(e) {
         var rect = e.target.getBoundingClientRect();
@@ -22,13 +25,25 @@
                 return;
             }
         });
-        var tag = $(TAGDIV).text(tagInfo.text)
+        var menu = $(TAGMENUDIV).append($(DELETEMENU).bind('click', function() { WemaStorage.clearTag(tagInfo.tagId) }));
+
+        var tag = $(TAGDIV)
                            .css('left', tagInfo.left)
                            .css('top',  tagInfo.top)
                            .data('tagId', tagInfo.tagId)
                            .addClass('wema-tag')
-                           .bind('dragend', tagDragHandler);
+                           .bind('dragend', tagDragHandler)
+                           .append(menu)
+                           .append($('<div />').text(tagInfo.text));
         $('body').append(tag);
+    };
+
+    WemaStorage.clearTagHandler = function(id) {
+        $('div.wema-tag').each(function(index) {
+            if ($(this).data('tagId') == id) {
+                $(this).remove();
+            }
+        });
     };
 
     WemaStorage.clearAllTagsHandler = function() {
