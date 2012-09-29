@@ -266,6 +266,116 @@
          "target" : "Class::Inspector",
          "version" : "1.27"
       },
+      "Data::UUID" : {
+         "dist" : "Data-UUID-1.218",
+         "mymeta" : {
+            "abstract" : "Perl extension for generating Globally/Universally ",
+            "author" : [
+               "Ricardo Signes <rjbs[at]cpan.org>"
+            ],
+            "dynamic_config" : 0,
+            "generated_by" : "ExtUtils::MakeMaker version 6.6302, CPAN::Meta::Converter version 2.120921, CPAN::Meta::Converter version 2.120630",
+            "license" : [
+               "bsd"
+            ],
+            "meta-spec" : {
+               "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+               "version" : "2"
+            },
+            "name" : "Data-UUID",
+            "no_index" : {
+               "directory" : [
+                  "t",
+                  "inc"
+               ]
+            },
+            "prereqs" : {
+               "build" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "configure" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "runtime" : {
+                  "requires" : {
+                     "Digest::MD5" : "0"
+                  }
+               }
+            },
+            "release_status" : "stable",
+            "version" : "1.218"
+         },
+         "name" : "Data::UUID",
+         "pathname" : "R/RJ/RJBS/Data-UUID-1.218.tar.gz",
+         "provides" : {
+            "Data::UUID" : {
+               "file" : "Data/UUID.pm",
+               "version" : "1.218"
+            }
+         },
+         "target" : "Data::UUID",
+         "version" : "1.218"
+      },
+      "Data::UUID::Base64URLSafe" : {
+         "dist" : "Data-UUID-Base64URLSafe-0.34",
+         "mymeta" : {
+            "abstract" : "URL-safe UUIDs",
+            "author" : [
+               "Leon Brocard <acme@astray.com>"
+            ],
+            "dynamic_config" : 0,
+            "generated_by" : "ExtUtils::MakeMaker version 6.50, CPAN::Meta::Converter version 2.120630",
+            "license" : [
+               "perl_5"
+            ],
+            "meta-spec" : {
+               "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+               "version" : "2"
+            },
+            "name" : "Data-UUID-Base64URLSafe",
+            "no_index" : {
+               "directory" : [
+                  "t",
+                  "inc"
+               ]
+            },
+            "prereqs" : {
+               "build" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "configure" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "runtime" : {
+                  "requires" : {
+                     "Data::UUID" : "0",
+                     "MIME::Base64::URLSafe" : "0",
+                     "Test::More" : "0.01"
+                  }
+               }
+            },
+            "release_status" : "stable",
+            "version" : "0.34"
+         },
+         "name" : "Data::UUID::Base64URLSafe",
+         "pathname" : "L/LB/LBROCARD/Data-UUID-Base64URLSafe-0.34.tar.gz",
+         "provides" : {
+            "Data::UUID::Base64URLSafe" : {
+               "file" : "Data/UUID/Base64URLSafe.pm",
+               "version" : "0.34"
+            }
+         },
+         "target" : "Data::UUID::Base64URLSafe",
+         "version" : "0.34"
+      },
       "Devel::StackTrace" : {
          "dist" : "Devel-StackTrace-1.27",
          "mymeta" : {
@@ -1385,6 +1495,90 @@
          "target" : "Hash::MultiValue",
          "version" : "0.12"
       },
+      "JSON" : {
+         "dist" : "JSON-2.53",
+         "mymeta" : {
+            "abstract" : "JSON (JavaScript Object Notation) encoder/decoder",
+            "author" : [
+               "Makamaka Hannyaharamitu, E<lt>makamaka[at]cpan.orgE<gt>"
+            ],
+            "dynamic_config" : 0,
+            "generated_by" : "ExtUtils::MakeMaker version 6.56, CPAN::Meta::Converter version 2.120630",
+            "license" : [
+               "perl_5"
+            ],
+            "meta-spec" : {
+               "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+               "version" : "2"
+            },
+            "name" : "JSON",
+            "no_index" : {
+               "directory" : [
+                  "t",
+                  "inc"
+               ]
+            },
+            "prereqs" : {
+               "build" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "configure" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "runtime" : {
+                  "requires" : {
+                     "Test::More" : "0"
+                  }
+               }
+            },
+            "release_status" : "stable",
+            "resources" : {
+               "repository" : {
+                  "url" : "http://github.com/makamaka/JSON"
+               }
+            },
+            "version" : "2.53"
+         },
+         "name" : "JSON",
+         "pathname" : "M/MA/MAKAMAKA/JSON-2.53.tar.gz",
+         "provides" : {
+            "JSON" : {
+               "file" : "JSON.pm",
+               "version" : "2.53"
+            },
+            "JSON::Backend::PP" : {
+               "file" : "JSON.pm"
+            },
+            "JSON::Boolean" : {
+               "file" : "JSON.pm"
+            },
+            "JSON::PP" : {
+               "file" : "JSON/backportPP.pm",
+               "version" : "2.27200"
+            },
+            "JSON::PP5005" : {
+               "file" : "JSON/backportPP/Compat5005.pm",
+               "version" : "1.10"
+            },
+            "JSON::PP56" : {
+               "file" : "JSON/backportPP/Compat5006.pm",
+               "version" : "1.08"
+            },
+            "JSON::PP::IncrParser" : {
+               "file" : "JSON/backportPP.pm",
+               "version" : "1.01"
+            },
+            "JSON::backportPP::Boolean" : {
+               "file" : "JSON/backportPP.pm"
+            }
+         },
+         "target" : "JSON",
+         "version" : "2.53"
+      },
       "LWP" : {
          "dist" : "libwww-perl-6.04",
          "mymeta" : {
@@ -1613,6 +1807,60 @@
          },
          "target" : "LWP::MediaTypes",
          "version" : "6.02"
+      },
+      "MIME::Base64::URLSafe" : {
+         "dist" : "MIME-Base64-URLSafe-0.01",
+         "mymeta" : {
+            "abstract" : "Perl version of Python's URL-safe base64 codec",
+            "author" : [
+               "Kazuho Oku <kazuho ___at___ labs.cybozu.co.jp>"
+            ],
+            "dynamic_config" : 0,
+            "generated_by" : "ExtUtils::MakeMaker version 6.6302, CPAN::Meta::Converter version 2.120630",
+            "license" : [
+               "unknown"
+            ],
+            "meta-spec" : {
+               "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+               "version" : "2"
+            },
+            "name" : "MIME-Base64-URLSafe",
+            "no_index" : {
+               "directory" : [
+                  "t",
+                  "inc"
+               ]
+            },
+            "prereqs" : {
+               "build" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "configure" : {
+                  "requires" : {
+                     "ExtUtils::MakeMaker" : "0"
+                  }
+               },
+               "runtime" : {
+                  "requires" : {
+                     "MIME::Base64" : "0"
+                  }
+               }
+            },
+            "release_status" : "stable",
+            "version" : "0.01"
+         },
+         "name" : "MIME::Base64::URLSafe",
+         "pathname" : "K/KA/KAZUHO/MIME-Base64-URLSafe-0.01.tar.gz",
+         "provides" : {
+            "MIME::Base64::URLSafe" : {
+               "file" : "MIME/Base64/URLSafe.pm",
+               "version" : "0.01"
+            }
+         },
+         "target" : "MIME::Base64::URLSafe",
+         "version" : "0.01"
       },
       "Net::HTTP" : {
          "dist" : "Net-HTTP-6.03",

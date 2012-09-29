@@ -9,11 +9,19 @@
         $(this).css('left', e.pageX)
                .css('top',  e.pageY - rect.height);
         if ($(this).data('tagId')) {
-          WemaStorage.updateTag($(this).data('tagId'), $(this).text(), $(this).css('left'), $(this).css('top'));
+            WemaStorage.updateTag($(this).data('tagId'), $(this).text(), $(this).css('left'), $(this).css('top'));
         }
     };
 
     WemaStorage.generateTagHandler = function(tagInfo) {
+        $('div.wema-tag').each(function(index) {
+            if ($(this).data('tagId') == tagInfo.tagId) {
+                $(this).text(tagInfo.text)
+                    .css('left', tagInfo.left)
+                    .css('top',  tagInfo.top);
+                return;
+            }
+        });
         var tag = $(TAGDIV).text(tagInfo.text)
                            .css('left', tagInfo.left)
                            .css('top',  tagInfo.top)

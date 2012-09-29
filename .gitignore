@@ -2,5 +2,6 @@ META.yml
 MYMETA.yml
 MYMETA.json
 Makefile
+.carton/
 local/
 inc/

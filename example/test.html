@@ -4,20 +4,7 @@
   <script src="../js/zepto.js"></script>
 </head>
 <body>
-  <script src="../js/wema-storage-local.js"></script>
+  <script src="../js/wema-storage-remote.js"></script>
   <script src="../js/wema.js"></script>
-  <script>
-      var ws = new WebSocket('ws://localhost:8080/');
-
-      ws.onopen = function() { console.log('web socket open') }
-
-      ws.onmessage = function(ev) {
-          console.log('recieved: ' + ev.data);
-      }
-
-      function ws_send(message) {
-          ws.send(message);
-      }
-  </script>
 </body>
 </html>
