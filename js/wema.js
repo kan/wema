@@ -5,7 +5,7 @@
                       'draggable="true" />';
 
     var TAGMENUDIV = '<div style="text-align: right;">';
-    var DELETEMENU = '<a href="#" style="color: #66f; font-size: 0.8em;">DEL</a></div>';
+    var MENULINK = '<a href="#" style="color: #66f; font-size: 0.8em;" />';
 
     var tagDragHandler = function(e) {
         var rect = e.target.getBoundingClientRect();
@@ -16,6 +16,18 @@
         }
     };
 
+    function editTag(tagId) {
+        $('div.wema-tag').each(function(index) {
+            if ($(this).data('tagId') == tagId) {
+                tagText.val($(this).data('tagText'));
+                inputTag.css('left', $(this).css('left'))
+                        .css('top', $(this).css('top'))
+                        .data('tagId', tagId);
+                inputTag.show();
+            }
+        });
+    }
+
     WemaStorage.generateTagHandler = function(tagInfo) {
         $('div.wema-tag').each(function(index) {
             if ($(this).data('tagId') == tagInfo.tagId) {
@@ -25,12 +37,17 @@
                 return;
             }
         });
-        var menu = $(TAGMENUDIV).append($(DELETEMENU).bind('click', function() { WemaStorage.clearTag(tagInfo.tagId) }));
+        var menu = $(TAGMENUDIV).append($(MENULINK).text('EDIT')
+                                                   .bind('click', function() { editTag(tagInfo.tagId) }))
+                                .append(' ')
+                                .append($(MENULINK).text('DEL')
+                                                   .bind('click', function() { WemaStorage.clearTag(tagInfo.tagId) }));
 
         var tag = $(TAGDIV)
                            .css('left', tagInfo.left)
                            .css('top',  tagInfo.top)
                            .data('tagId', tagInfo.tagId)
+                           .data('tagText', tagInfo.text)
                            .addClass('wema-tag')
                            .bind('dragend', tagDragHandler)
                            .append(menu)
@@ -64,7 +81,11 @@
 
     var postBtn = $('<input type="button" value="post" />')
       .bind('click', function(e) {
-        WemaStorage.saveTag(tagText.val(), inputTag.css('left'), inputTag.css('top'));
+        if ( inputTag.data('tagId') ) {
+            WemaStorage.updateTag(inputTag.data('tagId'), $(this).text(), $(this).css('left'), $(this).css('top'));
+        } else {
+            WemaStorage.saveTag(tagText.val(), inputTag.css('left'), inputTag.css('top'));
+        }
         tagText.val('');
         inputTag.hide();
       });
@@ -80,6 +101,7 @@
              .bind('dblclick', function(e) {
       inputTag.css('left', e.pageX)
               .css('top',  e.pageY)
+              .data('tagId', '')
               .show();
     });
 
