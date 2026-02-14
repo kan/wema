@@ -142,6 +142,8 @@ export class AnchorDragManager {
     }
 
     // Create edge if dropped on a different note
+    // Both anchors default to 'auto' so they adapt when notes move.
+    // Users can pin specific anchors via the edge style popup.
     if (targetNoteId && targetNoteId !== this.fromNoteId && this.fromNoteId) {
       this.edgeManager.addEdge(this.fromNoteId, targetNoteId, {
         fromAnchor: 'auto',

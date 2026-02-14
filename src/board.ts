@@ -39,10 +39,15 @@ export class WemaBoard {
   private viewOnly: boolean;
   private positionSnapshot: { id: NoteId; x: number; y: number }[] | null = null;
   private theme: NoteTheme;
+  private rubberBandMoved = false;
+  private noteDragged = false;
 
   private handleDblClick: (e: MouseEvent) => void;
   private handleKeyDown: (e: KeyboardEvent) => void;
   private handleBoardClick: (e: MouseEvent) => void;
+  private handleRubberBandDown: (e: PointerEvent) => void;
+  private handleRubberBandMove: (e: PointerEvent) => void;
+  private handleRubberBandUp: (e: PointerEvent) => void;
 
   constructor(options: WemaBoardOptions) {
     this.container = options.container;
@@ -104,8 +109,18 @@ export class WemaBoard {
       noteManager: this.noteManager,
       emitter: this.emitter,
       getReadOnly: isLocked,
+      getSelection: () => this.selectionManager.getSelection(),
+      onDragStart: () => {
+        this.notePopup.hide();
+        this.noteDragged = true;
+      },
       onDragEnd: (noteId) => {
-        this.selectionManager.select([noteId]);
+        // Only auto-select the dragged note if it wasn't part of a group drag
+        const sel = this.selectionManager.getSelection();
+        if (!sel.includes(noteId)) {
+          this.selectionManager.select([noteId]);
+        }
+        this.updateNotePopup();
       },
     });
 
@@ -142,6 +157,11 @@ export class WemaBoard {
       onColorChange: (noteId, color) => {
         this.noteManager.updateNote(noteId, { color });
       },
+      onMultiColorChange: (noteIds, color) => {
+        for (const id of noteIds) {
+          this.noteManager.updateNote(id, { color });
+        }
+      },
       onDuplicate: (noteId) => {
         const note = this.noteManager.getNote(noteId);
         if (!note) return;
@@ -158,6 +178,11 @@ export class WemaBoard {
       },
       onDelete: (noteId) => {
         this.deleteNote(noteId);
+      },
+      onMultiDelete: (noteIds) => {
+        for (const id of noteIds) {
+          this.deleteNote(id);
+        }
       },
     });
 
@@ -215,6 +240,16 @@ export class WemaBoard {
 
     // Click on board: select note, select edge, or deselect
     this.handleBoardClick = (e: MouseEvent) => {
+      // After rubberband drag or note drag, skip the click that follows pointerup
+      if (this.rubberBandMoved) {
+        this.rubberBandMoved = false;
+        return;
+      }
+      if (this.noteDragged) {
+        this.noteDragged = false;
+        return;
+      }
+
       // Don't handle clicks from popups
       if ((e.target as HTMLElement).closest('.wema-edge-popup')) return;
       if ((e.target as HTMLElement).closest('.wema-note-popup')) return;
@@ -240,11 +275,15 @@ export class WemaBoard {
       if (noteEl) {
         const noteId = noteEl.dataset.noteId;
         if (noteId) {
-          this.selectionManager.select([noteId]);
-          this.noteManager.bringToFront(noteId);
-          if (!this.viewOnly) {
-            this.notePopup.show(noteId);
+          if (e.shiftKey) {
+            this.selectionManager.addToSelection([noteId]);
+          } else if (e.ctrlKey || e.metaKey) {
+            this.selectionManager.toggleSelection(noteId);
+          } else {
+            this.selectionManager.select([noteId]);
           }
+          this.noteManager.bringToFront(noteId);
+          this.updateNotePopup();
         }
       } else {
         this.selectionManager.clear();
@@ -257,6 +296,48 @@ export class WemaBoard {
       }
     };
     this.boardEl.addEventListener('click', this.handleBoardClick);
+
+    // Rubberband selection on empty area drag
+    this.handleRubberBandDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      if (this.readOnly) return;
+      // Only start rubberband from empty board area (not notes, anchors, handles)
+      if ((e.target as HTMLElement).closest('.wema-note')) return;
+      if ((e.target as HTMLElement).closest('.wema-edge-popup')) return;
+      if ((e.target as HTMLElement).closest('.wema-note-popup')) return;
+
+      const rect = this.boardEl.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      this.selectionManager.startRubberBand(x, y);
+      this.boardEl.setPointerCapture(e.pointerId);
+      this.boardEl.addEventListener('pointermove', this.handleRubberBandMove);
+      this.boardEl.addEventListener('pointerup', this.handleRubberBandUp);
+    };
+
+    this.handleRubberBandMove = (e: PointerEvent) => {
+      if (!this.selectionManager.isRubberBandActive()) return;
+      this.rubberBandMoved = true;
+      const rect = this.boardEl.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      this.selectionManager.updateRubberBand(x, y);
+    };
+
+    this.handleRubberBandUp = (e: PointerEvent) => {
+      this.boardEl.removeEventListener('pointermove', this.handleRubberBandMove);
+      this.boardEl.removeEventListener('pointerup', this.handleRubberBandUp);
+      try {
+        this.boardEl.releasePointerCapture(e.pointerId);
+      } catch {
+        // may already be released
+      }
+      this.selectionManager.endRubberBand();
+      this.updateNotePopup();
+    };
+
+    this.boardEl.addEventListener('pointerdown', this.handleRubberBandDown);
 
     // Import initial data if provided
     if (options.data) {
@@ -275,6 +356,9 @@ export class WemaBoard {
     this.boardEl.removeEventListener('dblclick', this.handleDblClick);
     this.boardEl.removeEventListener('keydown', this.handleKeyDown);
     this.boardEl.removeEventListener('click', this.handleBoardClick);
+    this.boardEl.removeEventListener('pointerdown', this.handleRubberBandDown);
+    this.boardEl.removeEventListener('pointermove', this.handleRubberBandMove);
+    this.boardEl.removeEventListener('pointerup', this.handleRubberBandUp);
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
     this.resizeManager.destroy();
@@ -359,6 +443,19 @@ export class WemaBoard {
 
   // --- Selection ---
 
+  /** Update the note popup to match the current selection state */
+  private updateNotePopup(): void {
+    if (this.viewOnly) return;
+    const sel = this.selectionManager.getSelection();
+    if (sel.length === 1) {
+      this.notePopup.show(sel[0]);
+    } else if (sel.length >= 2) {
+      this.notePopup.showMulti(sel);
+    } else {
+      this.notePopup.hide();
+    }
+  }
+
   /** Select notes by IDs */
   select(noteIds: NoteId[]): void {
     this.selectionManager.select(noteIds);
@@ -367,6 +464,7 @@ export class WemaBoard {
   /** Select all notes */
   selectAll(): void {
     this.selectionManager.selectAll();
+    this.updateNotePopup();
   }
 
   /** Get currently selected note IDs */
@@ -378,17 +476,23 @@ export class WemaBoard {
 
   /** Align selected notes */
   alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void {
+    if (this.readOnly || this.viewOnly) return;
     alignNotes(this.noteManager, noteIds, alignment);
+    this.updateNotePopup();
   }
 
   /** Distribute notes evenly */
   distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical'): void {
+    if (this.readOnly || this.viewOnly) return;
     distributeNotes(this.noteManager, noteIds, direction);
+    this.updateNotePopup();
   }
 
   /** Auto-layout notes */
   autoLayout(noteIds?: NoteId[]): void {
-    autoLayout(this.noteManager, noteIds);
+    if (this.readOnly || this.viewOnly) return;
+    autoLayout(this.noteManager, this.edgeManager.getEdges(), noteIds);
+    this.updateNotePopup();
   }
 
   // --- Data ---

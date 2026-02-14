@@ -46,6 +46,7 @@
 .wema-note-selected {
   outline: 2px solid var(--wema-anchor-color);
   outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(74, 144, 217, 0.3), var(--wema-note-shadow);
 }
 
 /* Move handle (grip bar at top) */
@@ -237,6 +238,47 @@
   border-color: var(--wema-anchor-color);
 }
 
+.wema-popup-details {
+  border-top: 1px solid #eee;
+  padding-top: 4px;
+}
+
+.wema-popup-details-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  width: 100%;
+}
+
+.wema-popup-details-toggle:hover {
+  background: #f5f5f5;
+  color: #555;
+}
+
+.wema-popup-details-toggle svg {
+  transition: transform 0.15s;
+}
+
+.wema-popup-details-toggle.open svg {
+  transform: rotate(90deg);
+}
+
+.wema-popup-details-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+}
+
 .wema-popup-delete-section {
   border-top: 1px solid #eee;
   padding-top: 6px;
@@ -364,6 +406,15 @@
 
 .wema-readonly .wema-resize-handle {
   display: none;
+}
+
+/* Rubberband selection */
+.wema-rubberband {
+  position: absolute;
+  border: 1px dashed var(--wema-anchor-color);
+  background: rgba(74, 144, 217, 0.08);
+  pointer-events: none;
+  z-index: 9999;
 }
 
 /* View-only mode */

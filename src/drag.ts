@@ -6,6 +6,12 @@ const DRAG_THRESHOLD = 4;
 
 type DragState = 'IDLE' | 'PENDING' | 'DRAGGING';
 
+interface GroupOffset {
+  id: NoteId;
+  startX: number;
+  startY: number;
+}
+
 interface DragContext {
   noteId: NoteId;
   startX: number;
@@ -13,6 +19,7 @@ interface DragContext {
   noteStartX: number;
   noteStartY: number;
   pointerId: number;
+  groupOffsets: GroupOffset[] | null;
 }
 
 export class DragManager {
@@ -22,6 +29,8 @@ export class DragManager {
   private noteManager: NoteManager;
   private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
+  private getSelection: () => NoteId[];
+  private onDragStart?: () => void;
   private onDragEnd?: (noteId: NoteId) => void;
 
   private handlePointerDown: (e: PointerEvent) => void;
@@ -33,12 +42,16 @@ export class DragManager {
     noteManager: NoteManager;
     emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
+    getSelection: () => NoteId[];
+    onDragStart?: () => void;
     onDragEnd?: (noteId: NoteId) => void;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.emitter = options.emitter;
     this.getReadOnly = options.getReadOnly;
+    this.getSelection = options.getSelection;
+    this.onDragStart = options.onDragStart;
     this.onDragEnd = options.onDragEnd;
 
     this.handlePointerDown = this.onPointerDown.bind(this);
@@ -74,6 +87,19 @@ export class DragManager {
     const note = this.noteManager.getNote(noteId);
     if (!note) return;
 
+    // Check if this note is part of a multi-selection
+    const selection = this.getSelection();
+    let groupOffsets: GroupOffset[] | null = null;
+    if (selection.length > 1 && selection.includes(noteId)) {
+      groupOffsets = [];
+      for (const id of selection) {
+        const n = this.noteManager.getNote(id);
+        if (n) {
+          groupOffsets.push({ id, startX: n.x, startY: n.y });
+        }
+      }
+    }
+
     this.ctx = {
       noteId,
       startX: e.clientX,
@@ -81,6 +107,7 @@ export class DragManager {
       noteStartX: note.x,
       noteStartY: note.y,
       pointerId: e.pointerId,
+      groupOffsets,
     };
 
     this.state = 'PENDING';
@@ -99,6 +126,7 @@ export class DragManager {
         return;
       }
       this.state = 'DRAGGING';
+      this.onDragStart?.();
 
       // Capture pointer now that we're actually dragging (tracks outside board)
       this.boardEl.setPointerCapture(this.ctx.pointerId);
@@ -106,9 +134,20 @@ export class DragManager {
     }
 
     if (this.state === 'DRAGGING') {
-      const newX = this.ctx.noteStartX + dx;
-      const newY = this.ctx.noteStartY + dy;
-      this.noteManager.updateNote(this.ctx.noteId, { x: newX, y: newY });
+      if (this.ctx.groupOffsets) {
+        // Group drag: move all selected notes
+        for (const offset of this.ctx.groupOffsets) {
+          this.noteManager.updateNote(offset.id, {
+            x: offset.startX + dx,
+            y: offset.startY + dy,
+          });
+        }
+      } else {
+        // Single drag
+        const newX = this.ctx.noteStartX + dx;
+        const newY = this.ctx.noteStartY + dy;
+        this.noteManager.updateNote(this.ctx.noteId, { x: newX, y: newY });
+      }
     }
   }
 

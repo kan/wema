@@ -1,4 +1,4 @@
-import type { EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.js';
+import type { Anchor, EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.js';
 import { EdgeManager } from './edge.js';
 import { NoteManager } from './note.js';
 import { createElement } from './utils/dom.js';
@@ -91,6 +91,36 @@ const ROUTING_ICONS: { value: EdgeRouting; svg: string; title: string }[] = [
   },
 ];
 
+const ANCHOR_ICONS: { value: Anchor; svg: string; title: string }[] = [
+  {
+    value: 'auto',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="8" r="1.5" fill="currentColor"/></svg>',
+    title: 'Auto',
+  },
+  {
+    value: 'top',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="6" y="4" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="4" r="2" fill="currentColor"/></svg>',
+    title: 'Top',
+  },
+  {
+    value: 'right',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="4" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="16" cy="8" r="2" fill="currentColor"/></svg>',
+    title: 'Right',
+  },
+  {
+    value: 'bottom',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="6" y="2" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>',
+    title: 'Bottom',
+  },
+  {
+    value: 'left',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="8" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>',
+    title: 'Left',
+  },
+];
+
+const CHEVRON_ICON = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,2 7,5 3,8"/></svg>';
+
 const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 
 export class EdgeStylePopup {
@@ -102,6 +132,7 @@ export class EdgeStylePopup {
   private currentEdgeId: EdgeId | null = null;
   private lastX = 0;
   private lastY = 0;
+  private detailsOpen = false;
 
   constructor(options: {
     boardEl: HTMLElement;
@@ -116,6 +147,9 @@ export class EdgeStylePopup {
 
     this.popupEl = createElement('div', 'wema-edge-popup');
     this.popupEl.style.display = 'none';
+    // Prevent clicks inside popup from bubbling to the board's click handler,
+    // which would deselect the edge and hide the popup.
+    this.popupEl.addEventListener('click', (e) => e.stopPropagation());
     this.boardEl.appendChild(this.popupEl);
   }
 
@@ -132,6 +166,24 @@ export class EdgeStylePopup {
     const arrowHead: ArrowHead = edge.arrowHead ?? (edge.style === 'arrow' ? 'end' : 'none');
     const arrowSize = edge.arrowSize ?? 12;
     const strokeWidth = edge.strokeWidth ?? 2;
+
+    // --- Collapsible details section (Route / From / To) ---
+    const detailsWrapper = createElement('div', 'wema-popup-details');
+    const detailsToggle = createElement('button', 'wema-popup-details-toggle') as HTMLButtonElement;
+    detailsToggle.innerHTML = `${CHEVRON_ICON} Details`;
+    const detailsContent = createElement('div', 'wema-popup-details-content');
+
+    if (this.detailsOpen) {
+      detailsToggle.classList.add('open');
+      detailsContent.style.display = '';
+    } else {
+      detailsContent.style.display = 'none';
+    }
+    detailsToggle.addEventListener('click', () => {
+      this.detailsOpen = !this.detailsOpen;
+      detailsToggle.classList.toggle('open', this.detailsOpen);
+      detailsContent.style.display = this.detailsOpen ? '' : 'none';
+    });
 
     // Route section
     const routeSection = createElement('div', 'wema-popup-section');
@@ -152,6 +204,52 @@ export class EdgeStylePopup {
       routeGroup.appendChild(btn);
     }
     routeSection.appendChild(routeGroup);
+
+    // From anchor section
+    const fromAnchorSection = createElement('div', 'wema-popup-section');
+    const fromAnchorLabel = createElement('div', 'wema-popup-label');
+    fromAnchorLabel.textContent = 'From';
+    fromAnchorSection.appendChild(fromAnchorLabel);
+    const fromAnchorGroup = createElement('div', 'wema-popup-group');
+    for (const item of ANCHOR_ICONS) {
+      const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+      btn.innerHTML = item.svg;
+      btn.title = item.title;
+      if (item.value === edge.fromAnchor) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        if (!this.currentEdgeId) return;
+        this.edgeManager.updateEdge(this.currentEdgeId, { fromAnchor: item.value });
+        this.show(this.currentEdgeId);
+      });
+      fromAnchorGroup.appendChild(btn);
+    }
+    fromAnchorSection.appendChild(fromAnchorGroup);
+
+    // To anchor section
+    const toAnchorSection = createElement('div', 'wema-popup-section');
+    const toAnchorLabel = createElement('div', 'wema-popup-label');
+    toAnchorLabel.textContent = 'To';
+    toAnchorSection.appendChild(toAnchorLabel);
+    const toAnchorGroup = createElement('div', 'wema-popup-group');
+    for (const item of ANCHOR_ICONS) {
+      const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+      btn.innerHTML = item.svg;
+      btn.title = item.title;
+      if (item.value === edge.toAnchor) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        if (!this.currentEdgeId) return;
+        this.edgeManager.updateEdge(this.currentEdgeId, { toAnchor: item.value });
+        this.show(this.currentEdgeId);
+      });
+      toAnchorGroup.appendChild(btn);
+    }
+    toAnchorSection.appendChild(toAnchorGroup);
+
+    detailsContent.appendChild(routeSection);
+    detailsContent.appendChild(fromAnchorSection);
+    detailsContent.appendChild(toAnchorSection);
+    detailsWrapper.appendChild(detailsToggle);
+    detailsWrapper.appendChild(detailsContent);
 
     // Line style section
     const lineSection = createElement('div', 'wema-popup-section');
@@ -247,11 +345,11 @@ export class EdgeStylePopup {
     });
     deleteSection.appendChild(deleteBtn);
 
-    this.popupEl.appendChild(routeSection);
     this.popupEl.appendChild(lineSection);
     this.popupEl.appendChild(arrowSection);
     this.popupEl.appendChild(arrowSizeSection);
     this.popupEl.appendChild(widthSection);
+    this.popupEl.appendChild(detailsWrapper);
     this.popupEl.appendChild(deleteSection);
 
     // Position at click point (convert client coords to board-relative)
@@ -269,6 +367,7 @@ export class EdgeStylePopup {
   hide(): void {
     this.popupEl.style.display = 'none';
     this.currentEdgeId = null;
+    this.detailsOpen = false;
   }
 
   destroy(): void {

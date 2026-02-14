@@ -22,25 +22,33 @@ export class NoteStylePopup {
   private boardEl: HTMLElement;
   private noteManager: NoteManager;
   private onColorChange: (noteId: NoteId, color: string) => void;
+  private onMultiColorChange: (noteIds: NoteId[], color: string) => void;
   private onDuplicate: (noteId: NoteId) => void;
   private onDelete: (noteId: NoteId) => void;
+  private onMultiDelete: (noteIds: NoteId[]) => void;
   private currentNoteId: NoteId | null = null;
+  private currentNoteIds: NoteId[] | null = null;
 
   constructor(options: {
     boardEl: HTMLElement;
     noteManager: NoteManager;
     onColorChange: (noteId: NoteId, color: string) => void;
+    onMultiColorChange: (noteIds: NoteId[], color: string) => void;
     onDuplicate: (noteId: NoteId) => void;
     onDelete: (noteId: NoteId) => void;
+    onMultiDelete: (noteIds: NoteId[]) => void;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.onColorChange = options.onColorChange;
+    this.onMultiColorChange = options.onMultiColorChange;
     this.onDuplicate = options.onDuplicate;
     this.onDelete = options.onDelete;
+    this.onMultiDelete = options.onMultiDelete;
 
     this.popupEl = createElement('div', 'wema-note-popup');
     this.popupEl.style.display = 'none';
+    this.popupEl.addEventListener('click', (e) => e.stopPropagation());
     this.boardEl.appendChild(this.popupEl);
   }
 
@@ -119,9 +127,80 @@ export class NoteStylePopup {
     this.popupEl.style.display = '';
   }
 
+  /** Show popup for multiple selected notes (color change + bulk delete) */
+  showMulti(noteIds: NoteId[]): void {
+    const notes = noteIds
+      .map((id) => this.noteManager.getNote(id))
+      .filter((n) => n != null);
+    if (notes.length < 2) return;
+
+    this.currentNoteId = null;
+    this.currentNoteIds = noteIds.slice();
+    this.popupEl.innerHTML = '';
+
+    // Actions row
+    const actions = createElement('div', 'wema-note-popup-actions');
+
+    // Color swatch button (show mixed indicator)
+    const colorBtn = createElement('button', 'wema-popup-btn wema-note-popup-color-btn') as HTMLButtonElement;
+    const allSameColor = notes.every((n) => n.color === notes[0].color);
+    colorBtn.style.backgroundColor = allSameColor ? notes[0].color : '#ccc';
+    colorBtn.title = 'Color';
+    colorBtn.addEventListener('click', () => {
+      const isVisible = colorGrid.style.display !== 'none';
+      colorGrid.style.display = isVisible ? 'none' : '';
+    });
+
+    // Delete button
+    const delBtn = createElement('button', 'wema-popup-btn wema-popup-btn-delete') as HTMLButtonElement;
+    delBtn.innerHTML = TRASH_ICON;
+    delBtn.title = `Delete ${notes.length} notes`;
+    delBtn.addEventListener('click', () => {
+      if (!this.currentNoteIds) return;
+      const ids = this.currentNoteIds.slice();
+      this.hide();
+      this.onMultiDelete(ids);
+    });
+
+    actions.appendChild(colorBtn);
+    actions.appendChild(delBtn);
+
+    // Color grid (hidden by default)
+    const colorGrid = createElement('div', 'wema-note-popup-colors');
+    colorGrid.style.display = 'none';
+    for (const color of NOTE_COLORS) {
+      const swatch = createElement('button', 'wema-color-swatch') as HTMLButtonElement;
+      swatch.style.backgroundColor = color.hex;
+      swatch.title = color.name;
+      if (allSameColor && notes[0].color.toUpperCase() === color.hex) {
+        swatch.classList.add('active');
+      }
+      swatch.addEventListener('click', () => {
+        if (!this.currentNoteIds) return;
+        this.onMultiColorChange(this.currentNoteIds, color.hex);
+        colorBtn.style.backgroundColor = color.hex;
+        colorGrid.querySelectorAll('.wema-color-swatch').forEach((s) => s.classList.remove('active'));
+        swatch.classList.add('active');
+      });
+      colorGrid.appendChild(swatch);
+    }
+
+    this.popupEl.appendChild(actions);
+    this.popupEl.appendChild(colorGrid);
+
+    // Position at the center-bottom of the bounding box of all selected notes
+    const minX = Math.min(...notes.map((n) => n.x));
+    const maxX = Math.max(...notes.map((n) => n.x + n.width));
+    const maxY = Math.max(...notes.map((n) => n.y + n.height));
+    this.popupEl.style.left = `${(minX + maxX) / 2}px`;
+    this.popupEl.style.top = `${maxY + 8}px`;
+    this.popupEl.style.display = '';
+  }
+
   hide(): void {
     this.popupEl.style.display = 'none';
     this.currentNoteId = null;
+    this.currentNoteIds = null;
   }
 
   destroy(): void {
