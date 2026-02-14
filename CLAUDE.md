@@ -9,11 +9,35 @@ wemaは、Web上に付箋を絵馬のように貼って並べるフレームワ�
 1. **npmパッケージ** (`wema`) — ライブラリとして組み込む
 2. **スタンドアロンHTML** (`wema.html`) — 1ファイルで完結するツール。ブラウザで開くだけで使える
 
+## 開発ルール
+
+- **修正完了時は必ず `npm run build` を実行する** — ユーザーに動作確認を促す前に、lint・テスト・ビルドをすべて通すこと
+  ```bash
+  npm run lint && npm test && npm run build
+  ```
+- **外部依存ゼロ** を維持する (devDependencies は OK)
+- TypeScript は strict mode で書く
+- 全ての public API に JSDoc コメントをつける
+- テストは Vitest で、少なくともデータモデル操作 (CRUD) とイベント発火をカバーする
+- 全セレクタは `.wema-` プレフィックス付き (衝突回避)
+
+## コマンド
+
+```bash
+npm install          # 依存インストール
+npm run dev          # 開発サーバー起動 (standalone/template.html を Vite で serve)
+npm run build        # ライブラリビルド + スタンドアロンHTMLビルド
+npm run build:lib    # ライブラリのみビルド
+npm run build:standalone  # スタンドアロンHTMLのみビルド
+npm test             # テスト実行
+npm run lint         # リント (tsc --noEmit)
+```
+
 ## リポジトリ構成
 
 ```
 wema/
-├── CLAUDE.md                 # このファイル
+├── CLAUDE.md
 ├── README.md
 ├── package.json
 ├── tsconfig.json
@@ -26,15 +50,19 @@ wema/
 │   ├── board.ts              # WemaBoard クラス (メインAPI)
 │   ├── note.ts               # 付箋の管理・描画
 │   ├── edge.ts               # 接続線の管理・描画
-│   ├── drag.ts               # ドラッグ&ドロップ
-│   ├── layout.ts             # 整列・レイアウトエンジン
-│   ├── selection.ts          # 選択状態管理
+│   ├── drag.ts               # ドラッグ&ドロップ (グループドラッグ対応)
+│   ├── selection.ts          # 選択状態管理 (複数選択・ラバーバンド)
+│   ├── layout.ts             # 整列・均等配置・自動レイアウト
+│   ├── anchor-drag.ts        # アンカーからのEdge作成ドラッグ
+│   ├── resize.ts             # 付箋のリサイズ
+│   ├── edge-popup.ts         # Edge スタイル編集ポップアップ
+│   ├── note-popup.ts         # ノートスタイル編集ポップアップ (単一/複数)
 │   ├── events.ts             # イベントシステム
 │   ├── style.css             # デフォルトスタイル
 │   └── utils/
-│       ├── geometry.ts       # 座標計算・アンカーポイント
-│       ├── id.ts             # ID生成
-│       └── dom.ts            # DOM操作ヘルパー
+│       ├── geometry.ts       # 座標計算・アンカーポイント・パス生成
+│       ├── id.ts             # ID生成 (crypto.randomUUID)
+│       └── dom.ts            # DOM/SVG操作ヘルパー
 ├── standalone/
 │   └── template.html         # スタンドアロン版テンプレート
 ├── dist/                     # ビルド成果物 (gitignore)
@@ -43,12 +71,16 @@ wema/
 │   ├── wema.d.ts             # 型定義
 │   ├── style.css             # CSS
 │   └── wema.html             # スタンドアロン版
-├── .github/
-│   └── workflows/
-│       ├── ci.yml            # テスト・ビルド
-│       └── release.yml       # リリース (HTML配布 + npm publish)
-└── tests/
-    └── ...
+├── tests/
+│   ├── board.test.ts
+│   ├── edge.test.ts
+│   ├── events.test.ts
+│   ├── geometry.test.ts
+│   └── layout.test.ts
+└── .github/
+    └── workflows/
+        ├── ci.yml            # テスト・ビルド
+        └── release.yml       # リリース (HTML配布 + npm publish)
 ```
 
 ## 技術スタック
@@ -57,28 +89,12 @@ wema/
 - **ビルド**: Vite (library mode)
 - **描画**: DOM (付箋) + SVG (接続線) ハイブリッド
 - **フレームワーク依存**: なし
-- **テスト**: Vitest
+- **テスト**: Vitest + jsdom
 - **出力**: ESM + UMD + 型定義 + style.css + スタンドアロンHTML
-
-## コマンド
-
-```bash
-npm install          # 依存インストール
-npm run dev          # 開発サーバー起動 (standalone/template.html を Vite で serve)
-npm run build        # ライブラリビルド + スタンドアロンHTMLビルド
-npm run build:lib    # ライブラリのみビルド
-npm run build:standalone  # スタンドアロンHTMLのみビルド
-npm test             # テスト実行
-npm run lint         # リント
-```
 
 ## アーキテクチャ
 
 ### 描画方式: DOM + SVG ハイブリッド
-
-- **付箋 (ノード)** → DOM要素 (`div`, `contenteditable` でテキスト編集)
-- **接続線 (エッジ)** → SVG `<path>` + `<marker>` で矢印描画
-- **ボード全体** → 相対配置の `div` コンテナ
 
 ```
 ┌─ .wema-board ────────────────────────────────────┐
@@ -86,8 +102,10 @@ npm run lint         # リント
 │  │  <path> ... </path>                           ││
 │  └───────────────────────────────────────────────┘│
 │  ┌─ .wema-note (position: absolute) ─┐           │
+│  │  .wema-move-handle (ドラッグ用グリップ)        │
 │  │  .wema-note-content (contenteditable)          │
 │  │  .wema-note-anchors (接続ポイント4辺)          │
+│  │  .wema-resize-handle (リサイズ)                │
 │  └────────────────────────────────────┘           │
 └──────────────────────────────────────────────────┘
 ```
@@ -112,7 +130,11 @@ npm run lint         # リント
 type NoteId = string;
 type EdgeId = string;
 type Anchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
-type EdgeStyle = 'arrow' | 'line' | 'dashed';
+type NoteTheme = 'default' | 'card';
+type EdgeStyle = 'arrow' | 'line' | 'dashed';  // legacy shorthand
+type LineStyle = 'solid' | 'dashed' | 'dotted';
+type ArrowHead = 'none' | 'start' | 'end' | 'both';
+type EdgeRouting = 'curve' | 'polyline';
 
 interface WemaNote {
   id: NoteId;
@@ -129,10 +151,15 @@ interface WemaEdge {
   id: EdgeId;
   from: NoteId;
   to: NoteId;
-  fromAnchor: Anchor;   // default: 'auto'
-  toAnchor: Anchor;     // default: 'auto'
-  style: EdgeStyle;     // default: 'arrow'
+  fromAnchor: Anchor;       // default: 'auto'
+  toAnchor: Anchor;         // default: 'auto'
+  style: EdgeStyle;         // default: 'arrow' (legacy)
   label?: string;
+  lineStyle?: LineStyle;    // default: 'solid'
+  strokeWidth?: number;     // default: 2
+  arrowHead?: ArrowHead;    // default: 'end'
+  arrowSize?: number;       // default: 12
+  routing?: EdgeRouting;    // default: 'curve'
 }
 
 interface WemaBoardData {
@@ -158,10 +185,12 @@ class WemaBoard {
   getNotes(): WemaNote[];
 
   // 接続線
-  addEdge(from: NoteId, to: NoteId, params?: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): WemaEdge;
+  addEdge(from: NoteId, to: NoteId, params?: ...): WemaEdge;
+  updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void;
   deleteEdge(id: EdgeId): void;
   getEdges(): WemaEdge[];
   getEdgesOf(noteId: NoteId): WemaEdge[];
+  getSelectedEdge(): EdgeId | null;
 
   // 選択
   select(noteIds: NoteId[]): void;
@@ -177,9 +206,17 @@ class WemaBoard {
   exportData(): WemaBoardData;
   importData(data: WemaBoardData): void;
 
+  // 状態
+  setReadOnly(readOnly: boolean): void;
+  isReadOnly(): boolean;
+  setViewOnly(viewOnly: boolean): void;
+  isViewOnly(): boolean;
+  setTheme(theme: NoteTheme): void;
+  getTheme(): NoteTheme;
+
   // イベント
-  on<K extends keyof WemaEventMap>(event: K, handler: (payload: WemaEventMap[K]) => void): void;
-  off<K extends keyof WemaEventMap>(event: K, handler: (payload: WemaEventMap[K]) => void): void;
+  on<K extends keyof WemaEventMap>(event: K, handler: (...) => void): void;
+  off<K extends keyof WemaEventMap>(event: K, handler: (...) => void): void;
 }
 ```
 
@@ -194,6 +231,8 @@ interface WemaBoardOptions {
   defaultNoteColor?: string;   // default: '#FFF9C4'
   createOnDblClick?: boolean;  // default: true
   readOnly?: boolean;          // default: false
+  viewOnly?: boolean;          // default: false
+  theme?: NoteTheme;           // default: 'default'
 }
 ```
 
@@ -201,65 +240,54 @@ interface WemaBoardOptions {
 
 ```typescript
 interface WemaEventMap {
-  'note:create': { note: WemaNote };
-  'note:update': { note: WemaNote; prev: WemaNote };
-  'note:delete': { note: WemaNote };
-  'note:select': { noteIds: NoteId[] };
-  'edge:create': { edge: WemaEdge };
-  'edge:delete': { edge: WemaEdge };
-  'change':      { data: WemaBoardData };
+  'note:create':     { note: WemaNote };
+  'note:update':     { note: WemaNote; prev: WemaNote };
+  'note:delete':     { note: WemaNote };
+  'note:select':     { noteIds: NoteId[] };
+  'edge:create':     { edge: WemaEdge };
+  'edge:update':     { edge: WemaEdge; prev: WemaEdge };
+  'edge:delete':     { edge: WemaEdge };
+  'readOnly:change': { readOnly: boolean };
+  'viewOnly:change': { viewOnly: boolean };
+  'change':          { data: WemaBoardData };
 }
 ```
 
 ## 実装上の注意点
 
-### 付箋のテキスト編集
+### ポインタイベントとクリックの干渉
 
-- `contenteditable="true"` を使用
-- ドラッグ中は `contenteditable` を一時的に `false` にして、テキスト選択と干渉しないようにする
-- フォーカスアウト時に `note:update` と `change` を発火
+ドラッグ (`pointerdown` → `pointermove` → `pointerup`) の後に `click` イベントが発火する。
+ドラッグ操作で選択状態が壊れないよう、`noteDragged` / `rubberBandMoved` フラグで
+ドラッグ直後の `click` をスキップするパターンを使用している。
 
-### ドラッグ&ドロップ
+### ポップアップの DOM 再構築
 
-- `pointerdown` / `pointermove` / `pointerup` を使用 (touch対応のため)
-- ドラッグ開始は mousedown から数px 移動してから (クリックとの区別)
-- ドラッグ中は付箋に接続されたエッジのSVGパスをリアルタイム更新
+ポップアップ内のボタンクリックで `this.show()` を呼ぶと `innerHTML` が再構築され、
+クリックされたボタンが DOM から切り離される。`stopPropagation()` をポップアップ要素に
+設定してボードの `handleBoardClick` への伝播を防止している。
 
 ### 接続線のパス計算
 
 - `fromAnchor` / `toAnchor` が `'auto'` の場合:
   1. 2つの付箋の中心座標を結ぶ方向を算出
-  2. 出発側/到着側それぞれ、直線が辺を横切る位置に最も近いアンカーを選択
-  3. 3次ベジェ曲線 (cubic bezier) でパス生成
-  4. 制御点はアンカーの法線方向にオフセット (距離に比例、40px〜150px)
+  2. 出発側/到着側それぞれ、最適なアンカーを選択
+  3. `routing: 'curve'` → 3次ベジェ曲線、`'polyline'` → 直角折れ線
+  4. ベジェの制御点はアンカーの法線方向にオフセット (距離に比例、40px〜150px)
 
-### 接続線の作成UX
+### CSS カスタマイズ
 
-1. 付箋にホバー → アンカーポイント (●) が4辺中央に表示
-2. アンカーをドラッグ開始 → 仮の線がマウスに追従
-3. 別の付箋のアンカーまたはボディにドロップ → Edge作成
-4. 空白にドロップ → キャンセル
-
-### CSS設計
-
-- 全セレクタは `.wema-` プレフィックス付き (衝突回避)
-- CSS変数で主要な値をカスタマイズ可能にする:
-  ```css
-  .wema-board {
-    --wema-note-border-radius: 4px;
-    --wema-note-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    --wema-note-font-size: 14px;
-    --wema-anchor-size: 12px;
-    --wema-anchor-color: #4A90D9;
-    --wema-edge-color: #666;
-    --wema-edge-width: 2px;
-  }
-  ```
-
-### ID生成
-
-- `crypto.randomUUID()` を使用 (全モダンブラウザ対応)
-- フォールバック不要 (サポート範囲を考慮)
+```css
+.wema-board {
+  --wema-note-border-radius: 4px;
+  --wema-note-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  --wema-note-font-size: 14px;
+  --wema-anchor-size: 12px;
+  --wema-anchor-color: #4A90D9;
+  --wema-edge-color: #555;
+  --wema-edge-width: 2px;
+}
+```
 
 ## スタンドアロン版 (`standalone/template.html`)
 
@@ -269,14 +297,15 @@ interface WemaEventMap {
 
 ### template.html の責務
 
-- ツールバーUI (付箋追加、色変更、整列ボタン等)
+- ツールバーUI (付箋追加、色変更、整列・均等配置・autoLayoutボタン等)
 - IndexedDB によるデータ自動保存 (`change` イベント + 300ms debounce)
 - JSON ファイルのエクスポート/インポート
-- キーボードショートカット (Delete で削除 等)
+- キーボードショートカット (Delete で削除、Ctrl+A で全選択 等)
+- viewOnly / readOnly トグル
 
 ### ビルドスクリプトの仕組み
 
-`standalone/template.html` 内に以下のプレースホルダコメントを置く:
+`standalone/template.html` 内のプレースホルダコメント:
 - `<!-- __WEMA_CSS__ -->` → `<style>dist/style.css の中身</style>` に置換
 - `<!-- __WEMA_JS__ -->` → `<script>dist/wema.umd.js の中身</script>` に置換
 
@@ -284,45 +313,50 @@ interface WemaEventMap {
 
 ## 実装フェーズ
 
-### Phase 1 — MVP (まずここを完成させる)
+### Phase 1 — MVP [完了]
 
-1. プロジェクトセットアップ (package.json, tsconfig, vite.config.ts)
-2. 型定義 (`types.ts`)
-3. イベントシステム (`events.ts`)
-4. WemaBoard クラスの骨格 (`board.ts`) — マウント・破棄
-5. 付箋の作成・テキスト編集・削除 (`note.ts`)
-6. ドラッグ&ドロップ (`drag.ts`)
-7. exportData / importData
-8. `change` イベント
-9. デフォルト CSS (`style.css`)
-10. スタンドアロン版テンプレート (`standalone/template.html`)
-11. ビルドスクリプト (`scripts/build-standalone.ts`)
-12. GitHub Actions CI
+プロジェクトセットアップ、型定義、イベントシステム、WemaBoardクラス、
+付箋CRUD、ドラッグ&ドロップ、exportData/importData、デフォルトCSS、
+スタンドアロン版テンプレート、ビルドスクリプト、CI
 
-### Phase 2 — 接続線
+### Phase 2 — 接続線 [完了]
 
-13. アンカーポイント表示
-14. ドラッグによるEdge作成
-15. SVGパス描画 (auto anchor計算) (`edge.ts`, `utils/geometry.ts`)
-16. Edge削除
+アンカーポイント表示、ドラッグによるEdge作成、SVGパス描画 (auto anchor計算)、
+Edge削除、Edge スタイル編集 (線種・矢印・太さ・ルーティング・アンカー指定)
 
-### Phase 3 — レイアウト・整列
+### Phase 3 — レイアウト・整列 [完了]
 
-17. 複数選択 (`selection.ts`)
-18. alignNotes / distributeNotes (`layout.ts`)
-19. autoLayout (グラフ構造を考慮した自動配置)
+複数選択 (Shift+Click / Ctrl+Click / ラバーバンド)、グループドラッグ、
+alignNotes / distributeNotes、autoLayout (BFS階層レイアウト)、
+複数選択ポップアップ (一括色変更・一括削除)
 
-### Phase 4 — 将来
+### Phase 4 — リッチテキスト
 
+付箋のテキストをリッチテキスト対応にする (外部依存ゼロを維持、Selection/Range API で実装)。
+- 太字、テキスト色変更
+- 箇条書き (ul/ol)
+- チェックボックス (簡易TODO管理)
+- リンク (`<a>`)
+- 画像添付 (`<img>`、スタンドアロン版は data URI 保存)
+- Embed (`<iframe>`)
+- `note.text` を HTML 文字列として保存する形式に拡張
+
+### Phase 5 — Undo / Redo
+
+ライブラリレベルでコマンドパターンによる履歴管理を実装。
+- 各ミューテーション (add/update/delete note/edge) を可逆コマンドとして記録
+- `undo()` / `redo()` / `canUndo` / `canRedo` を Public API に追加
+- グループ操作 (一括削除、autoLayout 等) は1つの undo ステップにまとめる
+
+---
+
+**v1.0 リリース: Phase 5 完了後** — npm publish + GitHub Release (wema.html 配布)
+
+---
+
+### 将来
+
+- 入れ子ボード (付箋を子ボードに見立てた階層構造、`children?: WemaBoardData`)
 - パン & ズーム
-- Undo / Redo (`history.ts`)
-- 画像付箋
-- リアルタイムコラボレーション
-- React / Vue アダプター
-
-## 開発時の注意
-
-- **外部依存ゼロ** を維持する (devDependencies は OK)
-- TypeScript は strict mode で書く
-- 全ての public API に JSDoc コメントをつける
-- テストは Vitest で、少なくともデータモデル操作 (CRUD) とイベント発火をカバーする
+- React / Vue アダプター (`wema-react` / `wema-vue` 別パッケージ)
+- オンラインコラボレーション (wema ライブラリ + WebSocket の別 Web アプリとして実現)
