@@ -6,6 +6,8 @@ export type {
   EdgeId,
   Anchor,
   EdgeStyle,
+  LineStyle,
+  ArrowHead,
   WemaNote,
   WemaEdge,
   WemaBoardData,

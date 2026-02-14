@@ -191,6 +191,135 @@ describe('WemaBoard', () => {
     });
   });
 
+  describe('ReadOnly toggle', () => {
+    it('isReadOnly returns false by default', () => {
+      expect(board.isReadOnly()).toBe(false);
+    });
+
+    it('setReadOnly toggles read-only state', () => {
+      board.setReadOnly(true);
+      expect(board.isReadOnly()).toBe(true);
+      board.setReadOnly(false);
+      expect(board.isReadOnly()).toBe(false);
+    });
+
+    it('emits readOnly:change event', () => {
+      const handler = vi.fn();
+      board.on('readOnly:change', handler);
+      board.setReadOnly(true);
+      expect(handler).toHaveBeenCalledWith({ readOnly: true });
+      board.setReadOnly(false);
+      expect(handler).toHaveBeenCalledWith({ readOnly: false });
+    });
+
+    it('does not emit when setting same value', () => {
+      const handler = vi.fn();
+      board.on('readOnly:change', handler);
+      board.setReadOnly(false);
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('adds wema-readonly class to board element', () => {
+      board.setReadOnly(true);
+      const boardEl = container.querySelector('.wema-board');
+      expect(boardEl?.classList.contains('wema-readonly')).toBe(true);
+      board.setReadOnly(false);
+      expect(boardEl?.classList.contains('wema-readonly')).toBe(false);
+    });
+
+    it('disables contenteditable on notes in readOnly mode', () => {
+      const note = board.addNote({ text: 'test' });
+      board.setReadOnly(true);
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.contentEditable).toBe('false');
+      board.setReadOnly(false);
+      expect(content?.contentEditable).toBe('true');
+    });
+  });
+
+  describe('ReadOnly guards on public API', () => {
+    it('addNote is blocked in readOnly mode', () => {
+      board.setReadOnly(true);
+      const result = board.addNote({ text: 'blocked' });
+      expect(result).toBeUndefined();
+      expect(board.getNotes()).toHaveLength(0);
+    });
+
+    it('updateNote is blocked in readOnly mode', () => {
+      const note = board.addNote({ text: 'original' });
+      board.setReadOnly(true);
+      board.updateNote(note.id, { text: 'modified' });
+      expect(board.getNote(note.id)?.text).toBe('original');
+    });
+
+    it('deleteNote is blocked in readOnly mode', () => {
+      const note = board.addNote({ text: 'keep me' });
+      board.setReadOnly(true);
+      board.deleteNote(note.id);
+      expect(board.getNote(note.id)).toBeDefined();
+      expect(board.getNotes()).toHaveLength(1);
+    });
+
+    it('addEdge is blocked in readOnly mode', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      board.setReadOnly(true);
+      const result = board.addEdge(n1.id, n2.id);
+      expect(result).toBeUndefined();
+      expect(board.getEdges()).toHaveLength(0);
+    });
+
+    it('updateEdge is blocked in readOnly mode', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      board.setReadOnly(true);
+      board.updateEdge(edge.id, { strokeWidth: 4 });
+      const updated = board.getEdges().find(e => e.id === edge.id);
+      expect(updated?.strokeWidth).toBeUndefined();
+    });
+
+    it('deleteEdge is blocked in readOnly mode', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      board.setReadOnly(true);
+      board.deleteEdge(edge.id);
+      expect(board.getEdges()).toHaveLength(1);
+    });
+
+    it('operations work again after disabling readOnly', () => {
+      board.setReadOnly(true);
+      board.setReadOnly(false);
+      const note = board.addNote({ text: 'works' });
+      expect(note.text).toBe('works');
+    });
+  });
+
+  describe('Resize', () => {
+    it('notes have a resize handle element', () => {
+      board.addNote();
+      const handle = container.querySelector('.wema-resize-handle');
+      expect(handle).toBeTruthy();
+    });
+
+    it('resize handle is hidden in readOnly mode', () => {
+      board.addNote();
+      board.setReadOnly(true);
+      const handle = container.querySelector('.wema-resize-handle') as HTMLElement;
+      expect(handle?.style.display).toBe('none');
+    });
+
+    it('updateNote can change width and height', () => {
+      const note = board.addNote({ width: 200, height: 150 });
+      board.updateNote(note.id, { width: 300, height: 200 });
+      const updated = board.getNote(note.id);
+      expect(updated?.width).toBe(300);
+      expect(updated?.height).toBe(200);
+    });
+  });
+
   describe('Options', () => {
     it('respects custom default note dimensions and color', () => {
       board.destroy();

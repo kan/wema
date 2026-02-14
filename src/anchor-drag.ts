@@ -20,6 +20,7 @@ export class AnchorDragManager {
   private noteManager: NoteManager;
   private edgeManager: EdgeManager;
   private emitter: EventEmitter<WemaEventMap>;
+  private getReadOnly: () => boolean;
 
   private dragging = false;
   private fromNoteId: NoteId | null = null;
@@ -36,12 +37,14 @@ export class AnchorDragManager {
     noteManager: NoteManager;
     edgeManager: EdgeManager;
     emitter: EventEmitter<WemaEventMap>;
+    getReadOnly: () => boolean;
   }) {
     this.boardEl = options.boardEl;
     this.svgEl = options.svgEl;
     this.noteManager = options.noteManager;
     this.edgeManager = options.edgeManager;
     this.emitter = options.emitter;
+    this.getReadOnly = options.getReadOnly;
 
     this.handlePointerDown = this.onPointerDown.bind(this);
     this.handlePointerMove = this.onPointerMove.bind(this);
@@ -57,6 +60,7 @@ export class AnchorDragManager {
 
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return;
+    if (this.getReadOnly()) return;
 
     const anchorEl = (e.target as HTMLElement).closest('.wema-anchor') as HTMLElement | null;
     if (!anchorEl) return;

@@ -125,6 +125,67 @@ describe('Edges', () => {
     });
   });
 
+  describe('updateEdge', () => {
+    it('updateEdge changes edge properties', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      board.updateEdge(edge.id, { lineStyle: 'dashed', arrowHead: 'none', strokeWidth: 4 });
+      const updated = board.getEdges().find(e => e.id === edge.id);
+      expect(updated?.lineStyle).toBe('dashed');
+      expect(updated?.arrowHead).toBe('none');
+      expect(updated?.strokeWidth).toBe(4);
+    });
+
+    it('emits edge:update on updateEdge', () => {
+      const handler = vi.fn();
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      board.on('edge:update', handler);
+      board.updateEdge(edge.id, { strokeWidth: 4 });
+      expect(handler).toHaveBeenCalledWith({
+        edge: expect.objectContaining({ id: edge.id, strokeWidth: 4 }),
+        prev: expect.objectContaining({ id: edge.id }),
+      });
+    });
+
+    it('edge:update triggers change event', async () => {
+      const handler = vi.fn();
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      await Promise.resolve();
+      board.on('change', handler);
+      board.updateEdge(edge.id, { lineStyle: 'dotted' });
+      await Promise.resolve();
+      expect(handler).toHaveBeenCalled();
+    });
+
+    it('new style fields default correctly from legacy style', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const arrowEdge = board.addEdge(n1.id, n2.id, { style: 'arrow' });
+      expect(arrowEdge.style).toBe('arrow');
+      // Defaults when not explicitly set
+      expect(arrowEdge.lineStyle).toBeUndefined();
+      expect(arrowEdge.arrowHead).toBeUndefined();
+      expect(arrowEdge.strokeWidth).toBeUndefined();
+    });
+
+    it('arrowHead supports start, end, both, none', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+
+      for (const ah of ['none', 'start', 'end', 'both'] as const) {
+        board.updateEdge(edge.id, { arrowHead: ah });
+        const updated = board.getEdges().find(e => e.id === edge.id);
+        expect(updated?.arrowHead).toBe(ah);
+      }
+    });
+  });
+
   describe('Export/Import with edges', () => {
     it('exportData includes edges', () => {
       const n1 = board.addNote({ x: 0, y: 0 });

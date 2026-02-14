@@ -31,23 +31,13 @@
     .toolbar button:hover { background: #eee; }
     .toolbar button:disabled { opacity: 0.4; cursor: default; }
     .toolbar button:disabled:hover { background: white; }
+    .toolbar button.locked { background: #ffcdd2; border-color: #e57373; }
 
     .toolbar .separator {
       width: 1px;
       height: 24px;
       background: #ddd;
     }
-
-    .color-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      border: 2px solid #ccc;
-      cursor: pointer;
-      padding: 0;
-    }
-    .color-btn:hover { border-color: #999; }
-    .color-btn.active { border-color: #333; }
 
     #board-container {
       flex: 1;
@@ -76,13 +66,7 @@
 <body>
   <div class="toolbar">
     <button id="btn-add">+ Add Note</button>
-    <button id="btn-delete" disabled>Delete</button>
-    <div class="separator"></div>
-    <button class="color-btn active" data-color="#FFF9C4" style="background:#FFF9C4" title="Yellow"></button>
-    <button class="color-btn" data-color="#F8BBD0" style="background:#F8BBD0" title="Pink"></button>
-    <button class="color-btn" data-color="#C8E6C9" style="background:#C8E6C9" title="Green"></button>
-    <button class="color-btn" data-color="#BBDEFB" style="background:#BBDEFB" title="Blue"></button>
-    <button class="color-btn" data-color="#FFE0B2" style="background:#FFE0B2" title="Orange"></button>
+    <button id="btn-lock"><svg id="lock-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</button>
     <div class="separator"></div>
     <button id="btn-export">Export JSON</button>
     <button id="btn-import">Import JSON</button>
@@ -133,7 +117,6 @@
       }
 
       // ---- App ----
-      var selectedColor = '#FFF9C4';
       var saveTimer = null;
 
       async function init() {
@@ -174,47 +157,6 @@
           board.addNote({
             x: 120 + offset,
             y: 80 + offset,
-            color: selectedColor,
-          });
-        });
-
-        // Delete button — works for both notes and edges
-        var btnDelete = document.getElementById('btn-delete');
-
-        function updateDeleteBtn() {
-          btnDelete.disabled = board.getSelection().length === 0 && !board.getSelectedEdge();
-        }
-
-        board.on('note:select', updateDeleteBtn);
-        board.on('change', updateDeleteBtn);
-        // Edge selection happens on click — update button after board handles it
-        container.addEventListener('click', function() {
-          setTimeout(updateDeleteBtn, 0);
-        });
-
-        btnDelete.addEventListener('click', function() {
-          var selectedEdge = board.getSelectedEdge();
-          if (selectedEdge) {
-            board.deleteEdge(selectedEdge);
-            return;
-          }
-          var selected = board.getSelection();
-          selected.forEach(function(id) { board.deleteNote(id); });
-        });
-
-        // Color buttons
-        var colorBtns = document.querySelectorAll('.color-btn');
-        colorBtns.forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            colorBtns.forEach(function(b) { b.classList.remove('active'); });
-            btn.classList.add('active');
-            selectedColor = btn.dataset.color;
-
-            // Update selected notes' color
-            var selected = board.getSelection();
-            selected.forEach(function(id) {
-              board.updateNote(id, { color: selectedColor });
-            });
           });
         });
 
@@ -247,6 +189,27 @@
           updateStatus();
         });
 
+        // Lock toggle
+        var btnLock = document.getElementById('btn-lock');
+        var btnAdd = document.getElementById('btn-add');
+        var lockIconLocked = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+        var lockIconUnlocked = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 5-5 5 5 0 0 1 5 5"/></svg>';
+        function updateLockState() {
+          var locked = board.isReadOnly();
+          btnLock.innerHTML = locked ? (lockIconLocked + 'Unlock') : (lockIconUnlocked + 'Lock');
+          if (locked) {
+            btnLock.classList.add('locked');
+          } else {
+            btnLock.classList.remove('locked');
+          }
+          btnAdd.disabled = locked;
+          status.textContent = (status.textContent || '').replace(/ *\[LOCKED\]/, '') + (locked ? ' [LOCKED]' : '');
+        }
+        btnLock.addEventListener('click', function() {
+          board.setReadOnly(!board.isReadOnly());
+          updateLockState();
+        });
+
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
           // Ctrl/Cmd+A to select all
@@ -254,6 +217,12 @@
             if (document.activeElement && document.activeElement.closest && document.activeElement.closest('[contenteditable="true"]')) return;
             e.preventDefault();
             board.selectAll();
+          }
+          // Ctrl/Cmd+L to toggle lock
+          if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+            e.preventDefault();
+            board.setReadOnly(!board.isReadOnly());
+            updateLockState();
           }
         });
       }

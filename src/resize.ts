@@ -2,27 +2,24 @@ import type { NoteId, WemaEventMap } from './types.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
 
-const DRAG_THRESHOLD = 4;
+const MIN_WIDTH = 80;
+const MIN_HEIGHT = 60;
 
-type DragState = 'IDLE' | 'PENDING' | 'DRAGGING';
-
-interface DragContext {
+interface ResizeContext {
   noteId: NoteId;
   startX: number;
   startY: number;
-  noteStartX: number;
-  noteStartY: number;
+  startWidth: number;
+  startHeight: number;
   pointerId: number;
 }
 
-export class DragManager {
-  private state: DragState = 'IDLE';
-  private ctx: DragContext | null = null;
+export class ResizeManager {
   private boardEl: HTMLElement;
   private noteManager: NoteManager;
   private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
-  private onDragEnd?: (noteId: NoteId) => void;
+  private ctx: ResizeContext | null = null;
 
   private handlePointerDown: (e: PointerEvent) => void;
   private handlePointerMove: (e: PointerEvent) => void;
@@ -33,13 +30,11 @@ export class DragManager {
     noteManager: NoteManager;
     emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
-    onDragEnd?: (noteId: NoteId) => void;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.emitter = options.emitter;
     this.getReadOnly = options.getReadOnly;
-    this.onDragEnd = options.onDragEnd;
 
     this.handlePointerDown = this.onPointerDown.bind(this);
     this.handlePointerMove = this.onPointerMove.bind(this);
@@ -52,21 +47,18 @@ export class DragManager {
     this.boardEl.removeEventListener('pointerdown', this.handlePointerDown);
     this.boardEl.removeEventListener('pointermove', this.handlePointerMove);
     this.boardEl.removeEventListener('pointerup', this.handlePointerUp);
-    this.state = 'IDLE';
     this.ctx = null;
   }
 
   private onPointerDown(e: PointerEvent): void {
-    if (e.button !== 0) return; // left click only
+    if (e.button !== 0) return;
     if (this.getReadOnly()) return;
 
-    // Only start drag from the move handle
-    if (!(e.target as HTMLElement).closest('.wema-move-handle')) return;
+    const handle = (e.target as HTMLElement).closest('.wema-resize-handle') as HTMLElement | null;
+    if (!handle) return;
 
-    const noteEl = (e.target as HTMLElement).closest('.wema-note') as HTMLElement | null;
+    const noteEl = handle.closest('.wema-note') as HTMLElement | null;
     if (!noteEl) return;
-
-    e.preventDefault();
 
     const noteId = noteEl.dataset.noteId;
     if (!noteId) return;
@@ -74,16 +66,19 @@ export class DragManager {
     const note = this.noteManager.getNote(noteId);
     if (!note) return;
 
+    e.preventDefault();
+    e.stopPropagation();
+
     this.ctx = {
       noteId,
       startX: e.clientX,
       startY: e.clientY,
-      noteStartX: note.x,
-      noteStartY: note.y,
+      startWidth: note.width,
+      startHeight: note.height,
       pointerId: e.pointerId,
     };
 
-    this.state = 'PENDING';
+    this.boardEl.setPointerCapture(e.pointerId);
     this.boardEl.addEventListener('pointermove', this.handlePointerMove);
     this.boardEl.addEventListener('pointerup', this.handlePointerUp);
   }
@@ -94,47 +89,25 @@ export class DragManager {
     const dx = e.clientX - this.ctx.startX;
     const dy = e.clientY - this.ctx.startY;
 
-    if (this.state === 'PENDING') {
-      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
-        return;
-      }
-      this.state = 'DRAGGING';
+    const newWidth = Math.max(MIN_WIDTH, this.ctx.startWidth + dx);
+    const newHeight = Math.max(MIN_HEIGHT, this.ctx.startHeight + dy);
 
-      // Capture pointer now that we're actually dragging (tracks outside board)
-      this.boardEl.setPointerCapture(this.ctx.pointerId);
-      this.noteManager.bringToFront(this.ctx.noteId);
-    }
-
-    if (this.state === 'DRAGGING') {
-      const newX = this.ctx.noteStartX + dx;
-      const newY = this.ctx.noteStartY + dy;
-      this.noteManager.updateNote(this.ctx.noteId, { x: newX, y: newY });
-    }
+    this.noteManager.updateNote(this.ctx.noteId, { width: newWidth, height: newHeight });
   }
 
-  private onPointerUp(_e: PointerEvent): void {
+  private onPointerUp(e: PointerEvent): void {
     if (!this.ctx) return;
 
     this.boardEl.removeEventListener('pointermove', this.handlePointerMove);
     this.boardEl.removeEventListener('pointerup', this.handlePointerUp);
 
-    const wasDragging = this.state === 'DRAGGING';
-
-    if (wasDragging) {
-      try {
-        this.boardEl.releasePointerCapture(this.ctx.pointerId);
-      } catch {
-        // pointer capture may already be released
-      }
+    try {
+      this.boardEl.releasePointerCapture(this.ctx.pointerId);
+    } catch {
+      // already released
     }
-    const noteId = this.ctx.noteId;
 
-    this.state = 'IDLE';
+    this.emitter.emit('change', { data: undefined as never });
     this.ctx = null;
-
-    if (wasDragging) {
-      this.emitter.emit('change', { data: undefined as never });
-      this.onDragEnd?.(noteId);
-    }
   }
 }

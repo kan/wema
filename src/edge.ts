@@ -1,11 +1,13 @@
-import type { NoteId, EdgeId, WemaEdge, WemaEventMap, EdgeStyle } from './types.js';
+import type { NoteId, EdgeId, WemaEdge, WemaEventMap, EdgeStyle, LineStyle, ArrowHead } from './types.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
 import { generateId } from './utils/id.js';
 import { createSvgElement } from './utils/dom.js';
 import { computeEdgePath } from './utils/geometry.js';
 
-const MARKER_ID = 'wema-arrowhead';
+const MARKER_PREFIX = 'wema-arrowhead';
+const ARROW_SIZES = [8, 12, 18];
+const DEFAULT_ARROW_SIZE = 12;
 
 export class EdgeManager {
   private edges = new Map<EdgeId, WemaEdge>();
@@ -72,6 +74,30 @@ export class EdgeManager {
     this.edges.delete(id);
     if (this.selectedEdge === id) this.selectedEdge = null;
     this.emitter.emit('edge:delete', { edge: { ...edge } });
+  }
+
+  /** Update an existing edge's properties */
+  updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void {
+    const edge = this.edges.get(id);
+    if (!edge) return;
+
+    const prev = { ...edge };
+    Object.assign(edge, params, { id: edge.id, from: edge.from, to: edge.to });
+
+    // Re-apply visual style
+    const path = this.pathElements.get(id);
+    if (path) {
+      this.applyEdgeStyle(path, edge);
+    }
+    this.updateEdgePath(id);
+
+    this.emitter.emit('edge:update', { edge: { ...edge }, prev });
+  }
+
+  /** Get a single edge by ID */
+  getEdge(id: EdgeId): WemaEdge | undefined {
+    const edge = this.edges.get(id);
+    return edge ? { ...edge } : undefined;
   }
 
   /** Get all edges */
@@ -144,22 +170,26 @@ export class EdgeManager {
       this.svgEl.prepend(defs);
     }
 
-    if (!defs.querySelector(`#${MARKER_ID}`)) {
-      const marker = createSvgElement('marker');
-      marker.id = MARKER_ID;
-      marker.setAttribute('viewBox', '0 0 10 10');
-      marker.setAttribute('refX', '10');
-      marker.setAttribute('refY', '5');
-      marker.setAttribute('markerWidth', '8');
-      marker.setAttribute('markerHeight', '8');
-      marker.setAttribute('orient', 'auto-start-reverse');
+    for (const size of ARROW_SIZES) {
+      const id = `${MARKER_PREFIX}-${size}`;
+      if (!defs.querySelector(`#${id}`)) {
+        const marker = createSvgElement('marker');
+        marker.id = id;
+        marker.setAttribute('viewBox', '0 0 10 10');
+        marker.setAttribute('refX', '10');
+        marker.setAttribute('refY', '5');
+        marker.setAttribute('markerWidth', String(size));
+        marker.setAttribute('markerHeight', String(size));
+        marker.setAttribute('markerUnits', 'userSpaceOnUse');
+        marker.setAttribute('orient', 'auto-start-reverse');
 
-      const arrow = createSvgElement('path');
-      arrow.setAttribute('d', 'M 0 0 L 10 5 L 0 10 Z');
-      arrow.setAttribute('class', 'wema-arrow-fill');
+        const arrow = createSvgElement('path');
+        arrow.setAttribute('d', 'M 0 0 L 10 5 L 0 10 Z');
+        arrow.setAttribute('class', 'wema-arrow-fill');
 
-      marker.appendChild(arrow);
-      defs.appendChild(marker);
+        marker.appendChild(arrow);
+        defs.appendChild(marker);
+      }
     }
   }
 
@@ -180,7 +210,7 @@ export class EdgeManager {
     const path = createSvgElement('path', 'wema-edge-path');
     path.setAttribute('fill', 'none');
     path.dataset.edgeId = edge.id;
-    this.applyEdgeStyle(path, edge.style);
+    this.applyEdgeStyle(path, edge);
 
     this.svgEl.appendChild(hit);
     this.svgEl.appendChild(path);
@@ -230,21 +260,42 @@ export class EdgeManager {
     }
   }
 
-  private applyEdgeStyle(path: SVGPathElement, style: EdgeStyle): void {
-    switch (style) {
-      case 'arrow':
-        path.setAttribute('marker-end', `url(#${MARKER_ID})`);
-        path.removeAttribute('stroke-dasharray');
-        break;
-      case 'line':
-        path.removeAttribute('marker-end');
+  private applyEdgeStyle(path: SVGPathElement, edge: WemaEdge): void {
+    // Resolve effective values from explicit fields, falling back to legacy style
+    const lineStyle: LineStyle = edge.lineStyle ?? (edge.style === 'dashed' ? 'dashed' : 'solid');
+    const arrowHead: ArrowHead = edge.arrowHead ?? (edge.style === 'arrow' ? 'end' : 'none');
+    const strokeWidth = edge.strokeWidth ?? 2;
+    const arrowSize = edge.arrowSize ?? DEFAULT_ARROW_SIZE;
+
+    // Line style
+    switch (lineStyle) {
+      case 'solid':
         path.removeAttribute('stroke-dasharray');
         break;
       case 'dashed':
-        path.removeAttribute('marker-end');
         path.setAttribute('stroke-dasharray', '8 4');
         break;
+      case 'dotted':
+        path.setAttribute('stroke-dasharray', '3 3');
+        break;
     }
+
+    // Arrow head (marker uses orient="auto-start-reverse" so same marker works for both ends)
+    const markerId = `${MARKER_PREFIX}-${arrowSize}`;
+    const markerUrl = `url(#${markerId})`;
+    if (arrowHead === 'end' || arrowHead === 'both') {
+      path.setAttribute('marker-end', markerUrl);
+    } else {
+      path.removeAttribute('marker-end');
+    }
+    if (arrowHead === 'start' || arrowHead === 'both') {
+      path.setAttribute('marker-start', markerUrl);
+    } else {
+      path.removeAttribute('marker-start');
+    }
+
+    // Stroke width (inline style to ensure it overrides CSS)
+    path.style.strokeWidth = `${strokeWidth}px`;
   }
 
   private removeEdgeElements(id: EdgeId): void {

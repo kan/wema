@@ -7,8 +7,14 @@ export type EdgeId = string;
 /** Anchor position on a note's border */
 export type Anchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
 
-/** Visual style of an edge */
+/** Visual style of an edge (legacy shorthand) */
 export type EdgeStyle = 'arrow' | 'line' | 'dashed';
+
+/** Line stroke style */
+export type LineStyle = 'solid' | 'dashed' | 'dotted';
+
+/** Arrow head direction */
+export type ArrowHead = 'none' | 'start' | 'end' | 'both';
 
 /** A sticky note on the board */
 export interface WemaNote {
@@ -31,6 +37,10 @@ export interface WemaEdge {
   toAnchor: Anchor;
   style: EdgeStyle;
   label?: string;
+  lineStyle?: LineStyle;
+  strokeWidth?: number;
+  arrowHead?: ArrowHead;
+  arrowSize?: number;
 }
 
 /** Serializable board data */
@@ -59,6 +69,8 @@ export interface WemaEventMap {
   'note:delete': { note: WemaNote };
   'note:select': { noteIds: NoteId[] };
   'edge:create': { edge: WemaEdge };
+  'edge:update': { edge: WemaEdge; prev: WemaEdge };
   'edge:delete': { edge: WemaEdge };
+  'readOnly:change': { readOnly: boolean };
   'change': { data: WemaBoardData };
 }

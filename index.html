@@ -27,6 +27,9 @@
       font-size: 13px;
     }
     .toolbar button:hover { background: #eee; }
+    .toolbar button:disabled { opacity: 0.4; cursor: default; }
+    .toolbar button:disabled:hover { background: white; }
+    .toolbar button.locked { background: #ffcdd2; border-color: #e57373; }
 
     #board-container {
       flex: 1;
@@ -41,6 +44,7 @@
   <div class="toolbar">
     <button id="btn-add">+ Add Note</button>
     <button id="btn-delete" disabled>Delete</button>
+    <button id="btn-lock">Lock</button>
     <button id="btn-export">Export JSON</button>
     <button id="btn-import">Import JSON</button>
     <span id="status" style="margin-left: auto; color: #888; font-size: 12px;"></span>
@@ -78,8 +82,35 @@
       board.getSelection().forEach((id) => board.deleteNote(id));
     });
 
+    // Lock button
+    const btnLock = document.getElementById('btn-lock');
+    const btnAdd = document.getElementById('btn-add');
+    function updateLockState() {
+      const locked = board.isReadOnly();
+      btnLock.textContent = locked ? 'Unlock' : 'Lock';
+      if (locked) {
+        btnLock.classList.add('locked');
+      } else {
+        btnLock.classList.remove('locked');
+      }
+      btnAdd.disabled = locked;
+      if (locked) btnDelete.disabled = true;
+      status.textContent = (status.textContent || '').replace(/ *\[LOCKED\]/, '') + (locked ? ' [LOCKED]' : '');
+    }
+    btnLock.addEventListener('click', () => {
+      board.setReadOnly(!board.isReadOnly());
+      updateLockState();
+    });
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+        e.preventDefault();
+        board.setReadOnly(!board.isReadOnly());
+        updateLockState();
+      }
+    });
+
     // Add note button
-    document.getElementById('btn-add').addEventListener('click', () => {
+    btnAdd.addEventListener('click', () => {
       const notes = board.getNotes();
       const offset = notes.length * 20;
       board.addNote({ x: 120 + offset, y: 80 + offset });

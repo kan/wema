@@ -104,6 +104,26 @@ export class NoteManager {
     this.updateNoteElement(note);
   }
 
+  /** Toggle readOnly on all existing notes */
+  setReadOnly(readOnly: boolean): void {
+    this.readOnly = readOnly;
+    for (const el of this.elements.values()) {
+      const content = el.querySelector('.wema-note-content') as HTMLElement | null;
+      if (content) {
+        content.contentEditable = readOnly ? 'false' : 'true';
+        if (readOnly) content.blur();
+      }
+      const resizeHandle = el.querySelector('.wema-resize-handle') as HTMLElement | null;
+      if (resizeHandle) {
+        resizeHandle.style.display = readOnly ? 'none' : '';
+      }
+      const moveHandle = el.querySelector('.wema-move-handle') as HTMLElement | null;
+      if (moveHandle) {
+        moveHandle.style.display = readOnly ? 'none' : '';
+      }
+    }
+  }
+
   /** Flush any in-progress contenteditable edits to internal state */
   flushEditing(): void {
     for (const [id, el] of this.elements) {
@@ -142,6 +162,13 @@ export class NoteManager {
     const el = createElement('div', 'wema-note');
     el.dataset.noteId = note.id;
 
+    // Move handle (grip bar at top)
+    const moveHandle = createElement('div', 'wema-move-handle');
+    moveHandle.innerHTML = '<svg width="20" height="10" viewBox="0 0 20 10"><circle cx="4" cy="3" r="1.5" fill="currentColor"/><circle cx="10" cy="3" r="1.5" fill="currentColor"/><circle cx="16" cy="3" r="1.5" fill="currentColor"/><circle cx="4" cy="8" r="1.5" fill="currentColor"/><circle cx="10" cy="8" r="1.5" fill="currentColor"/><circle cx="16" cy="8" r="1.5" fill="currentColor"/></svg>';
+    if (this.readOnly) {
+      moveHandle.style.display = 'none';
+    }
+
     const content = createElement('div', 'wema-note-content');
     if (!this.readOnly) {
       content.contentEditable = 'true';
@@ -169,8 +196,16 @@ export class NoteManager {
       anchors.appendChild(anchor);
     }
 
+    // Resize handle (bottom-right corner)
+    const resizeHandle = createElement('div', 'wema-resize-handle');
+    if (this.readOnly) {
+      resizeHandle.style.display = 'none';
+    }
+
+    el.appendChild(moveHandle);
     el.appendChild(content);
     el.appendChild(anchors);
+    el.appendChild(resizeHandle);
 
     this.applyStyles(el, note);
     this.boardEl.appendChild(el);
