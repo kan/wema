@@ -56,6 +56,9 @@ export class DragManager {
   private onPointerDown(e: PointerEvent): void {
     if (e.button !== 0) return; // left click only
 
+    // Don't interfere with anchor drag (edge creation)
+    if ((e.target as HTMLElement).closest('.wema-anchor')) return;
+
     const noteEl = (e.target as HTMLElement).closest('.wema-note') as HTMLElement | null;
     if (!noteEl) return;
 

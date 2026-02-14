@@ -60,15 +60,21 @@
 
     const status = document.getElementById('status');
     board.on('change', () => {
-      status.textContent = `Notes: ${board.getNotes().length}`;
+      const edges = board.getEdges().length;
+      status.textContent = `Notes: ${board.getNotes().length}` + (edges > 0 ? `  Edges: ${edges}` : '');
     });
 
-    // Delete button
+    // Delete button — works for both notes and edges
     const btnDelete = document.getElementById('btn-delete');
-    board.on('note:select', (e) => {
-      btnDelete.disabled = e.noteIds.length === 0;
-    });
+    function updateDeleteBtn() {
+      btnDelete.disabled = board.getSelection().length === 0 && !board.getSelectedEdge();
+    }
+    board.on('note:select', updateDeleteBtn);
+    board.on('change', updateDeleteBtn);
+    container.addEventListener('click', () => setTimeout(updateDeleteBtn, 0));
     btnDelete.addEventListener('click', () => {
+      const selectedEdge = board.getSelectedEdge();
+      if (selectedEdge) { board.deleteEdge(selectedEdge); return; }
       board.getSelection().forEach((id) => board.deleteNote(id));
     });
 

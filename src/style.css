@@ -108,3 +108,41 @@
   top: 50%;
   left: 0;
 }
+
+/* Edge paths */
+.wema-edge-path {
+  stroke: var(--wema-edge-color);
+  stroke-width: var(--wema-edge-width);
+  fill: none;
+  transition: stroke 0.15s;
+}
+
+.wema-edge-path.wema-edge-selected {
+  stroke: var(--wema-anchor-color);
+  stroke-width: 3px;
+}
+
+.wema-arrow-fill {
+  fill: var(--wema-edge-color);
+}
+
+.wema-edge-label {
+  font-size: 12px;
+  fill: var(--wema-edge-color);
+  pointer-events: none;
+}
+
+/* Temporary edge during anchor drag */
+.wema-edge-temp {
+  stroke: var(--wema-anchor-color);
+  stroke-width: 2px;
+  stroke-dasharray: 6 3;
+  fill: none;
+  pointer-events: none;
+}
+
+/* Drop target highlight during edge creation */
+.wema-note-drop-target {
+  outline: 2px dashed var(--wema-anchor-color);
+  outline-offset: 3px;
+}

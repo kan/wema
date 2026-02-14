@@ -29,6 +29,8 @@
       font-size: 13px;
     }
     .toolbar button:hover { background: #eee; }
+    .toolbar button:disabled { opacity: 0.4; cursor: default; }
+    .toolbar button:disabled:hover { background: white; }
 
     .toolbar .separator {
       width: 1px;
@@ -60,6 +62,15 @@
       color: #888;
       font-size: 12px;
     }
+
+    .github-link {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 8px;
+      color: #888;
+      transition: color 0.15s;
+    }
+    .github-link:hover { color: #333; }
   </style>
 </head>
 <body>
@@ -76,6 +87,7 @@
     <button id="btn-export">Export JSON</button>
     <button id="btn-import">Import JSON</button>
     <span id="status"></span>
+    <a class="github-link" href="https://github.com/kan/wema" target="_blank" rel="noopener" title="GitHub"><svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
   </div>
   <div id="board-container"></div>
 
@@ -140,7 +152,9 @@
         var status = document.getElementById('status');
 
         function updateStatus() {
-          status.textContent = 'Notes: ' + board.getNotes().length;
+          var notes = board.getNotes().length;
+          var edges = board.getEdges().length;
+          status.textContent = 'Notes: ' + notes + (edges > 0 ? '  Edges: ' + edges : '');
         }
         updateStatus();
 
@@ -164,12 +178,26 @@
           });
         });
 
-        // Delete button
+        // Delete button — works for both notes and edges
         var btnDelete = document.getElementById('btn-delete');
-        board.on('note:select', function(e) {
-          btnDelete.disabled = e.noteIds.length === 0;
+
+        function updateDeleteBtn() {
+          btnDelete.disabled = board.getSelection().length === 0 && !board.getSelectedEdge();
+        }
+
+        board.on('note:select', updateDeleteBtn);
+        board.on('change', updateDeleteBtn);
+        // Edge selection happens on click — update button after board handles it
+        container.addEventListener('click', function() {
+          setTimeout(updateDeleteBtn, 0);
         });
+
         btnDelete.addEventListener('click', function() {
+          var selectedEdge = board.getSelectedEdge();
+          if (selectedEdge) {
+            board.deleteEdge(selectedEdge);
+            return;
+          }
           var selected = board.getSelection();
           selected.forEach(function(id) { board.deleteNote(id); });
         });

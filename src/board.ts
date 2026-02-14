@@ -12,6 +12,7 @@ import { NoteManager } from './note.js';
 import { DragManager } from './drag.js';
 import { SelectionManager } from './selection.js';
 import { EdgeManager } from './edge.js';
+import { AnchorDragManager } from './anchor-drag.js';
 import { alignNotes, distributeNotes, autoLayout } from './layout.js';
 import { createElement, createSvgElement, setStyles } from './utils/dom.js';
 
@@ -24,6 +25,7 @@ export class WemaBoard {
   private dragManager: DragManager;
   private selectionManager: SelectionManager;
   private edgeManager: EdgeManager;
+  private anchorDragManager: AnchorDragManager;
   private changePending = false;
   private container: HTMLElement;
   private readOnly: boolean;
@@ -75,6 +77,7 @@ export class WemaBoard {
     this.edgeManager = new EdgeManager({
       boardEl: this.boardEl,
       svgEl: this.svgEl,
+      noteManager: this.noteManager,
       emitter: this.emitter,
     });
 
@@ -85,6 +88,20 @@ export class WemaBoard {
       onDragEnd: (noteId) => {
         this.selectionManager.select([noteId]);
       },
+    });
+
+    // Anchor drag for edge creation (not in readOnly mode)
+    this.anchorDragManager = new AnchorDragManager({
+      boardEl: this.boardEl,
+      svgEl: this.svgEl,
+      noteManager: this.noteManager,
+      edgeManager: this.edgeManager,
+      emitter: this.emitter,
+    });
+
+    // Update edges in real-time during note drag
+    this.emitter.on('note:update', ({ note }) => {
+      this.edgeManager.updateEdgesOf(note.id);
     });
 
     // Coalesce change events via microtask
@@ -109,12 +126,21 @@ export class WemaBoard {
     };
     this.boardEl.addEventListener('dblclick', this.handleDblClick);
 
-    // Delete key to remove selected notes
+    // Delete key to remove selected notes or selected edge
     this.handleKeyDown = (e: KeyboardEvent) => {
       if (this.readOnly) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't delete notes when editing text
         if ((e.target as HTMLElement).closest('[contenteditable="true"]')) return;
+
+        // Delete selected edge first
+        const selectedEdge = this.edgeManager.getSelectedEdge();
+        if (selectedEdge) {
+          this.edgeManager.deleteEdge(selectedEdge);
+          return;
+        }
+
+        // Delete selected notes (and their connected edges)
         const selected = this.selectionManager.getSelection();
         for (const id of selected) {
           this.deleteNote(id);
@@ -123,8 +149,20 @@ export class WemaBoard {
     };
     this.boardEl.addEventListener('keydown', this.handleKeyDown);
 
-    // Click on board to deselect / click on note to select
+    // Click on board: select note, select edge, or deselect
     this.handleBoardClick = (e: MouseEvent) => {
+      // Check if an edge was clicked (via hit test)
+      const hitEdgeId = this.edgeManager.hitTest(e.clientX, e.clientY);
+      if (hitEdgeId) {
+        this.selectionManager.clear();
+        this.edgeManager.selectEdge(hitEdgeId);
+        this.boardEl.focus();
+        return;
+      }
+
+      // Deselect edge
+      this.edgeManager.deselectEdge();
+
       const noteEl = (e.target as HTMLElement).closest('.wema-note') as HTMLElement | null;
       if (noteEl) {
         const noteId = noteEl.dataset.noteId;
@@ -155,6 +193,7 @@ export class WemaBoard {
     this.boardEl.removeEventListener('keydown', this.handleKeyDown);
     this.boardEl.removeEventListener('click', this.handleBoardClick);
     this.dragManager.destroy();
+    this.anchorDragManager.destroy();
     this.selectionManager.destroy();
     this.edgeManager.destroy();
     this.emitter.removeAllListeners();
@@ -173,8 +212,13 @@ export class WemaBoard {
     this.noteManager.updateNote(id, params);
   }
 
-  /** Delete a note from the board */
+  /** Delete a note from the board, including connected edges */
   deleteNote(id: NoteId): void {
+    // Delete all connected edges first
+    const connectedEdges = this.edgeManager.getEdgesOf(id);
+    for (const edge of connectedEdges) {
+      this.edgeManager.deleteEdge(edge.id);
+    }
     this.selectionManager.deselect(id);
     this.noteManager.deleteNote(id);
   }
@@ -194,6 +238,11 @@ export class WemaBoard {
   /** Add an edge between two notes */
   addEdge(from: NoteId, to: NoteId, params?: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): WemaEdge {
     return this.edgeManager.addEdge(from, to, params);
+  }
+
+  /** Get the currently selected edge ID, or null */
+  getSelectedEdge(): EdgeId | null {
+    return this.edgeManager.getSelectedEdge();
   }
 
   /** Delete an edge */
@@ -263,6 +312,9 @@ export class WemaBoard {
     this.selectionManager.clear();
     this.edgeManager.clear();
     this.noteManager.renderAll(data.notes);
+    if (data.edges) {
+      this.edgeManager.renderAll(data.edges);
+    }
   }
 
   // --- Events ---
