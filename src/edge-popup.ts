@@ -1,4 +1,4 @@
-import type { EdgeId, LineStyle, ArrowHead } from './types.js';
+import type { EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.js';
 import { EdgeManager } from './edge.js';
 import { NoteManager } from './note.js';
 import { createElement } from './utils/dom.js';
@@ -78,6 +78,19 @@ const WIDTH_ICONS: { value: number; svg: string; title: string }[] = [
   },
 ];
 
+const ROUTING_ICONS: { value: EdgeRouting; svg: string; title: string }[] = [
+  {
+    value: 'curve',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><path d="M2 14 C8 14, 16 2, 22 2" stroke="currentColor" stroke-width="2" fill="none"/></svg>',
+    title: 'Curve',
+  },
+  {
+    value: 'polyline',
+    svg: '<svg width="24" height="16" viewBox="0 0 24 16"><polyline points="2,14 2,2 22,2" stroke="currentColor" stroke-width="2" fill="none"/></svg>',
+    title: 'Polyline',
+  },
+];
+
 const TRASH_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 
 export class EdgeStylePopup {
@@ -114,10 +127,31 @@ export class EdgeStylePopup {
     this.popupEl.innerHTML = '';
 
     // Resolve current effective values
+    const routing: EdgeRouting = edge.routing ?? 'curve';
     const lineStyle: LineStyle = edge.lineStyle ?? (edge.style === 'dashed' ? 'dashed' : 'solid');
     const arrowHead: ArrowHead = edge.arrowHead ?? (edge.style === 'arrow' ? 'end' : 'none');
     const arrowSize = edge.arrowSize ?? 12;
     const strokeWidth = edge.strokeWidth ?? 2;
+
+    // Route section
+    const routeSection = createElement('div', 'wema-popup-section');
+    const routeLabel = createElement('div', 'wema-popup-label');
+    routeLabel.textContent = 'Route';
+    routeSection.appendChild(routeLabel);
+    const routeGroup = createElement('div', 'wema-popup-group');
+    for (const item of ROUTING_ICONS) {
+      const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+      btn.innerHTML = item.svg;
+      btn.title = item.title;
+      if (item.value === routing) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        if (!this.currentEdgeId) return;
+        this.edgeManager.updateEdge(this.currentEdgeId, { routing: item.value });
+        this.show(this.currentEdgeId);
+      });
+      routeGroup.appendChild(btn);
+    }
+    routeSection.appendChild(routeGroup);
 
     // Line style section
     const lineSection = createElement('div', 'wema-popup-section');
@@ -213,6 +247,7 @@ export class EdgeStylePopup {
     });
     deleteSection.appendChild(deleteBtn);
 
+    this.popupEl.appendChild(routeSection);
     this.popupEl.appendChild(lineSection);
     this.popupEl.appendChild(arrowSection);
     this.popupEl.appendChild(arrowSizeSection);

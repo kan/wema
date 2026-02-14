@@ -4,7 +4,8 @@
   --wema-note-font-size: 14px;
   --wema-anchor-size: 12px;
   --wema-anchor-color: #4A90D9;
-  --wema-edge-color: #666;
+  --wema-note-color-text: #333;
+  --wema-edge-color: #555;
   --wema-edge-width: 2px;
 
   position: relative;
@@ -34,6 +35,7 @@
   position: absolute;
   border-radius: var(--wema-note-border-radius);
   box-shadow: var(--wema-note-shadow);
+  background-color: var(--wema-note-color, #FFF9C4);
   cursor: default;
   display: flex;
   flex-direction: column;
@@ -73,6 +75,7 @@
   flex: 1;
   padding: 4px 12px 12px;
   font-size: var(--wema-note-font-size);
+  color: var(--wema-note-color-text);
   line-height: 1.4;
   overflow-y: auto;
   word-wrap: break-word;
@@ -324,6 +327,24 @@
   touch-action: none;
 }
 
+/* Card theme */
+.wema-theme-card .wema-note {
+  background-color: white;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.wema-theme-card .wema-note::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--wema-note-color);
+  border-radius: var(--wema-note-border-radius) 0 0 var(--wema-note-border-radius);
+}
+
 /* Read-only mode */
 .wema-readonly .wema-note {
   cursor: default;
@@ -342,5 +363,18 @@
 }
 
 .wema-readonly .wema-resize-handle {
+  display: none;
+}
+
+/* View-only mode */
+.wema-viewonly .wema-note-content {
+  cursor: default;
+}
+
+.wema-viewonly .wema-anchor {
+  display: none;
+}
+
+.wema-viewonly .wema-resize-handle {
   display: none;
 }

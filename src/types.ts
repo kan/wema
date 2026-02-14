@@ -7,6 +7,9 @@ export type EdgeId = string;
 /** Anchor position on a note's border */
 export type Anchor = 'top' | 'right' | 'bottom' | 'left' | 'auto';
 
+/** Theme for note appearance */
+export type NoteTheme = 'default' | 'card';
+
 /** Visual style of an edge (legacy shorthand) */
 export type EdgeStyle = 'arrow' | 'line' | 'dashed';
 
@@ -15,6 +18,9 @@ export type LineStyle = 'solid' | 'dashed' | 'dotted';
 
 /** Arrow head direction */
 export type ArrowHead = 'none' | 'start' | 'end' | 'both';
+
+/** Edge routing style */
+export type EdgeRouting = 'curve' | 'polyline';
 
 /** A sticky note on the board */
 export interface WemaNote {
@@ -41,6 +47,7 @@ export interface WemaEdge {
   strokeWidth?: number;
   arrowHead?: ArrowHead;
   arrowSize?: number;
+  routing?: EdgeRouting;
 }
 
 /** Serializable board data */
@@ -60,6 +67,8 @@ export interface WemaBoardOptions {
   defaultNoteColor?: string;
   createOnDblClick?: boolean;
   readOnly?: boolean;
+  viewOnly?: boolean;
+  theme?: NoteTheme;
 }
 
 /** Event payloads emitted by WemaBoard */
@@ -72,5 +81,6 @@ export interface WemaEventMap {
   'edge:update': { edge: WemaEdge; prev: WemaEdge };
   'edge:delete': { edge: WemaEdge };
   'readOnly:change': { readOnly: boolean };
+  'viewOnly:change': { viewOnly: boolean };
   'change': { data: WemaBoardData };
 }

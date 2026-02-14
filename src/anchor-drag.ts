@@ -144,8 +144,8 @@ export class AnchorDragManager {
     // Create edge if dropped on a different note
     if (targetNoteId && targetNoteId !== this.fromNoteId && this.fromNoteId) {
       this.edgeManager.addEdge(this.fromNoteId, targetNoteId, {
-        fromAnchor: this.fromAnchor ?? 'auto',
-        toAnchor: targetAnchor,
+        fromAnchor: 'auto',
+        toAnchor: 'auto',
       });
     }
 

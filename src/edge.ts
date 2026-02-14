@@ -243,7 +243,7 @@ export class EdgeManager {
     const toNote = this.noteManager.getNote(edge.to);
     if (!fromNote || !toNote) return;
 
-    const d = computeEdgePath(fromNote, toNote, edge.fromAnchor, edge.toAnchor);
+    const d = computeEdgePath(fromNote, toNote, edge.fromAnchor, edge.toAnchor, edge.routing);
 
     const path = this.pathElements.get(id);
     const hit = this.hitElements.get(id);

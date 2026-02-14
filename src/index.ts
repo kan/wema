@@ -8,6 +8,8 @@ export type {
   EdgeStyle,
   LineStyle,
   ArrowHead,
+  EdgeRouting,
+  NoteTheme,
   WemaNote,
   WemaEdge,
   WemaBoardData,

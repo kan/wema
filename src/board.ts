@@ -1,6 +1,7 @@
 import type {
   NoteId,
   EdgeId,
+  NoteTheme,
   WemaNote,
   WemaEdge,
   WemaBoardData,
@@ -35,6 +36,9 @@ export class WemaBoard {
   private changePending = false;
   private container: HTMLElement;
   private readOnly: boolean;
+  private viewOnly: boolean;
+  private positionSnapshot: { id: NoteId; x: number; y: number }[] | null = null;
+  private theme: NoteTheme;
 
   private handleDblClick: (e: MouseEvent) => void;
   private handleKeyDown: (e: KeyboardEvent) => void;
@@ -43,9 +47,14 @@ export class WemaBoard {
   constructor(options: WemaBoardOptions) {
     this.container = options.container;
     this.readOnly = options.readOnly ?? false;
+    this.viewOnly = options.viewOnly ?? false;
+    this.theme = options.theme ?? 'default';
 
     // Create board element
     this.boardEl = createElement('div', 'wema-board');
+    if (this.theme !== 'default') {
+      this.boardEl.classList.add(`wema-theme-${this.theme}`);
+    }
     setStyles(this.boardEl, { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' });
     this.boardEl.tabIndex = 0;
 
@@ -87,33 +96,34 @@ export class WemaBoard {
       emitter: this.emitter,
     });
 
-    const getReadOnly = () => this.readOnly;
+    const isLocked = () => this.readOnly;
+    const isRestricted = () => this.readOnly || this.viewOnly;
 
     this.dragManager = new DragManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
       emitter: this.emitter,
-      getReadOnly,
+      getReadOnly: isLocked,
       onDragEnd: (noteId) => {
         this.selectionManager.select([noteId]);
       },
     });
 
-    // Anchor drag for edge creation (not in readOnly mode)
+    // Anchor drag for edge creation (blocked in readOnly and viewOnly)
     this.anchorDragManager = new AnchorDragManager({
       boardEl: this.boardEl,
       svgEl: this.svgEl,
       noteManager: this.noteManager,
       edgeManager: this.edgeManager,
       emitter: this.emitter,
-      getReadOnly,
+      getReadOnly: isRestricted,
     });
 
     this.resizeManager = new ResizeManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
       emitter: this.emitter,
-      getReadOnly,
+      getReadOnly: isRestricted,
     });
 
     this.edgePopup = new EdgeStylePopup({
@@ -166,7 +176,7 @@ export class WemaBoard {
 
     // Double-click to create note
     this.handleDblClick = (e: MouseEvent) => {
-      if (this.readOnly) return;
+      if (this.readOnly || this.viewOnly) return;
       if ((options.createOnDblClick ?? true) === false) return;
       // Only create if clicking on the board itself, not on a note
       if ((e.target as HTMLElement).closest('.wema-note')) return;
@@ -181,7 +191,7 @@ export class WemaBoard {
 
     // Delete key to remove selected notes or selected edge
     this.handleKeyDown = (e: KeyboardEvent) => {
-      if (this.readOnly) return;
+      if (this.readOnly || this.viewOnly) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't delete notes when editing text
         if ((e.target as HTMLElement).closest('[contenteditable="true"]')) return;
@@ -212,7 +222,7 @@ export class WemaBoard {
       if (this.readOnly) return;
 
       // Check if an edge was clicked (via hit test)
-      const hitEdgeId = this.edgeManager.hitTest(e.clientX, e.clientY);
+      const hitEdgeId = !this.viewOnly ? this.edgeManager.hitTest(e.clientX, e.clientY) : null;
       if (hitEdgeId) {
         this.selectionManager.clear();
         this.notePopup.hide();
@@ -232,7 +242,9 @@ export class WemaBoard {
         if (noteId) {
           this.selectionManager.select([noteId]);
           this.noteManager.bringToFront(noteId);
-          this.notePopup.show(noteId);
+          if (!this.viewOnly) {
+            this.notePopup.show(noteId);
+          }
         }
       } else {
         this.selectionManager.clear();
@@ -249,6 +261,12 @@ export class WemaBoard {
     // Import initial data if provided
     if (options.data) {
       this.importData(options.data);
+    }
+
+    // Apply initial viewOnly state
+    if (this.viewOnly) {
+      this.boardEl.classList.add('wema-viewonly');
+      this.noteManager.setViewOnly(true);
     }
   }
 
@@ -272,7 +290,7 @@ export class WemaBoard {
 
   /** Add a new note to the board */
   addNote(params?: Partial<Omit<WemaNote, 'id'>>): WemaNote {
-    if (this.readOnly) return undefined as never;
+    if (this.readOnly || this.viewOnly) return undefined as never;
     return this.noteManager.addNote(params);
   }
 
@@ -284,7 +302,7 @@ export class WemaBoard {
 
   /** Delete a note from the board, including connected edges */
   deleteNote(id: NoteId): void {
-    if (this.readOnly) return;
+    if (this.readOnly || this.viewOnly) return;
     // Delete all connected edges first
     const connectedEdges = this.edgeManager.getEdgesOf(id);
     for (const edge of connectedEdges) {
@@ -308,7 +326,7 @@ export class WemaBoard {
 
   /** Add an edge between two notes */
   addEdge(from: NoteId, to: NoteId, params?: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): WemaEdge {
-    if (this.readOnly) return undefined as never;
+    if (this.readOnly || this.viewOnly) return undefined as never;
     return this.edgeManager.addEdge(from, to, params);
   }
 
@@ -319,13 +337,13 @@ export class WemaBoard {
 
   /** Update an existing edge's properties */
   updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void {
-    if (this.readOnly) return;
+    if (this.readOnly || this.viewOnly) return;
     this.edgeManager.updateEdge(id, params);
   }
 
   /** Delete an edge */
   deleteEdge(id: EdgeId): void {
-    if (this.readOnly) return;
+    if (this.readOnly || this.viewOnly) return;
     this.edgeManager.deleteEdge(id);
   }
 
@@ -428,6 +446,55 @@ export class WemaBoard {
   /** Check if the board is read-only */
   isReadOnly(): boolean {
     return this.readOnly;
+  }
+
+  // --- ViewOnly ---
+
+  /** Set the board's view-only state at runtime */
+  setViewOnly(viewOnly: boolean): void {
+    if (this.viewOnly === viewOnly) return;
+    this.viewOnly = viewOnly;
+    if (viewOnly) {
+      // Snapshot note positions before entering viewOnly
+      this.positionSnapshot = this.noteManager.getNotes().map((n) => ({ id: n.id, x: n.x, y: n.y }));
+      this.boardEl.classList.add('wema-viewonly');
+      this.noteManager.setViewOnly(true);
+      this.notePopup.hide();
+      this.edgePopup.hide();
+    } else {
+      // Restore positions from snapshot
+      if (this.positionSnapshot) {
+        for (const snap of this.positionSnapshot) {
+          this.noteManager.updateNote(snap.id, { x: snap.x, y: snap.y });
+        }
+        this.positionSnapshot = null;
+      }
+      this.boardEl.classList.remove('wema-viewonly');
+      this.noteManager.setViewOnly(false);
+    }
+    this.emitter.emit('viewOnly:change', { viewOnly });
+  }
+
+  /** Check if the board is in view-only mode */
+  isViewOnly(): boolean {
+    return this.viewOnly;
+  }
+
+  // --- Theme ---
+
+  /** Set the board theme */
+  setTheme(theme: NoteTheme): void {
+    if (this.theme === theme) return;
+    this.boardEl.classList.remove(`wema-theme-${this.theme}`);
+    this.theme = theme;
+    if (theme !== 'default') {
+      this.boardEl.classList.add(`wema-theme-${theme}`);
+    }
+  }
+
+  /** Get the current theme */
+  getTheme(): NoteTheme {
+    return this.theme;
   }
 
   // --- Internal ---

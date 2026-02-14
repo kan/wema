@@ -22,6 +22,7 @@ export class NoteManager {
   private defaultHeight: number;
   private defaultColor: string;
   private readOnly: boolean;
+  private viewOnly = false;
 
   constructor(options: NoteManagerOptions) {
     this.boardEl = options.boardEl;
@@ -119,7 +120,29 @@ export class NoteManager {
       }
       const moveHandle = el.querySelector('.wema-move-handle') as HTMLElement | null;
       if (moveHandle) {
-        moveHandle.style.display = readOnly ? 'none' : '';
+        moveHandle.style.visibility = readOnly ? 'hidden' : '';
+      }
+    }
+  }
+
+  /** Toggle viewOnly on all existing notes */
+  setViewOnly(viewOnly: boolean): void {
+    this.viewOnly = viewOnly;
+    for (const el of this.elements.values()) {
+      const content = el.querySelector('.wema-note-content') as HTMLElement | null;
+      if (content) {
+        // viewOnly or readOnly → no editing
+        content.contentEditable = (viewOnly || this.readOnly) ? 'false' : 'true';
+        if (viewOnly) content.blur();
+      }
+      const resizeHandle = el.querySelector('.wema-resize-handle') as HTMLElement | null;
+      if (resizeHandle) {
+        resizeHandle.style.display = (viewOnly || this.readOnly) ? 'none' : '';
+      }
+      const moveHandle = el.querySelector('.wema-move-handle') as HTMLElement | null;
+      if (moveHandle) {
+        // viewOnly allows move; readOnly hides it
+        moveHandle.style.visibility = this.readOnly ? 'hidden' : '';
       }
     }
   }
@@ -166,11 +189,11 @@ export class NoteManager {
     const moveHandle = createElement('div', 'wema-move-handle');
     moveHandle.innerHTML = '<svg width="20" height="10" viewBox="0 0 20 10"><circle cx="4" cy="3" r="1.5" fill="currentColor"/><circle cx="10" cy="3" r="1.5" fill="currentColor"/><circle cx="16" cy="3" r="1.5" fill="currentColor"/><circle cx="4" cy="8" r="1.5" fill="currentColor"/><circle cx="10" cy="8" r="1.5" fill="currentColor"/><circle cx="16" cy="8" r="1.5" fill="currentColor"/></svg>';
     if (this.readOnly) {
-      moveHandle.style.display = 'none';
+      moveHandle.style.visibility = 'hidden';
     }
 
     const content = createElement('div', 'wema-note-content');
-    if (!this.readOnly) {
+    if (!this.readOnly && !this.viewOnly) {
       content.contentEditable = 'true';
     }
     content.textContent = note.text;
@@ -198,7 +221,7 @@ export class NoteManager {
 
     // Resize handle (bottom-right corner)
     const resizeHandle = createElement('div', 'wema-resize-handle');
-    if (this.readOnly) {
+    if (this.readOnly || this.viewOnly) {
       resizeHandle.style.display = 'none';
     }
 
@@ -228,8 +251,8 @@ export class NoteManager {
       top: `${note.y}px`,
       width: `${note.width}px`,
       height: `${note.height}px`,
-      backgroundColor: note.color,
       zIndex: String(note.zIndex),
     });
+    el.style.setProperty('--wema-note-color', note.color);
   }
 }
