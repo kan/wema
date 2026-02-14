@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wema</title>
+  <!-- __WEMA_CSS__ -->
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #ddd;
+      align-items: center;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .toolbar button {
+      padding: 6px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .toolbar button:hover { background: #eee; }
+
+    .toolbar .separator {
+      width: 1px;
+      height: 24px;
+      background: #ddd;
+    }
+
+    .color-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid #ccc;
+      cursor: pointer;
+      padding: 0;
+    }
+    .color-btn:hover { border-color: #999; }
+    .color-btn.active { border-color: #333; }
+
+    #board-container {
+      flex: 1;
+      background:
+        linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
+        linear-gradient(#f0f0f0 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+
+    #status {
+      margin-left: auto;
+      color: #888;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-add">+ Add Note</button>
+    <button id="btn-delete" disabled>Delete</button>
+    <div class="separator"></div>
+    <button class="color-btn active" data-color="#FFF9C4" style="background:#FFF9C4" title="Yellow"></button>
+    <button class="color-btn" data-color="#F8BBD0" style="background:#F8BBD0" title="Pink"></button>
+    <button class="color-btn" data-color="#C8E6C9" style="background:#C8E6C9" title="Green"></button>
+    <button class="color-btn" data-color="#BBDEFB" style="background:#BBDEFB" title="Blue"></button>
+    <button class="color-btn" data-color="#FFE0B2" style="background:#FFE0B2" title="Orange"></button>
+    <div class="separator"></div>
+    <button id="btn-export">Export JSON</button>
+    <button id="btn-import">Import JSON</button>
+    <span id="status"></span>
+  </div>
+  <div id="board-container"></div>
+
+  <input type="file" id="file-input" accept=".json" style="display:none">
+
+  <!-- __WEMA_JS__ -->
+  <script>
+    (function() {
+      // ---- IndexedDB helpers ----
+      const DB_NAME = 'wema-standalone';
+      const STORE_NAME = 'board';
+      const DATA_KEY = 'current';
+
+      function openDB() {
+        return new Promise(function(resolve, reject) {
+          var req = indexedDB.open(DB_NAME, 1);
+          req.onupgradeneeded = function() {
+            req.result.createObjectStore(STORE_NAME);
+          };
+          req.onsuccess = function() { resolve(req.result); };
+          req.onerror = function() { reject(req.error); };
+        });
+      }
+
+      function loadData(db) {
+        return new Promise(function(resolve, reject) {
+          var tx = db.transaction(STORE_NAME, 'readonly');
+          var store = tx.objectStore(STORE_NAME);
+          var req = store.get(DATA_KEY);
+          req.onsuccess = function() { resolve(req.result || null); };
+          req.onerror = function() { reject(req.error); };
+        });
+      }
+
+      function saveData(db, data) {
+        return new Promise(function(resolve, reject) {
+          var tx = db.transaction(STORE_NAME, 'readwrite');
+          var store = tx.objectStore(STORE_NAME);
+          var req = store.put(data, DATA_KEY);
+          req.onsuccess = function() { resolve(); };
+          req.onerror = function() { reject(req.error); };
+        });
+      }
+
+      // ---- App ----
+      var selectedColor = '#FFF9C4';
+      var saveTimer = null;
+
+      async function init() {
+        var db = await openDB();
+        var container = document.getElementById('board-container');
+        var savedData = await loadData(db);
+
+        var board = new Wema.WemaBoard({
+          container: container,
+          data: savedData || undefined,
+        });
+
+        // Expose for debugging
+        window.__board = board;
+
+        var status = document.getElementById('status');
+
+        function updateStatus() {
+          status.textContent = 'Notes: ' + board.getNotes().length;
+        }
+        updateStatus();
+
+        // Auto-save with 300ms debounce
+        board.on('change', function() {
+          updateStatus();
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(function() {
+            saveData(db, board.exportData());
+          }, 300);
+        });
+
+        // Add note
+        document.getElementById('btn-add').addEventListener('click', function() {
+          var notes = board.getNotes();
+          var offset = notes.length * 20;
+          board.addNote({
+            x: 120 + offset,
+            y: 80 + offset,
+            color: selectedColor,
+          });
+        });
+
+        // Delete button
+        var btnDelete = document.getElementById('btn-delete');
+        board.on('note:select', function(e) {
+          btnDelete.disabled = e.noteIds.length === 0;
+        });
+        btnDelete.addEventListener('click', function() {
+          var selected = board.getSelection();
+          selected.forEach(function(id) { board.deleteNote(id); });
+        });
+
+        // Color buttons
+        var colorBtns = document.querySelectorAll('.color-btn');
+        colorBtns.forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            colorBtns.forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            selectedColor = btn.dataset.color;
+
+            // Update selected notes' color
+            var selected = board.getSelection();
+            selected.forEach(function(id) {
+              board.updateNote(id, { color: selectedColor });
+            });
+          });
+        });
+
+        // Export
+        document.getElementById('btn-export').addEventListener('click', function() {
+          var data = board.exportData();
+          var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'wema-board.json';
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+
+        // Import
+        var fileInput = document.getElementById('file-input');
+        document.getElementById('btn-import').addEventListener('click', function() {
+          fileInput.click();
+        });
+        fileInput.addEventListener('change', async function() {
+          var file = fileInput.files[0];
+          if (!file) return;
+          var text = await file.text();
+          var data = JSON.parse(text);
+          board.importData(data);
+          fileInput.value = '';
+          // Save immediately
+          await saveData(db, board.exportData());
+          updateStatus();
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+          // Ctrl/Cmd+A to select all
+          if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+            if (document.activeElement && document.activeElement.closest && document.activeElement.closest('[contenteditable="true"]')) return;
+            e.preventDefault();
+            board.selectAll();
+          }
+        });
+      }
+
+      init().catch(console.error);
+    })();
+  </script>
+</body>
+</html>

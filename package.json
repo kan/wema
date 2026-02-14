@@ -1,0 +1,43 @@
+{
+  "name": "wema",
+  "version": "0.1.0",
+  "description": "A framework-agnostic TypeScript library for placing sticky notes on a web board",
+  "type": "module",
+  "main": "./dist/wema.umd.js",
+  "module": "./dist/wema.js",
+  "types": "./dist/wema.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/wema.d.ts",
+      "import": "./dist/wema.js",
+      "require": "./dist/wema.umd.js"
+    },
+    "./style.css": "./dist/wema.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build:lib && npm run build:standalone",
+    "build:lib": "vite build",
+    "build:standalone": "tsx scripts/build-standalone.ts",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0",
+    "vite-plugin-dts": "^4.3.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "sticky-notes",
+    "board",
+    "canvas",
+    "wema"
+  ],
+  "license": "MIT"
+}

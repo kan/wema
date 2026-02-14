@@ -1,0 +1,290 @@
+import type {
+  NoteId,
+  EdgeId,
+  WemaNote,
+  WemaEdge,
+  WemaBoardData,
+  WemaBoardOptions,
+  WemaEventMap,
+} from './types.js';
+import { EventEmitter } from './events.js';
+import { NoteManager } from './note.js';
+import { DragManager } from './drag.js';
+import { SelectionManager } from './selection.js';
+import { EdgeManager } from './edge.js';
+import { alignNotes, distributeNotes, autoLayout } from './layout.js';
+import { createElement, createSvgElement, setStyles } from './utils/dom.js';
+
+/** Main API class for the wema board */
+export class WemaBoard {
+  private emitter = new EventEmitter<WemaEventMap>();
+  private boardEl: HTMLElement;
+  private svgEl: SVGSVGElement;
+  private noteManager: NoteManager;
+  private dragManager: DragManager;
+  private selectionManager: SelectionManager;
+  private edgeManager: EdgeManager;
+  private changePending = false;
+  private container: HTMLElement;
+  private readOnly: boolean;
+
+  private handleDblClick: (e: MouseEvent) => void;
+  private handleKeyDown: (e: KeyboardEvent) => void;
+  private handleBoardClick: (e: MouseEvent) => void;
+
+  constructor(options: WemaBoardOptions) {
+    this.container = options.container;
+    this.readOnly = options.readOnly ?? false;
+
+    // Create board element
+    this.boardEl = createElement('div', 'wema-board');
+    setStyles(this.boardEl, { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' });
+    this.boardEl.tabIndex = 0;
+
+    // Create SVG layer for edges
+    this.svgEl = createSvgElement('svg', 'wema-edges');
+    this.svgEl.setAttribute('width', '100%');
+    this.svgEl.setAttribute('height', '100%');
+    setStyles(this.svgEl as unknown as HTMLElement, {
+      position: 'absolute',
+      top: '0',
+      left: '0',
+      pointerEvents: 'none',
+    });
+    this.boardEl.appendChild(this.svgEl);
+
+    // Mount to container
+    this.container.appendChild(this.boardEl);
+
+    // Initialize managers
+    this.noteManager = new NoteManager({
+      boardEl: this.boardEl,
+      emitter: this.emitter,
+      defaultWidth: options.defaultNoteWidth ?? 200,
+      defaultHeight: options.defaultNoteHeight ?? 150,
+      defaultColor: options.defaultNoteColor ?? '#FFF9C4',
+      readOnly: this.readOnly,
+    });
+
+    this.selectionManager = new SelectionManager({
+      boardEl: this.boardEl,
+      noteManager: this.noteManager,
+      emitter: this.emitter,
+    });
+
+    this.edgeManager = new EdgeManager({
+      boardEl: this.boardEl,
+      svgEl: this.svgEl,
+      emitter: this.emitter,
+    });
+
+    this.dragManager = new DragManager({
+      boardEl: this.boardEl,
+      noteManager: this.noteManager,
+      emitter: this.emitter,
+      onDragEnd: (noteId) => {
+        this.selectionManager.select([noteId]);
+      },
+    });
+
+    // Coalesce change events via microtask
+    this.emitter.on('note:create', () => this.scheduleChange());
+    this.emitter.on('note:update', () => this.scheduleChange());
+    this.emitter.on('note:delete', () => this.scheduleChange());
+    this.emitter.on('edge:create', () => this.scheduleChange());
+    this.emitter.on('edge:delete', () => this.scheduleChange());
+
+    // Double-click to create note
+    this.handleDblClick = (e: MouseEvent) => {
+      if (this.readOnly) return;
+      if ((options.createOnDblClick ?? true) === false) return;
+      // Only create if clicking on the board itself, not on a note
+      if ((e.target as HTMLElement).closest('.wema-note')) return;
+
+      const rect = this.boardEl.getBoundingClientRect();
+      this.addNote({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
+    };
+    this.boardEl.addEventListener('dblclick', this.handleDblClick);
+
+    // Delete key to remove selected notes
+    this.handleKeyDown = (e: KeyboardEvent) => {
+      if (this.readOnly) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Don't delete notes when editing text
+        if ((e.target as HTMLElement).closest('[contenteditable="true"]')) return;
+        const selected = this.selectionManager.getSelection();
+        for (const id of selected) {
+          this.deleteNote(id);
+        }
+      }
+    };
+    this.boardEl.addEventListener('keydown', this.handleKeyDown);
+
+    // Click on board to deselect / click on note to select
+    this.handleBoardClick = (e: MouseEvent) => {
+      const noteEl = (e.target as HTMLElement).closest('.wema-note') as HTMLElement | null;
+      if (noteEl) {
+        const noteId = noteEl.dataset.noteId;
+        if (noteId) {
+          this.selectionManager.select([noteId]);
+          this.noteManager.bringToFront(noteId);
+        }
+      } else {
+        this.selectionManager.clear();
+      }
+      // Ensure board has focus for keyboard shortcuts (Delete key etc.)
+      const active = document.activeElement;
+      if (!active || !active.closest('[contenteditable="true"]')) {
+        this.boardEl.focus();
+      }
+    };
+    this.boardEl.addEventListener('click', this.handleBoardClick);
+
+    // Import initial data if provided
+    if (options.data) {
+      this.importData(options.data);
+    }
+  }
+
+  /** Clean up all resources */
+  destroy(): void {
+    this.boardEl.removeEventListener('dblclick', this.handleDblClick);
+    this.boardEl.removeEventListener('keydown', this.handleKeyDown);
+    this.boardEl.removeEventListener('click', this.handleBoardClick);
+    this.dragManager.destroy();
+    this.selectionManager.destroy();
+    this.edgeManager.destroy();
+    this.emitter.removeAllListeners();
+    this.boardEl.remove();
+  }
+
+  // --- Notes ---
+
+  /** Add a new note to the board */
+  addNote(params?: Partial<Omit<WemaNote, 'id'>>): WemaNote {
+    return this.noteManager.addNote(params);
+  }
+
+  /** Update an existing note */
+  updateNote(id: NoteId, params: Partial<WemaNote>): void {
+    this.noteManager.updateNote(id, params);
+  }
+
+  /** Delete a note from the board */
+  deleteNote(id: NoteId): void {
+    this.selectionManager.deselect(id);
+    this.noteManager.deleteNote(id);
+  }
+
+  /** Get a note by ID */
+  getNote(id: NoteId): WemaNote | undefined {
+    return this.noteManager.getNote(id);
+  }
+
+  /** Get all notes */
+  getNotes(): WemaNote[] {
+    return this.noteManager.getNotes();
+  }
+
+  // --- Edges ---
+
+  /** Add an edge between two notes */
+  addEdge(from: NoteId, to: NoteId, params?: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): WemaEdge {
+    return this.edgeManager.addEdge(from, to, params);
+  }
+
+  /** Delete an edge */
+  deleteEdge(id: EdgeId): void {
+    this.edgeManager.deleteEdge(id);
+  }
+
+  /** Get all edges */
+  getEdges(): WemaEdge[] {
+    return this.edgeManager.getEdges();
+  }
+
+  /** Get edges connected to a note */
+  getEdgesOf(noteId: NoteId): WemaEdge[] {
+    return this.edgeManager.getEdgesOf(noteId);
+  }
+
+  // --- Selection ---
+
+  /** Select notes by IDs */
+  select(noteIds: NoteId[]): void {
+    this.selectionManager.select(noteIds);
+  }
+
+  /** Select all notes */
+  selectAll(): void {
+    this.selectionManager.selectAll();
+  }
+
+  /** Get currently selected note IDs */
+  getSelection(): NoteId[] {
+    return this.selectionManager.getSelection();
+  }
+
+  // --- Layout ---
+
+  /** Align selected notes */
+  alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void {
+    alignNotes(this.noteManager, noteIds, alignment);
+  }
+
+  /** Distribute notes evenly */
+  distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical'): void {
+    distributeNotes(this.noteManager, noteIds, direction);
+  }
+
+  /** Auto-layout notes */
+  autoLayout(noteIds?: NoteId[]): void {
+    autoLayout(this.noteManager, noteIds);
+  }
+
+  // --- Data ---
+
+  /** Export board data as a serializable object */
+  exportData(): WemaBoardData {
+    this.noteManager.flushEditing();
+    const data: WemaBoardData = {
+      version: 1,
+      notes: this.noteManager.getNotes(),
+      edges: this.edgeManager.getEdges(),
+    };
+    return JSON.parse(JSON.stringify(data));
+  }
+
+  /** Import board data, replacing all current content */
+  importData(data: WemaBoardData): void {
+    this.selectionManager.clear();
+    this.edgeManager.clear();
+    this.noteManager.renderAll(data.notes);
+  }
+
+  // --- Events ---
+
+  /** Register an event handler */
+  on<K extends keyof WemaEventMap>(event: K, handler: (payload: WemaEventMap[K]) => void): void {
+    this.emitter.on(event, handler);
+  }
+
+  /** Remove an event handler */
+  off<K extends keyof WemaEventMap>(event: K, handler: (payload: WemaEventMap[K]) => void): void {
+    this.emitter.off(event, handler);
+  }
+
+  // --- Internal ---
+
+  private scheduleChange(): void {
+    if (this.changePending) return;
+    this.changePending = true;
+    queueMicrotask(() => {
+      this.changePending = false;
+      this.emitter.emit('change', { data: this.exportData() });
+    });
+  }
+}

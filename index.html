@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wema — dev</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #ddd;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .toolbar button {
+      padding: 6px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .toolbar button:hover { background: #eee; }
+
+    #board-container {
+      flex: 1;
+      background:
+        linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
+        linear-gradient(#f0f0f0 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button id="btn-add">+ Add Note</button>
+    <button id="btn-delete" disabled>Delete</button>
+    <button id="btn-export">Export JSON</button>
+    <button id="btn-import">Import JSON</button>
+    <span id="status" style="margin-left: auto; color: #888; font-size: 12px;"></span>
+  </div>
+  <div id="board-container"></div>
+
+  <input type="file" id="file-input" accept=".json" style="display:none">
+
+  <script type="module">
+    import { WemaBoard } from './src/index.ts';
+
+    const container = document.getElementById('board-container');
+    const board = new WemaBoard({ container });
+
+    // Expose for console debugging
+    window.__board = board;
+
+    const status = document.getElementById('status');
+    board.on('change', () => {
+      status.textContent = `Notes: ${board.getNotes().length}`;
+    });
+
+    // Delete button
+    const btnDelete = document.getElementById('btn-delete');
+    board.on('note:select', (e) => {
+      btnDelete.disabled = e.noteIds.length === 0;
+    });
+    btnDelete.addEventListener('click', () => {
+      board.getSelection().forEach((id) => board.deleteNote(id));
+    });
+
+    // Add note button
+    document.getElementById('btn-add').addEventListener('click', () => {
+      const notes = board.getNotes();
+      const offset = notes.length * 20;
+      board.addNote({ x: 120 + offset, y: 80 + offset });
+    });
+
+    // Export
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const data = board.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'wema-board.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Import
+    const fileInput = document.getElementById('file-input');
+    document.getElementById('btn-import').addEventListener('click', () => {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const data = JSON.parse(text);
+      board.importData(data);
+      fileInput.value = '';
+    });
+  </script>
+</body>
+</html>
