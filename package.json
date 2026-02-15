@@ -39,5 +39,11 @@
     "canvas",
     "wema"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kan/wema.git"
+  },
+  "homepage": "https://github.com/kan/wema",
+  "bugs": "https://github.com/kan/wema/issues"
 }

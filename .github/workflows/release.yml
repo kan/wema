@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - run: npm ci
       - run: npm run build
@@ -23,3 +24,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/wema.html
+
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
