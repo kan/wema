@@ -18,7 +18,9 @@ import { ResizeManager } from './resize.js';
 import { EdgeStylePopup } from './edge-popup.js';
 import { NoteStylePopup } from './note-popup.js';
 import { alignNotes, distributeNotes, autoLayout } from './layout.js';
+import { RichTextToolbar } from './rich-text.js';
 import { createElement, createSvgElement, setStyles } from './utils/dom.js';
+import { toEmbedUrlAsync } from './utils/oembed.js';
 
 /** Main API class for the wema board */
 export class WemaBoard {
@@ -33,6 +35,7 @@ export class WemaBoard {
   private resizeManager: ResizeManager;
   private edgePopup: EdgeStylePopup;
   private notePopup: NoteStylePopup;
+  private richTextToolbar: RichTextToolbar;
   private changePending = false;
   private container: HTMLElement;
   private readOnly: boolean;
@@ -184,6 +187,18 @@ export class WemaBoard {
           this.deleteNote(id);
         }
       },
+      onInsertImage: (noteId) => {
+        this.insertImageIntoNote(noteId);
+      },
+      onInsertEmbed: (noteId) => {
+        this.showEmbedInput(noteId);
+      },
+    });
+
+    this.richTextToolbar = new RichTextToolbar({
+      boardEl: this.boardEl,
+      readOnly: this.readOnly,
+      viewOnly: this.viewOnly,
     });
 
     // Update edges in real-time during note drag
@@ -250,9 +265,12 @@ export class WemaBoard {
         return;
       }
 
-      // Don't handle clicks from popups
+      // Don't handle clicks from popups or toolbar
       if ((e.target as HTMLElement).closest('.wema-edge-popup')) return;
       if ((e.target as HTMLElement).closest('.wema-note-popup')) return;
+      if ((e.target as HTMLElement).closest('.wema-richtext-toolbar')) return;
+      if ((e.target as HTMLElement).closest('.wema-image-overlay')) return;
+      if ((e.target as HTMLElement).closest('.wema-embed-input')) return;
 
       if (this.readOnly) return;
 
@@ -301,10 +319,13 @@ export class WemaBoard {
     this.handleRubberBandDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       if (this.readOnly) return;
-      // Only start rubberband from empty board area (not notes, anchors, handles)
+      // Only start rubberband from empty board area (not notes, anchors, handles, toolbars)
       if ((e.target as HTMLElement).closest('.wema-note')) return;
       if ((e.target as HTMLElement).closest('.wema-edge-popup')) return;
       if ((e.target as HTMLElement).closest('.wema-note-popup')) return;
+      if ((e.target as HTMLElement).closest('.wema-richtext-toolbar')) return;
+      if ((e.target as HTMLElement).closest('.wema-image-overlay')) return;
+      if ((e.target as HTMLElement).closest('.wema-embed-input')) return;
 
       const rect = this.boardEl.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -359,11 +380,13 @@ export class WemaBoard {
     this.boardEl.removeEventListener('pointerdown', this.handleRubberBandDown);
     this.boardEl.removeEventListener('pointermove', this.handleRubberBandMove);
     this.boardEl.removeEventListener('pointerup', this.handleRubberBandUp);
+    this.noteManager.destroy();
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
     this.resizeManager.destroy();
     this.edgePopup.destroy();
     this.notePopup.destroy();
+    this.richTextToolbar.destroy();
     this.selectionManager.destroy();
     this.edgeManager.destroy();
     this.emitter.removeAllListeners();
@@ -537,6 +560,7 @@ export class WemaBoard {
     if (this.readOnly === readOnly) return;
     this.readOnly = readOnly;
     this.noteManager.setReadOnly(readOnly);
+    this.richTextToolbar.setReadOnly(readOnly);
     if (readOnly) {
       this.boardEl.classList.add('wema-readonly');
       this.notePopup.hide();
@@ -558,6 +582,7 @@ export class WemaBoard {
   setViewOnly(viewOnly: boolean): void {
     if (this.viewOnly === viewOnly) return;
     this.viewOnly = viewOnly;
+    this.richTextToolbar.setViewOnly(viewOnly);
     if (viewOnly) {
       // Snapshot note positions before entering viewOnly
       this.positionSnapshot = this.noteManager.getNotes().map((n) => ({ id: n.id, x: n.x, y: n.y }));
@@ -602,6 +627,126 @@ export class WemaBoard {
   }
 
   // --- Internal ---
+
+  /** Open a file picker and insert image as data URI into the note */
+  private insertImageIntoNote(noteId: NoteId): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUri = reader.result as string;
+        const noteEl = this.noteManager.getElement(noteId);
+        if (!noteEl) return;
+        const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+        if (!content) return;
+        const img = document.createElement('img');
+        img.src = dataUri;
+        img.alt = file.name;
+        img.style.maxWidth = '100%';
+        content.appendChild(img);
+        content.dispatchEvent(new Event('input', { bubbles: true }));
+        // Immediately sync to note data
+        const note = this.noteManager.getNote(noteId);
+        if (note) {
+          this.noteManager.updateNote(noteId, { text: content.innerHTML });
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    input.click();
+  }
+
+  /** Show an inline URL input for embedding an iframe into the note */
+  private showEmbedInput(noteId: NoteId): void {
+    // Remove any existing embed input
+    this.boardEl.querySelector('.wema-embed-input')?.remove();
+
+    const note = this.noteManager.getNote(noteId);
+    if (!note) return;
+
+    const container = createElement('div', 'wema-embed-input');
+    container.style.position = 'absolute';
+    container.style.left = `${note.x + note.width / 2}px`;
+    container.style.top = `${note.y + note.height + 50}px`;
+    container.style.transform = 'translateX(-50%)';
+    container.style.zIndex = '10002';
+    container.addEventListener('click', (e) => e.stopPropagation());
+    container.addEventListener('mousedown', (e) => e.stopPropagation());
+    container.addEventListener('pointerdown', (e) => e.stopPropagation());
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'https://...';
+    input.style.cssText = 'width:200px;padding:4px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;';
+
+    const okBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    okBtn.textContent = 'OK';
+    okBtn.addEventListener('click', () => {
+      const rawUrl = input.value.trim();
+      if (!rawUrl) { container.remove(); return; }
+      this.embedUrl(noteId, rawUrl);
+      container.remove();
+    });
+
+    const cancelBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    cancelBtn.textContent = '✕';
+    cancelBtn.addEventListener('click', () => container.remove());
+
+    container.appendChild(input);
+    container.appendChild(okBtn);
+    container.appendChild(cancelBtn);
+    this.boardEl.appendChild(container);
+    input.focus();
+  }
+
+  /** Image URL pattern (by file extension) */
+  private static readonly IMAGE_URL_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?.*)?$/i;
+  /** Video URL pattern (by file extension) */
+  private static readonly VIDEO_URL_RE = /\.(?:mp4|webm|ogg|mov)(?:\?.*)?$/i;
+  /** Audio URL pattern (by file extension) */
+  private static readonly AUDIO_URL_RE = /\.(?:mp3|wav|flac|aac|m4a|opus|weba)(?:\?.*)?$/i;
+
+  /** Convert URL to embed URL and insert iframe/img/video into a note */
+  private async embedUrl(noteId: NoteId, rawUrl: string): Promise<void> {
+    const noteEl = this.noteManager.getElement(noteId);
+    if (!noteEl) return;
+    const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+    if (!content) return;
+
+    if (WemaBoard.IMAGE_URL_RE.test(rawUrl)) {
+      const img = document.createElement('img');
+      img.src = rawUrl;
+      content.appendChild(img);
+    } else if (WemaBoard.VIDEO_URL_RE.test(rawUrl)) {
+      const video = document.createElement('video');
+      video.src = rawUrl;
+      video.controls = true;
+      video.preload = 'metadata';
+      content.appendChild(video);
+    } else if (WemaBoard.AUDIO_URL_RE.test(rawUrl)) {
+      const audio = document.createElement('audio');
+      audio.src = rawUrl;
+      audio.controls = true;
+      audio.preload = 'metadata';
+      content.appendChild(audio);
+    } else {
+      const embedSrc = await toEmbedUrlAsync(rawUrl);
+      const iframe = document.createElement('iframe');
+      iframe.src = embedSrc;
+      iframe.width = '100%';
+      iframe.height = '200';
+      iframe.style.border = 'none';
+      iframe.setAttribute('allowfullscreen', '');
+      iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+      content.appendChild(iframe);
+    }
+    content.dispatchEvent(new Event('input', { bubbles: true }));
+    this.noteManager.updateNote(noteId, { text: content.innerHTML });
+  }
 
   private scheduleChange(): void {
     if (this.changePending) return;

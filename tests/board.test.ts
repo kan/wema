@@ -183,6 +183,63 @@ describe('WemaBoard', () => {
     });
   });
 
+  describe('Rich text (HTML)', () => {
+    it('renders plain text notes with backward compatibility', () => {
+      const note = board.addNote({ text: 'Hello world' });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.innerHTML).toBe('Hello world');
+    });
+
+    it('escapes HTML entities in plain text', () => {
+      const note = board.addNote({ text: 'A & B < C > D' });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.innerHTML).toBe('A &amp; B &lt; C &gt; D');
+    });
+
+    it('strips script tags from HTML text', () => {
+      const note = board.addNote({ text: '<b>safe</b><script>alert("xss")</script>' });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.innerHTML).not.toContain('script');
+      expect(content?.innerHTML).toContain('<b>safe</b>');
+    });
+
+    it('renders HTML text with allowed tags', () => {
+      const note = board.addNote({ text: '<b>bold</b> text' });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.innerHTML).toBe('<b>bold</b> text');
+    });
+
+    it('sanitizes dangerous HTML on render', () => {
+      const note = board.addNote({ text: '<b onclick="alert(1)">bold</b>' });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.innerHTML).not.toContain('onclick');
+      expect(content?.innerHTML).toContain('<b>bold</b>');
+    });
+
+    it('exports and imports HTML text correctly', () => {
+      board.addNote({ text: '<b>bold</b> and <i>italic</i>' });
+      const data = board.exportData();
+      expect(data.notes[0].text).toContain('<b>bold</b>');
+
+      board.importData(data);
+      const notes = board.getNotes();
+      expect(notes[0].text).toContain('<b>bold</b>');
+    });
+
+    it('handles updateNote with HTML text', () => {
+      const note = board.addNote({ text: 'plain' });
+      board.updateNote(note.id, { text: '<b>updated</b>' });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const content = noteEl?.querySelector('.wema-note-content') as HTMLElement;
+      expect(content?.innerHTML).toBe('<b>updated</b>');
+    });
+  });
+
   describe('destroy', () => {
     it('removes the board element from DOM', () => {
       expect(container.querySelector('.wema-board')).toBeTruthy();

@@ -2,6 +2,7 @@ import type { NoteId, WemaNote, WemaEventMap } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import { createElement, setStyles } from './utils/dom.js';
+import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret } from './utils/sanitize.js';
 
 interface NoteManagerOptions {
   boardEl: HTMLElement;
@@ -23,6 +24,10 @@ export class NoteManager {
   private defaultColor: string;
   private readOnly: boolean;
   private viewOnly = false;
+  private imageOverlay: HTMLElement;
+  private activeImage: HTMLImageElement | null = null;
+  private activeImageNoteId: NoteId | null = null;
+  private handleImageOverlayDismiss: (e: MouseEvent) => void;
 
   constructor(options: NoteManagerOptions) {
     this.boardEl = options.boardEl;
@@ -31,6 +36,23 @@ export class NoteManager {
     this.defaultHeight = options.defaultHeight;
     this.defaultColor = options.defaultColor;
     this.readOnly = options.readOnly;
+
+    // Image overlay (size + delete controls)
+    this.imageOverlay = createElement('div', 'wema-image-overlay');
+    this.imageOverlay.style.display = 'none';
+    this.imageOverlay.addEventListener('click', (e) => e.stopPropagation());
+    this.imageOverlay.addEventListener('pointerdown', (e) => e.stopPropagation());
+    this.imageOverlay.addEventListener('mousedown', (e) => e.preventDefault());
+    this.boardEl.appendChild(this.imageOverlay);
+
+    // Dismiss overlay on outside click
+    this.handleImageOverlayDismiss = (e: MouseEvent) => {
+      if (this.imageOverlay.style.display === 'none') return;
+      if (this.imageOverlay.contains(e.target as Node)) return;
+      if (e.target === this.activeImage) return;
+      this.hideImageOverlay();
+    };
+    this.boardEl.addEventListener('click', this.handleImageOverlayDismiss, true);
   }
 
   /** Create a new note and render it */
@@ -153,10 +175,90 @@ export class NoteManager {
       const contentEl = el.querySelector('.wema-note-content') as HTMLElement | null;
       if (!contentEl) continue;
       const note = this.notes.get(id);
-      if (note && note.text !== contentEl.textContent) {
-        note.text = contentEl.textContent ?? '';
+      if (note && note.text !== contentEl.innerHTML) {
+        note.text = contentEl.innerHTML;
       }
     }
+  }
+
+  /** Clean up board-level listeners */
+  destroy(): void {
+    this.boardEl.removeEventListener('click', this.handleImageOverlayDismiss, true);
+    this.imageOverlay.remove();
+  }
+
+  /** Show image overlay above the given image */
+  private showImageOverlay(img: HTMLImageElement, noteId: NoteId): void {
+    this.activeImage = img;
+    this.activeImageNoteId = noteId;
+    img.classList.add('wema-image-selected');
+
+    this.imageOverlay.innerHTML = '';
+
+    // Size buttons
+    const sizes: { label: string; width: string }[] = [
+      { label: 'S', width: '25%' },
+      { label: 'M', width: '50%' },
+      { label: 'L', width: '75%' },
+      { label: '100%', width: '100%' },
+    ];
+    for (const size of sizes) {
+      const btn = createElement('button', 'wema-image-overlay-btn') as HTMLButtonElement;
+      btn.textContent = size.label;
+      btn.title = size.width;
+      const isActive = img.style.width === size.width
+        || (!img.style.width && size.width === '100%');
+      if (isActive) btn.classList.add('active');
+      btn.addEventListener('click', () => {
+        img.style.width = size.width;
+        // Sync to note data
+        this.syncNoteContent(noteId);
+        this.showImageOverlay(img, noteId); // refresh active state
+      });
+      this.imageOverlay.appendChild(btn);
+    }
+
+    // Delete button
+    const delBtn = createElement('button', 'wema-image-overlay-btn wema-image-overlay-delete') as HTMLButtonElement;
+    delBtn.textContent = '✕';
+    delBtn.title = 'Delete image';
+    delBtn.addEventListener('click', () => {
+      img.remove();
+      this.hideImageOverlay();
+      this.syncNoteContent(noteId);
+    });
+    this.imageOverlay.appendChild(delBtn);
+
+    // Position above the image
+    const boardRect = this.boardEl.getBoundingClientRect();
+    const imgRect = img.getBoundingClientRect();
+    this.imageOverlay.style.left = `${imgRect.left + imgRect.width / 2 - boardRect.left}px`;
+    this.imageOverlay.style.top = `${imgRect.top - boardRect.top - 4}px`;
+    this.imageOverlay.style.display = '';
+  }
+
+  /** Hide the image overlay */
+  private hideImageOverlay(): void {
+    this.imageOverlay.style.display = 'none';
+    if (this.activeImage) {
+      this.activeImage.classList.remove('wema-image-selected');
+    }
+    this.activeImage = null;
+    this.activeImageNoteId = null;
+  }
+
+  /** Sync a note's content element innerHTML back to note data */
+  private syncNoteContent(noteId: NoteId): void {
+    const el = this.elements.get(noteId);
+    if (!el) return;
+    const contentEl = el.querySelector('.wema-note-content') as HTMLElement | null;
+    if (!contentEl) return;
+    const current = this.notes.get(noteId);
+    if (!current) return;
+    const prev = { ...current };
+    current.text = contentEl.innerHTML;
+    this.emitter.emit('note:update', { note: { ...current }, prev });
+    this.emitter.emit('change', { data: undefined as never });
   }
 
   /** Remove all notes and DOM elements */
@@ -196,19 +298,124 @@ export class NoteManager {
     if (!this.readOnly && !this.viewOnly) {
       content.contentEditable = 'true';
     }
-    content.textContent = note.text;
+    content.innerHTML = isPlainText(note.text) ? escapeHtml(note.text) : sanitizeHtml(note.text);
+
+    // Track if content was actually edited (prevents false diffs from browser innerHTML normalization)
+    let dirty = false;
+    content.addEventListener('input', () => { dirty = true; });
 
     // Handle blur to commit text edits
     content.addEventListener('blur', () => {
+      if (!dirty) return;
+      dirty = false;
       const current = this.notes.get(note.id);
       if (!current) return;
-      const newText = content.textContent ?? '';
+      const newText = content.innerHTML;
       if (newText !== current.text) {
         const prev = { ...current };
         current.text = newText;
         this.emitter.emit('note:update', { note: { ...current }, prev });
         this.emitter.emit('change', { data: undefined as never }); // board will handle actual data
       }
+    });
+
+    // Paste handler: sanitize pasted HTML
+    content.addEventListener('paste', (e: ClipboardEvent) => {
+      e.preventDefault();
+      const html = e.clipboardData?.getData('text/html');
+      const plain = e.clipboardData?.getData('text/plain') ?? '';
+      if (html) {
+        insertHtmlAtCaret(sanitizeHtml(html));
+      } else {
+        insertHtmlAtCaret(escapeHtml(plain).replace(/\n/g, '<br>'));
+      }
+      dirty = true;
+    });
+
+    // Checkbox toggle handler
+    content.addEventListener('click', (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+        // Allow the default toggle, then sync checked attribute and class
+        setTimeout(() => {
+          const input = target as HTMLInputElement;
+          // Sync .checked property to HTML attribute so innerHTML reflects it
+          if (input.checked) {
+            input.setAttribute('checked', '');
+          } else {
+            input.removeAttribute('checked');
+          }
+          const li = target.closest('li');
+          if (li) {
+            li.classList.toggle('wema-checked', input.checked);
+          }
+          dirty = true;
+          const current = this.notes.get(note.id);
+          if (!current) return;
+          const prev = { ...current };
+          current.text = content.innerHTML;
+          this.emitter.emit('note:update', { note: { ...current }, prev });
+          this.emitter.emit('change', { data: undefined as never });
+        }, 0);
+        return;
+      }
+
+      // Link click handler — always open in new tab
+      if (target.tagName === 'A' || target.closest('a')) {
+        const linkEl = (target.tagName === 'A' ? target : target.closest('a')) as HTMLAnchorElement;
+        e.preventDefault();
+        const href = linkEl.getAttribute('href');
+        if (href) {
+          window.open(href, '_blank', 'noopener');
+        }
+        return;
+      }
+
+      // Image click handler — show size/delete overlay
+      if (target.tagName === 'IMG') {
+        e.preventDefault();
+        if (!this.readOnly && !this.viewOnly) {
+          this.showImageOverlay(target as HTMLImageElement, note.id);
+        }
+      }
+    });
+
+    // Enter key in checklist: insert new TODO item
+    content.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      const sel = document.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const li = (sel.anchorNode?.nodeType === Node.TEXT_NODE
+        ? sel.anchorNode.parentElement : sel.anchorNode as HTMLElement)?.closest('li');
+      if (!li || !li.closest('.wema-checklist')) return;
+
+      e.preventDefault();
+      const newLi = document.createElement('li');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      newLi.appendChild(cb);
+      newLi.appendChild(document.createTextNode(' '));
+
+      // Split text after caret into new item
+      const range = sel.getRangeAt(0);
+      const afterRange = document.createRange();
+      afterRange.setStart(range.endContainer, range.endOffset);
+      afterRange.setEndAfter(li.lastChild ?? li);
+      const trailing = afterRange.extractContents();
+      // Remove the checkbox from extracted contents if any (shouldn't happen, but safety)
+      const extractedCb = trailing.querySelector('input[type="checkbox"]');
+      if (extractedCb) extractedCb.remove();
+      newLi.appendChild(trailing);
+
+      li.parentNode?.insertBefore(newLi, li.nextSibling);
+
+      // Set caret after the checkbox in the new item
+      const newRange = document.createRange();
+      newRange.setStart(newLi, 2); // after checkbox and space text node
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+      dirty = true;
     });
 
     // Anchor points (visual only in Phase 1)
@@ -240,8 +447,8 @@ export class NoteManager {
     if (!el) return;
     this.applyStyles(el, note);
     const content = el.querySelector('.wema-note-content') as HTMLElement | null;
-    if (content && content.textContent !== note.text && document.activeElement !== content) {
-      content.textContent = note.text;
+    if (content && content.innerHTML !== note.text && document.activeElement !== content) {
+      content.innerHTML = isPlainText(note.text) ? escapeHtml(note.text) : sanitizeHtml(note.text);
     }
   }
 
