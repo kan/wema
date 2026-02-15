@@ -18,6 +18,7 @@ import { ResizeManager } from './resize.js';
 import { EdgeStylePopup } from './edge-popup.js';
 import { NoteStylePopup } from './note-popup.js';
 import { alignNotes, distributeNotes, autoLayout } from './layout.js';
+import { HistoryManager } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
 import { createElement, createSvgElement, setStyles } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
@@ -36,6 +37,7 @@ export class WemaBoard {
   private edgePopup: EdgeStylePopup;
   private notePopup: NoteStylePopup;
   private richTextToolbar: RichTextToolbar;
+  private historyManager: HistoryManager;
   private changePending = false;
   private container: HTMLElement;
   private readOnly: boolean;
@@ -116,8 +118,10 @@ export class WemaBoard {
       onDragStart: () => {
         this.notePopup.hide();
         this.noteDragged = true;
+        this.historyManager.beginBatch();
       },
       onDragEnd: (noteId) => {
+        this.historyManager.endBatch();
         // Only auto-select the dragged note if it wasn't part of a group drag
         const sel = this.selectionManager.getSelection();
         if (!sel.includes(noteId)) {
@@ -142,6 +146,8 @@ export class WemaBoard {
       noteManager: this.noteManager,
       emitter: this.emitter,
       getReadOnly: isRestricted,
+      onResizeStart: () => { this.historyManager.beginBatch(); },
+      onResizeEnd: () => { this.historyManager.endBatch(); },
     });
 
     this.edgePopup = new EdgeStylePopup({
@@ -201,6 +207,19 @@ export class WemaBoard {
       viewOnly: this.viewOnly,
     });
 
+    // Initialize history manager for undo/redo
+    this.historyManager = new HistoryManager(this.emitter, {
+      addNoteWithId: (note) => { this.noteManager.addNoteWithId(note); },
+      updateNote: (id, params) => { this.noteManager.updateNote(id, params); },
+      deleteNoteOnly: (id) => {
+        this.selectionManager.deselect(id);
+        this.noteManager.deleteNote(id);
+      },
+      addEdgeWithId: (edge) => { this.edgeManager.addEdgeWithId(edge); },
+      updateEdge: (id, params) => { this.edgeManager.updateEdge(id, params); },
+      deleteEdge: (id) => { this.edgeManager.deleteEdge(id); },
+    });
+
     // Update edges in real-time during note drag
     this.emitter.on('note:update', ({ note }) => {
       this.edgeManager.updateEdgesOf(note.id);
@@ -231,6 +250,23 @@ export class WemaBoard {
 
     // Delete key to remove selected notes or selected edge
     this.handleKeyDown = (e: KeyboardEvent) => {
+      // Undo/Redo shortcuts (work even in readOnly/viewOnly is debatable, but only when not editing text)
+      if ((e.ctrlKey || e.metaKey) && !this.readOnly && !this.viewOnly) {
+        const inEditable = (e.target as HTMLElement).closest('[contenteditable="true"]');
+        if (!inEditable) {
+          if (e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            this.undo();
+            return;
+          }
+          if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+            e.preventDefault();
+            this.redo();
+            return;
+          }
+        }
+      }
+
       if (this.readOnly || this.viewOnly) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't delete notes when editing text
@@ -387,6 +423,7 @@ export class WemaBoard {
     this.edgePopup.destroy();
     this.notePopup.destroy();
     this.richTextToolbar.destroy();
+    this.historyManager.destroy();
     this.selectionManager.destroy();
     this.edgeManager.destroy();
     this.emitter.removeAllListeners();
@@ -518,6 +555,34 @@ export class WemaBoard {
     this.updateNotePopup();
   }
 
+  // --- History ---
+
+  /** Undo the last operation */
+  undo(): void {
+    this.notePopup.hide();
+    this.edgePopup.hide();
+    this.selectionManager.clear();
+    this.historyManager.undo();
+  }
+
+  /** Redo the last undone operation */
+  redo(): void {
+    this.notePopup.hide();
+    this.edgePopup.hide();
+    this.selectionManager.clear();
+    this.historyManager.redo();
+  }
+
+  /** Whether undo is available */
+  canUndo(): boolean {
+    return this.historyManager.canUndo();
+  }
+
+  /** Whether redo is available */
+  canRedo(): boolean {
+    return this.historyManager.canRedo();
+  }
+
   // --- Data ---
 
   /** Export board data as a serializable object */
@@ -539,6 +604,7 @@ export class WemaBoard {
     if (data.edges) {
       this.edgeManager.renderAll(data.edges);
     }
+    this.historyManager.clear();
   }
 
   // --- Events ---

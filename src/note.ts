@@ -78,6 +78,17 @@ export class NoteManager {
     return { ...note };
   }
 
+  /** Add a note with a specific ID (used for undo restore) */
+  addNoteWithId(note: WemaNote): void {
+    const copy = { ...note };
+    if (copy.zIndex >= this.zCounter) {
+      this.zCounter = copy.zIndex + 1;
+    }
+    this.notes.set(copy.id, copy);
+    this.renderNote(copy);
+    this.emitter.emit('note:create', { note: { ...copy } });
+  }
+
   /** Update an existing note's properties */
   updateNote(id: NoteId, params: Partial<WemaNote>): void {
     const note = this.notes.get(id);

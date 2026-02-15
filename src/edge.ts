@@ -65,6 +65,14 @@ export class EdgeManager {
     return { ...edge };
   }
 
+  /** Add an edge with a specific ID (used for undo restore) */
+  addEdgeWithId(edge: WemaEdge): void {
+    const copy = { ...edge };
+    this.edges.set(copy.id, copy);
+    this.renderEdge(copy);
+    this.emitter.emit('edge:create', { edge: { ...copy } });
+  }
+
   /** Delete an edge */
   deleteEdge(id: EdgeId): void {
     const edge = this.edges.get(id);

@@ -82,5 +82,6 @@ export interface WemaEventMap {
   'edge:delete': { edge: WemaEdge };
   'readOnly:change': { readOnly: boolean };
   'viewOnly:change': { viewOnly: boolean };
+  'history:change': { canUndo: boolean; canRedo: boolean };
   'change': { data: WemaBoardData };
 }

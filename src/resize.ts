@@ -19,6 +19,8 @@ export class ResizeManager {
   private noteManager: NoteManager;
   private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
+  private onResizeStart?: () => void;
+  private onResizeEnd?: () => void;
   private ctx: ResizeContext | null = null;
 
   private handlePointerDown: (e: PointerEvent) => void;
@@ -30,11 +32,15 @@ export class ResizeManager {
     noteManager: NoteManager;
     emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
+    onResizeStart?: () => void;
+    onResizeEnd?: () => void;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.emitter = options.emitter;
     this.getReadOnly = options.getReadOnly;
+    this.onResizeStart = options.onResizeStart;
+    this.onResizeEnd = options.onResizeEnd;
 
     this.handlePointerDown = this.onPointerDown.bind(this);
     this.handlePointerMove = this.onPointerMove.bind(this);
@@ -81,6 +87,8 @@ export class ResizeManager {
     this.boardEl.setPointerCapture(e.pointerId);
     this.boardEl.addEventListener('pointermove', this.handlePointerMove);
     this.boardEl.addEventListener('pointerup', this.handlePointerUp);
+
+    this.onResizeStart?.();
   }
 
   private onPointerMove(e: PointerEvent): void {
@@ -107,6 +115,7 @@ export class ResizeManager {
       // already released
     }
 
+    this.onResizeEnd?.();
     this.emitter.emit('change', { data: undefined as never });
     this.ctx = null;
   }
