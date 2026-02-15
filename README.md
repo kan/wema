@@ -1,8 +1,8 @@
 # wema
 
 [![CI](https://github.com/kan/wema/actions/workflows/ci.yml/badge.svg)](https://github.com/kan/wema/actions/workflows/ci.yml)
-[![npm version](https://img.shields.io/npm/v/wema.svg)](https://www.npmjs.com/package/wema)
-[![license](https://img.shields.io/npm/l/wema.svg)](./LICENSE)
+[![npm version](https://img.shields.io/npm/v/@kanf/wema.svg)](https://www.npmjs.com/package/@kanf/wema)
+[![license](https://img.shields.io/npm/l/@kanf/wema.svg)](./LICENSE)
 
 Web上に付箋を絵馬のように貼って並べる、フレームワーク非依存のTypeScriptライブラリ。
 
@@ -26,12 +26,12 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 ### npm パッケージ
 
 ```bash
-npm install wema
+npm install @kanf/wema
 ```
 
 ```typescript
-import { WemaBoard } from 'wema';
-import 'wema/style.css';
+import { WemaBoard } from '@kanf/wema';
+import '@kanf/wema/style.css';
 
 const board = new WemaBoard({
   container: document.getElementById('board'),
