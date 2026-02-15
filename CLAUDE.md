@@ -6,7 +6,7 @@ wemaは、Web上に付箋を絵馬のように貼って並べるフレームワ�
 付箋の作成・編集・自由配置・接続線描画を提供する。
 
 2つの配布形態がある:
-1. **npmパッケージ** (`wema`) — ライブラリとして組み込む
+1. **npmパッケージ** (`@kanf/wema`) — ライブラリとして組み込む
 2. **スタンドアロンHTML** (`wema.html`) — 1ファイルで完結するツール。ブラウザで開くだけで使える
 
 ## 開発ルール
@@ -39,6 +39,9 @@ npm run lint         # リント (tsc --noEmit)
 wema/
 ├── CLAUDE.md
 ├── README.md
+├── CHANGELOG.md              # Keep a Changelog 形式
+├── LICENSE                   # MIT
+├── SECURITY.md               # 脆弱性報告ポリシー
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -55,6 +58,8 @@ wema/
 │   ├── layout.ts             # 整列・均等配置・自動レイアウト
 │   ├── anchor-drag.ts        # アンカーからのEdge作成ドラッグ
 │   ├── resize.ts             # 付箋のリサイズ
+│   ├── rich-text.ts          # リッチテキスト編集 (Selection/Range API)
+│   ├── history.ts            # Undo/Redo 履歴管理 (デルタベース)
 │   ├── edge-popup.ts         # Edge スタイル編集ポップアップ
 │   ├── note-popup.ts         # ノートスタイル編集ポップアップ (単一/複数)
 │   ├── events.ts             # イベントシステム
@@ -62,7 +67,9 @@ wema/
 │   └── utils/
 │       ├── geometry.ts       # 座標計算・アンカーポイント・パス生成
 │       ├── id.ts             # ID生成 (crypto.randomUUID)
-│       └── dom.ts            # DOM/SVG操作ヘルパー
+│       ├── dom.ts            # DOM/SVG操作ヘルパー
+│       ├── sanitize.ts       # HTML サニタイズ
+│       └── oembed.ts         # oEmbed URL → iframe 変換
 ├── standalone/
 │   └── template.html         # スタンドアロン版テンプレート
 ├── dist/                     # ビルド成果物 (gitignore)
@@ -76,10 +83,13 @@ wema/
 │   ├── edge.test.ts
 │   ├── events.test.ts
 │   ├── geometry.test.ts
-│   └── layout.test.ts
+│   ├── layout.test.ts
+│   ├── sanitize.test.ts
+│   └── history.test.ts
 └── .github/
+    ├── dependabot.yml        # 依存の自動更新 (npm + GitHub Actions)
     └── workflows/
-        ├── ci.yml            # テスト・ビルド
+        ├── ci.yml            # テスト・ビルド + npm audit
         └── release.yml       # リリース (HTML配布 + npm publish)
 ```
 
@@ -249,6 +259,7 @@ interface WemaEventMap {
   'edge:delete':     { edge: WemaEdge };
   'readOnly:change': { readOnly: boolean };
   'viewOnly:change': { viewOnly: boolean };
+  'history:change':  { canUndo: boolean; canRedo: boolean };
   'change':          { data: WemaBoardData };
 }
 ```
@@ -313,50 +324,40 @@ interface WemaEventMap {
 
 ## 実装フェーズ
 
-### Phase 1 — MVP [完了]
+### Phase 1〜5 [完了 → v0.1.0]
 
-プロジェクトセットアップ、型定義、イベントシステム、WemaBoardクラス、
-付箋CRUD、ドラッグ&ドロップ、exportData/importData、デフォルトCSS、
-スタンドアロン版テンプレート、ビルドスクリプト、CI
-
-### Phase 2 — 接続線 [完了]
-
-アンカーポイント表示、ドラッグによるEdge作成、SVGパス描画 (auto anchor計算)、
-Edge削除、Edge スタイル編集 (線種・矢印・太さ・ルーティング・アンカー指定)
-
-### Phase 3 — レイアウト・整列 [完了]
-
-複数選択 (Shift+Click / Ctrl+Click / ラバーバンド)、グループドラッグ、
-alignNotes / distributeNotes、autoLayout (BFS階層レイアウト)、
-複数選択ポップアップ (一括色変更・一括削除)
-
-### Phase 4 — リッチテキスト
-
-付箋のテキストをリッチテキスト対応にする (外部依存ゼロを維持、Selection/Range API で実装)。
-- 太字、テキスト色変更
-- 箇条書き (ul/ol)
-- チェックボックス (簡易TODO管理)
-- リンク (`<a>`)
-- 画像添付 (`<img>`、スタンドアロン版は data URI 保存)
-- Embed (`<iframe>`)
-- `note.text` を HTML 文字列として保存する形式に拡張
-
-### Phase 5 — Undo / Redo
-
-ライブラリレベルでコマンドパターンによる履歴管理を実装。
-- 各ミューテーション (add/update/delete note/edge) を可逆コマンドとして記録
-- `undo()` / `redo()` / `canUndo` / `canRedo` を Public API に追加
-- グループ操作 (一括削除、autoLayout 等) は1つの undo ステップにまとめる
+1. **MVP** — 付箋 CRUD、ドラッグ、exportData/importData、スタンドアロン版、CI
+2. **接続線** — アンカーポイント、SVG パス描画、Edge スタイル編集
+3. **レイアウト・整列** — 複数選択、グループドラッグ、align/distribute/autoLayout
+4. **リッチテキスト** — 太字、色、リスト、チェックボックス、リンク、画像、Embed
+5. **Undo/Redo** — デルタベース履歴、マイクロタスクバッチング
 
 ---
 
-**v1.0 リリース: Phase 5 完了後** — npm publish + GitHub Release (wema.html 配布)
+**v0.1.0 リリース済み** — npm (`@kanf/wema`) + GitHub Release (`wema.html` 配布)
 
 ---
+
+### Phase 6 — パン & ズーム
+
+CSS transform (translate + scale) をボード内コンテナ (`.wema-viewport`) に適用する方式。
+- ズーム: Ctrl+ホイール、ピンチ、ツールバー +/- ボタン
+- パン: 中ボタンドラッグ、Space+ドラッグ
+- 全座標系にビューポート変換を挟む (ドラッグ、リサイズ、ラバーバンド、アンカードラッグ、ダブルクリック作成)
+- SVG 層も同じ transform を適用
+- `exportData()` / `importData()` の `viewport` フィールドを実際に使う
+- ビューポート操作は Undo/Redo 対象外
+
+### Phase 7 — 入れ子ボード
+
+付箋を子ボードに見立てた階層構造 (`children?: WemaBoardData`)。
+Phase 6 のパン&ズームを活かし、子ボードへの「ズームイン」体験を提供する。
+
+### Phase 8 — モバイル対応
+
+スマホ Web での動作を正式サポート。タッチ操作の最適化、レスポンシブ UI。
 
 ### 将来
 
-- 入れ子ボード (付箋を子ボードに見立てた階層構造、`children?: WemaBoardData`)
-- パン & ズーム
-- React / Vue アダプター (`wema-react` / `wema-vue` 別パッケージ)
-- オンラインコラボレーション (wema ライブラリ + WebSocket の別 Web アプリとして実現)
+- React / Vue アダプター (`@kanf/wema-react` / `@kanf/wema-vue` 別パッケージ)
+- オンラインコラボレーション (wema ライブラリ + WebSocket の別 Web アプリとして実現、別リポジトリ)
