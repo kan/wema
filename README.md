@@ -12,11 +12,13 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 
 付箋の作成・編集・自由配置・接続線描画を提供する。1ファイルで完結するスタンドアロンHTML版もあり、ブラウザで開くだけで使える。
 
+**[デモを試す](https://kan.github.io/wema/)**
+
 ## 使い方
 
 ### スタンドアロン版（最も簡単）
 
-[Releases](https://github.com/kan/wema/releases) から `wema.html` をダウンロードしてブラウザで開くだけ。
+[デモページ](https://kan.github.io/wema/)でそのまま使うか、[Releases](https://github.com/kan/wema/releases) から `wema.html` をダウンロードしてブラウザで開く。
 
 - 付箋の追加・編集・ドラッグ移動・リサイズ・削除
 - 接続線（Edge）の作成・スタイル編集

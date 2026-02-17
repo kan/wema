@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-02-18
+
+### Added
+
+- **折り畳み（Collapse）** — ムーブハンドル左端のシェブロン（▾/▸）で付箋を折り畳み/展開。折り畳み時はハンドル＋テキスト1行目のみ表示
+- **autoSize モード** — 付箋のサイズをコンテンツに自動フィットさせるモード
+- **GitHub Pages デモ** — https://kan.github.io/wema/ でスタンドアロン版を公開
+- **ロゴ** — favicon、ツールバー、README にロゴを追加
+
+### Changed
+
+- ツールバーのテキストラベルを SVG アイコンに置き換え、レイアウトボタンをドロップダウンに統合
+- ビューポートを超えるノートがある場合にスタンドアロン版でスクロール可能に
+
+### Fixed
+
+- lock/viewOnly 切替時の選択状態クリア漏れ
+- リスト変換の revert 不具合
+- チェックリスト内での IME 確定 Enter の誤動作
+
 ## [0.1.0] - 2025-02-15
 
 ### Added
@@ -22,4 +42,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.2.0]: https://github.com/kan/wema/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kan/wema/releases/tag/v0.1.0
