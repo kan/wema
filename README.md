@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="standalone/favicon.svg" width="96" height="96" alt="wema logo">
+</p>
+
 # wema
 
 [![CI](https://github.com/kan/wema/actions/workflows/ci.yml/badge.svg)](https://github.com/kan/wema/actions/workflows/ci.yml)

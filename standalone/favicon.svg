@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Arrow (behind notes): yellow right-center to blue top-center -->
+  <path d="M15 9.5 C21 9.5, 23.5 12, 23.5 15" fill="none" stroke="#555" stroke-width="1.5" stroke-linecap="round"/>
+  <polygon points="23.5,17 21.5,14 25.5,14" fill="#555"/>
+  <!-- Yellow note (left-top) -->
+  <rect x="2" y="4" width="13" height="11" rx="2" fill="#FDD835" stroke="#F9A825" stroke-width="1"/>
+  <line x1="5" y1="8" x2="12" y2="8" stroke="#F9A825" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <line x1="5" y1="11" x2="10" y2="11" stroke="#F9A825" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <!-- Blue note (right-bottom) -->
+  <rect x="17" y="17" width="13" height="11" rx="2" fill="#64B5F6" stroke="#1E88E5" stroke-width="1"/>
+  <line x1="20" y1="21" x2="27" y2="21" stroke="#1E88E5" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <line x1="20" y1="24" x2="25" y2="24" stroke="#1E88E5" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+</svg>

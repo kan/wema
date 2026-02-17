@@ -7,11 +7,12 @@ const distDir = resolve(root, 'dist');
 // Read built assets
 const css = readFileSync(resolve(distDir, 'wema.css'), 'utf-8');
 const js = readFileSync(resolve(distDir, 'wema.umd.js'), 'utf-8');
+const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf-8'));
 
 // Read template
 const template = readFileSync(resolve(root, 'standalone/template.html'), 'utf-8');
 
-// Inject CSS and JS
+// Inject CSS, JS, and version
 let html = template.replace(
   '<!-- __WEMA_CSS__ -->',
   `<style>\n${css}\n</style>`,
@@ -20,6 +21,7 @@ html = html.replace(
   '<!-- __WEMA_JS__ -->',
   `<script>\n${js}\n</script>`,
 );
+html = html.replace('__WEMA_VERSION__', pkg.version);
 
 // Ensure dist directory exists
 mkdirSync(distDir, { recursive: true });
