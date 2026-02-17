@@ -71,10 +71,16 @@
 
     #board-container {
       flex: 1;
+      overflow: auto;
       background:
         linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
         linear-gradient(#f0f0f0 1px, transparent 1px);
       background-size: 20px 20px;
+    }
+    #board-container .wema-board {
+      overflow: visible;
+      min-height: 100%;
+      min-width: 100%;
     }
 
     #status {
@@ -194,9 +200,29 @@
         }
         updateStatus();
 
+        // Resize board to encompass all notes (enables scrolling)
+        var boardEl = container.querySelector('.wema-board');
+        var BOARD_PADDING = 40;
+        function updateBoardSize() {
+          var notes = board.getNotes();
+          var maxRight = 0;
+          var maxBottom = 0;
+          for (var i = 0; i < notes.length; i++) {
+            var n = notes[i];
+            var r = n.x + n.width + BOARD_PADDING;
+            var b = n.y + n.height + BOARD_PADDING;
+            if (r > maxRight) maxRight = r;
+            if (b > maxBottom) maxBottom = b;
+          }
+          boardEl.style.width = maxRight > 0 ? maxRight + 'px' : '';
+          boardEl.style.height = maxBottom > 0 ? maxBottom + 'px' : '';
+        }
+        updateBoardSize();
+
         // Auto-save with 300ms debounce (skip in viewOnly mode)
         board.on('change', function() {
           updateStatus();
+          updateBoardSize();
           if (board.isViewOnly()) return;
           if (saveTimer) clearTimeout(saveTimer);
           saveTimer = setTimeout(function() {
