@@ -90,7 +90,8 @@ wema/
     ├── dependabot.yml        # 依存の自動更新 (npm + GitHub Actions)
     └── workflows/
         ├── ci.yml            # テスト・ビルド + npm audit
-        └── release.yml       # リリース (HTML配布 + npm publish)
+        ├── release.yml       # リリース (HTML配布 + npm publish)
+        └── pages.yml         # GitHub Pages デプロイ (https://kan.github.io/wema/)
 ```
 
 ## 技術スタック
@@ -155,6 +156,8 @@ interface WemaNote {
   text: string;
   color: string;
   zIndex: number;
+  autoSize?: boolean;
+  collapsed?: boolean;
 }
 
 interface WemaEdge {
@@ -332,9 +335,15 @@ interface WemaEventMap {
 4. **リッチテキスト** — 太字、色、リスト、チェックボックス、リンク、画像、Embed
 5. **Undo/Redo** — デルタベース履歴、マイクロタスクバッチング
 
+### v0.2.0 追加機能
+
+- **autoSize** — 付箋サイズをコンテンツに自動フィット (`autoSize?: boolean`)
+- **折り畳み (Collapse)** — ムーブハンドル左端のシェブロンで付箋を折り畳み/展開 (`collapsed?: boolean`)
+- **GitHub Pages デモ** — https://kan.github.io/wema/
+
 ---
 
-**v0.1.0 リリース済み** — npm (`@kanf/wema`) + GitHub Release (`wema.html` 配布)
+**v0.2.0 リリース済み** — npm (`@kanf/wema`) + GitHub Release + GitHub Pages
 
 ---
 
