@@ -11,6 +11,7 @@ interface NoteManagerOptions {
   defaultHeight: number;
   defaultColor: string;
   readOnly: boolean;
+  onCollapseToggle?: (noteId: NoteId) => void;
 }
 
 export class NoteManager {
@@ -24,6 +25,7 @@ export class NoteManager {
   private defaultColor: string;
   private readOnly: boolean;
   private viewOnly = false;
+  private onCollapseToggle?: (noteId: NoteId) => void;
   private imageOverlay: HTMLElement;
   private activeImage: HTMLImageElement | null = null;
   private activeImageNoteId: NoteId | null = null;
@@ -36,6 +38,7 @@ export class NoteManager {
     this.defaultHeight = options.defaultHeight;
     this.defaultColor = options.defaultColor;
     this.readOnly = options.readOnly;
+    this.onCollapseToggle = options.onCollapseToggle;
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -67,6 +70,7 @@ export class NoteManager {
       color: params?.color ?? this.defaultColor,
       zIndex: params?.zIndex ?? this.zCounter++,
       ...(params?.autoSize ? { autoSize: true } : {}),
+      ...(params?.collapsed ? { collapsed: true } : {}),
     };
 
     if (note.zIndex >= this.zCounter) {
@@ -317,10 +321,25 @@ export class NoteManager {
 
     // Move handle (grip bar at top)
     const moveHandle = createElement('div', 'wema-move-handle');
+    moveHandle.style.position = 'relative';
     moveHandle.innerHTML = '<svg width="20" height="10" viewBox="0 0 20 10"><circle cx="4" cy="3" r="1.5" fill="currentColor"/><circle cx="10" cy="3" r="1.5" fill="currentColor"/><circle cx="16" cy="3" r="1.5" fill="currentColor"/><circle cx="4" cy="8" r="1.5" fill="currentColor"/><circle cx="10" cy="8" r="1.5" fill="currentColor"/><circle cx="16" cy="8" r="1.5" fill="currentColor"/></svg>';
     if (this.readOnly) {
       moveHandle.style.visibility = 'hidden';
     }
+
+    // Collapse toggle chevron
+    const collapseBtn = createElement('button', 'wema-collapse-toggle') as HTMLButtonElement;
+    collapseBtn.type = 'button';
+    collapseBtn.title = 'Collapse';
+    collapseBtn.innerHTML = note.collapsed
+      ? '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      : '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 3l4 5 4-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    collapseBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); });
+    collapseBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.onCollapseToggle?.(note.id);
+    });
+    moveHandle.appendChild(collapseBtn);
 
     const content = createElement('div', 'wema-note-content');
     if (!this.readOnly && !this.viewOnly) {
@@ -518,5 +537,14 @@ export class NoteManager {
     });
     el.style.setProperty('--wema-note-color', note.color);
     el.classList.toggle('wema-auto-size', !!note.autoSize);
+    el.classList.toggle('wema-collapsed', !!note.collapsed);
+
+    // Update chevron direction
+    const collapseBtn = el.querySelector('.wema-collapse-toggle');
+    if (collapseBtn) {
+      collapseBtn.innerHTML = note.collapsed
+        ? '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M3 1l5 4-5 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        : '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 3l4 5 4-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    }
   }
 }

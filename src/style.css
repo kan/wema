@@ -467,6 +467,47 @@
   box-shadow: 0 0 0 1px #333;
 }
 
+/* Collapse toggle button (inside move handle) */
+.wema-collapse-toggle {
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0 2px;
+  color: rgba(0, 0, 0, 0.3);
+  font-size: 0;
+  line-height: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.wema-note:hover .wema-collapse-toggle {
+  opacity: 1;
+}
+
+.wema-note.wema-collapsed .wema-collapse-toggle {
+  opacity: 1;
+}
+
+/* Collapsed state */
+.wema-note.wema-collapsed {
+  height: auto !important;
+}
+
+.wema-note.wema-collapsed .wema-note-content {
+  max-height: 1.4em;
+  overflow: hidden;
+  pointer-events: none;
+  padding-bottom: 4px;
+}
+
+.wema-note.wema-collapsed .wema-resize-handle {
+  display: none;
+}
+
 /* Auto-size mode */
 .wema-note.wema-auto-size {
   width: fit-content !important;

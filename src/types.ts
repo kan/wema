@@ -33,6 +33,7 @@ export interface WemaNote {
   color: string;
   zIndex: number;
   autoSize?: boolean;
+  collapsed?: boolean;
 }
 
 /** A connection line between two notes */

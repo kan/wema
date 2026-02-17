@@ -298,6 +298,71 @@ describe('WemaBoard', () => {
     });
   });
 
+  describe('collapsed', () => {
+    it('addNote with collapsed stores the flag', () => {
+      const note = board.addNote({ collapsed: true });
+      expect(note.collapsed).toBe(true);
+      const retrieved = board.getNote(note.id);
+      expect(retrieved?.collapsed).toBe(true);
+    });
+
+    it('addNote without collapsed defaults to undefined', () => {
+      const note = board.addNote();
+      expect(note.collapsed).toBeUndefined();
+    });
+
+    it('updateNote can toggle collapsed on and off', () => {
+      const note = board.addNote();
+      board.updateNote(note.id, { collapsed: true });
+      expect(board.getNote(note.id)?.collapsed).toBe(true);
+      board.updateNote(note.id, { collapsed: false });
+      expect(board.getNote(note.id)?.collapsed).toBe(false);
+    });
+
+    it('adds wema-collapsed class when collapsed is true', () => {
+      const note = board.addNote({ collapsed: true });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      expect(noteEl?.classList.contains('wema-collapsed')).toBe(true);
+    });
+
+    it('removes wema-collapsed class when collapsed is turned off', () => {
+      const note = board.addNote({ collapsed: true });
+      board.updateNote(note.id, { collapsed: false });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      expect(noteEl?.classList.contains('wema-collapsed')).toBe(false);
+    });
+
+    it('exports and imports collapsed flag', () => {
+      board.addNote({ text: 'folded', collapsed: true });
+      board.addNote({ text: 'open' });
+      const data = board.exportData();
+      expect(data.notes.find(n => n.text === 'folded')?.collapsed).toBe(true);
+      expect(data.notes.find(n => n.text === 'open')?.collapsed).toBeUndefined();
+
+      board.importData(data);
+      const notes = board.getNotes();
+      expect(notes.find(n => n.text === 'folded')?.collapsed).toBe(true);
+    });
+
+    it('emits note:update when toggling collapsed', () => {
+      const note = board.addNote();
+      const handler = vi.fn();
+      board.on('note:update', handler);
+      board.updateNote(note.id, { collapsed: true });
+      expect(handler).toHaveBeenCalledWith({
+        note: expect.objectContaining({ collapsed: true }),
+        prev: expect.objectContaining({ id: note.id }),
+      });
+    });
+
+    it('has a collapse toggle button inside the move handle', () => {
+      const note = board.addNote();
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const toggle = noteEl?.querySelector('.wema-collapse-toggle');
+      expect(toggle).toBeTruthy();
+    });
+  });
+
   describe('destroy', () => {
     it('removes the board element from DOM', () => {
       expect(container.querySelector('.wema-board')).toBeTruthy();
