@@ -393,7 +393,7 @@ export class NoteManager {
 
     // Enter key in checklist: insert new TODO item
     content.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key !== 'Enter') return;
+      if (e.key !== 'Enter' || e.isComposing) return;
       const sel = document.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const li = (sel.anchorNode?.nodeType === Node.TEXT_NODE

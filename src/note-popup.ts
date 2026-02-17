@@ -296,7 +296,9 @@ export class NoteStylePopup {
       content.appendChild(this.createNewList(listType));
     }
 
-    content.dispatchEvent(new Event('input', { bubbles: true }));
+    // Update model directly so updateNoteElement won't overwrite the DOM
+    // (dispatching 'input' only sets dirty without syncing the model)
+    this.noteManager.updateNote(noteId, { text: content.innerHTML });
   }
 
   /** Find the closest ul/ol ancestor of the caret within the content element */
@@ -381,7 +383,7 @@ export class NoteStylePopup {
     while (temp.firstChild) {
       content.appendChild(temp.firstChild);
     }
-    // Trigger input event so dirty flag is set
-    content.dispatchEvent(new Event('input', { bubbles: true }));
+    // Update model directly so updateNoteElement won't overwrite the DOM
+    this.noteManager.updateNote(noteId, { text: content.innerHTML });
   }
 }

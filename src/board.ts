@@ -629,6 +629,7 @@ export class WemaBoard {
     this.richTextToolbar.setReadOnly(readOnly);
     if (readOnly) {
       this.boardEl.classList.add('wema-readonly');
+      this.selectionManager.clear();
       this.notePopup.hide();
       this.edgePopup.hide();
     } else {
@@ -653,6 +654,7 @@ export class WemaBoard {
       // Snapshot note positions before entering viewOnly
       this.positionSnapshot = this.noteManager.getNotes().map((n) => ({ id: n.id, x: n.x, y: n.y }));
       this.boardEl.classList.add('wema-viewonly');
+      this.selectionManager.clear();
       this.noteManager.setViewOnly(true);
       this.notePopup.hide();
       this.edgePopup.hide();
