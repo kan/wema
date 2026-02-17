@@ -240,6 +240,64 @@ describe('WemaBoard', () => {
     });
   });
 
+  describe('autoSize', () => {
+    it('addNote with autoSize stores the flag', () => {
+      const note = board.addNote({ autoSize: true });
+      expect(note.autoSize).toBe(true);
+      const retrieved = board.getNote(note.id);
+      expect(retrieved?.autoSize).toBe(true);
+    });
+
+    it('addNote without autoSize defaults to undefined', () => {
+      const note = board.addNote();
+      expect(note.autoSize).toBeUndefined();
+    });
+
+    it('updateNote can toggle autoSize on and off', () => {
+      const note = board.addNote();
+      board.updateNote(note.id, { autoSize: true });
+      expect(board.getNote(note.id)?.autoSize).toBe(true);
+      board.updateNote(note.id, { autoSize: false });
+      expect(board.getNote(note.id)?.autoSize).toBe(false);
+    });
+
+    it('adds wema-auto-size class when autoSize is true', () => {
+      const note = board.addNote({ autoSize: true });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      expect(noteEl?.classList.contains('wema-auto-size')).toBe(true);
+    });
+
+    it('removes wema-auto-size class when autoSize is turned off', () => {
+      const note = board.addNote({ autoSize: true });
+      board.updateNote(note.id, { autoSize: false });
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      expect(noteEl?.classList.contains('wema-auto-size')).toBe(false);
+    });
+
+    it('exports and imports autoSize flag', () => {
+      board.addNote({ text: 'auto', autoSize: true });
+      board.addNote({ text: 'manual' });
+      const data = board.exportData();
+      expect(data.notes.find(n => n.text === 'auto')?.autoSize).toBe(true);
+      expect(data.notes.find(n => n.text === 'manual')?.autoSize).toBeUndefined();
+
+      board.importData(data);
+      const notes = board.getNotes();
+      expect(notes.find(n => n.text === 'auto')?.autoSize).toBe(true);
+    });
+
+    it('emits note:update when toggling autoSize', () => {
+      const note = board.addNote();
+      const handler = vi.fn();
+      board.on('note:update', handler);
+      board.updateNote(note.id, { autoSize: true });
+      expect(handler).toHaveBeenCalledWith({
+        note: expect.objectContaining({ autoSize: true }),
+        prev: expect.objectContaining({ id: note.id }),
+      });
+    });
+  });
+
   describe('destroy', () => {
     it('removes the board element from DOM', () => {
       expect(container.querySelector('.wema-board')).toBeTruthy();

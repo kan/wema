@@ -467,6 +467,22 @@
   box-shadow: 0 0 0 1px #333;
 }
 
+/* Auto-size mode */
+.wema-note.wema-auto-size {
+  width: fit-content !important;
+  height: auto !important;
+  min-width: 80px;
+  max-width: 600px;
+}
+
+.wema-note.wema-auto-size .wema-note-content {
+  overflow: visible;
+}
+
+.wema-note.wema-auto-size .wema-resize-handle {
+  display: none;
+}
+
 /* Resize handle */
 .wema-resize-handle {
   position: absolute;

@@ -27,6 +27,8 @@ const IMAGE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
 
 const EMBED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
 
+const AUTO_SIZE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
+
 export class NoteStylePopup {
   private popupEl: HTMLElement;
   private boardEl: HTMLElement;
@@ -38,6 +40,8 @@ export class NoteStylePopup {
   private onMultiDelete: (noteIds: NoteId[]) => void;
   private onInsertImage: ((noteId: NoteId) => void) | null = null;
   private onInsertEmbed: ((noteId: NoteId) => void) | null = null;
+  private onAutoSizeToggle: ((noteId: NoteId) => void) | null = null;
+  private onMultiAutoSizeToggle: ((noteIds: NoteId[]) => void) | null = null;
   private currentNoteId: NoteId | null = null;
   private currentNoteIds: NoteId[] | null = null;
 
@@ -51,6 +55,8 @@ export class NoteStylePopup {
     onMultiDelete: (noteIds: NoteId[]) => void;
     onInsertImage?: (noteId: NoteId) => void;
     onInsertEmbed?: (noteId: NoteId) => void;
+    onAutoSizeToggle?: (noteId: NoteId) => void;
+    onMultiAutoSizeToggle?: (noteIds: NoteId[]) => void;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
@@ -61,6 +67,8 @@ export class NoteStylePopup {
     this.onMultiDelete = options.onMultiDelete;
     this.onInsertImage = options.onInsertImage ?? null;
     this.onInsertEmbed = options.onInsertEmbed ?? null;
+    this.onAutoSizeToggle = options.onAutoSizeToggle ?? null;
+    this.onMultiAutoSizeToggle = options.onMultiAutoSizeToggle ?? null;
 
     this.popupEl = createElement('div', 'wema-note-popup');
     this.popupEl.style.display = 'none';
@@ -109,7 +117,18 @@ export class NoteStylePopup {
       this.onDelete(id);
     });
 
+    // Auto-size toggle button
+    const autoSizeBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    autoSizeBtn.innerHTML = AUTO_SIZE_ICON;
+    autoSizeBtn.title = 'Auto Size';
+    if (note.autoSize) autoSizeBtn.classList.add('active');
+    autoSizeBtn.addEventListener('click', () => {
+      if (!this.currentNoteId) return;
+      this.onAutoSizeToggle?.(this.currentNoteId);
+    });
+
     actions.appendChild(colorBtn);
+    actions.appendChild(autoSizeBtn);
     actions.appendChild(dupBtn);
     actions.appendChild(delBtn);
 
@@ -217,6 +236,17 @@ export class NoteStylePopup {
       colorGrid.style.display = isVisible ? 'none' : '';
     });
 
+    // Auto-size toggle button
+    const allAutoSize = notes.every((n) => n.autoSize);
+    const autoSizeBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    autoSizeBtn.innerHTML = AUTO_SIZE_ICON;
+    autoSizeBtn.title = 'Auto Size';
+    if (allAutoSize) autoSizeBtn.classList.add('active');
+    autoSizeBtn.addEventListener('click', () => {
+      if (!this.currentNoteIds) return;
+      this.onMultiAutoSizeToggle?.(this.currentNoteIds.slice());
+    });
+
     // Delete button
     const delBtn = createElement('button', 'wema-popup-btn wema-popup-btn-delete') as HTMLButtonElement;
     delBtn.innerHTML = TRASH_ICON;
@@ -229,6 +259,7 @@ export class NoteStylePopup {
     });
 
     actions.appendChild(colorBtn);
+    actions.appendChild(autoSizeBtn);
     actions.appendChild(delBtn);
 
     // Color grid (hidden by default)

@@ -66,6 +66,7 @@ export class NoteManager {
       text: params?.text ?? '',
       color: params?.color ?? this.defaultColor,
       zIndex: params?.zIndex ?? this.zCounter++,
+      ...(params?.autoSize ? { autoSize: true } : {}),
     };
 
     if (note.zIndex >= this.zCounter) {
@@ -294,6 +295,22 @@ export class NoteManager {
     }
   }
 
+  /** Sync autoSize note dimensions from CSS layout to model, triggering edge redraw */
+  private syncAutoSize(noteId: NoteId): void {
+    const note = this.notes.get(noteId);
+    if (!note || !note.autoSize) return;
+    const el = this.elements.get(noteId);
+    if (!el) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    if (w !== note.width || h !== note.height) {
+      note.width = w;
+      note.height = h;
+      // Trigger edge redraw via note:update without going through full updateNote
+      this.emitter.emit('note:update', { note: { ...note }, prev: { ...note, width: note.width, height: note.height } });
+    }
+  }
+
   private renderNote(note: WemaNote): void {
     const el = createElement('div', 'wema-note');
     el.dataset.noteId = note.id;
@@ -313,7 +330,10 @@ export class NoteManager {
 
     // Track if content was actually edited (prevents false diffs from browser innerHTML normalization)
     let dirty = false;
-    content.addEventListener('input', () => { dirty = true; });
+    content.addEventListener('input', () => {
+      dirty = true;
+      this.syncAutoSize(note.id);
+    });
 
     // Handle blur to commit text edits
     content.addEventListener('blur', () => {
@@ -322,9 +342,20 @@ export class NoteManager {
       const current = this.notes.get(note.id);
       if (!current) return;
       const newText = content.innerHTML;
+      const params: Partial<WemaNote> = {};
       if (newText !== current.text) {
+        params.text = newText;
+      }
+      // Sync autoSize dimensions on blur
+      if (current.autoSize) {
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        if (w !== current.width) params.width = w;
+        if (h !== current.height) params.height = h;
+      }
+      if (Object.keys(params).length > 0) {
         const prev = { ...current };
-        current.text = newText;
+        Object.assign(current, params);
         this.emitter.emit('note:update', { note: { ...current }, prev });
         this.emitter.emit('change', { data: undefined as never }); // board will handle actual data
       }
@@ -461,6 +492,20 @@ export class NoteManager {
     if (content && content.innerHTML !== note.text && document.activeElement !== content) {
       content.innerHTML = isPlainText(note.text) ? escapeHtml(note.text) : sanitizeHtml(note.text);
     }
+    // After CSS layout, sync measured size back to model for autoSize notes
+    if (note.autoSize) {
+      requestAnimationFrame(() => {
+        const current = this.notes.get(note.id);
+        if (!current || !current.autoSize) return;
+        const w = el.offsetWidth;
+        const h = el.offsetHeight;
+        if (w !== current.width || h !== current.height) {
+          current.width = w;
+          current.height = h;
+          this.emitter.emit('change', { data: undefined as never });
+        }
+      });
+    }
   }
 
   private applyStyles(el: HTMLElement, note: WemaNote): void {
@@ -472,5 +517,6 @@ export class NoteManager {
       zIndex: String(note.zIndex),
     });
     el.style.setProperty('--wema-note-color', note.color);
+    el.classList.toggle('wema-auto-size', !!note.autoSize);
   }
 }

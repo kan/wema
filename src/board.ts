@@ -181,6 +181,7 @@ export class WemaBoard {
           height: note.height,
           text: note.text,
           color: note.color,
+          ...(note.autoSize ? { autoSize: true } : {}),
         });
         this.selectionManager.select([newNote.id]);
         this.notePopup.show(newNote.id);
@@ -198,6 +199,20 @@ export class WemaBoard {
       },
       onInsertEmbed: (noteId) => {
         this.showEmbedInput(noteId);
+      },
+      onAutoSizeToggle: (noteId) => {
+        const note = this.noteManager.getNote(noteId);
+        if (!note) return;
+        this.noteManager.updateNote(noteId, { autoSize: !note.autoSize });
+        this.notePopup.show(noteId);
+      },
+      onMultiAutoSizeToggle: (noteIds) => {
+        const notes = noteIds.map((id) => this.noteManager.getNote(id)).filter((n) => n != null);
+        const allAutoSize = notes.every((n) => n.autoSize);
+        for (const id of noteIds) {
+          this.noteManager.updateNote(id, { autoSize: !allAutoSize });
+        }
+        this.notePopup.showMulti(noteIds);
       },
     });
 
