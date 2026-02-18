@@ -185,6 +185,8 @@
         var savedData = await loadData(db);
 
         var savedTheme = localStorage.getItem('wema-theme') || 'default';
+        var savedLocked = localStorage.getItem('wema-locked') === 'true';
+        var savedViewOnly = localStorage.getItem('wema-viewonly') === 'true';
 
         var board = new Wema.WemaBoard({
           container: container,
@@ -298,6 +300,8 @@
           }
           board.setReadOnly(!board.isReadOnly());
           updateLockState();
+          localStorage.setItem('wema-locked', board.isReadOnly());
+          localStorage.setItem('wema-viewonly', 'false');
         });
 
         // Read Only toggle
@@ -326,7 +330,18 @@
           }
           board.setViewOnly(!board.isViewOnly());
           updateViewOnlyState();
+          localStorage.setItem('wema-viewonly', board.isViewOnly());
+          localStorage.setItem('wema-locked', 'false');
         });
+
+        // Apply saved lock/viewOnly state on startup
+        if (savedLocked) {
+          board.setReadOnly(true);
+          updateLockState();
+        } else if (savedViewOnly) {
+          board.setViewOnly(true);
+          updateViewOnlyState();
+        }
 
         // Theme toggle
         var btnTheme = document.getElementById('btn-theme');
@@ -451,6 +466,8 @@
             }
             board.setReadOnly(!board.isReadOnly());
             updateLockState();
+            localStorage.setItem('wema-locked', board.isReadOnly());
+            localStorage.setItem('wema-viewonly', 'false');
           }
           // Ctrl/Cmd+Shift+L to toggle read only
           if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'L') {
@@ -461,6 +478,8 @@
             }
             board.setViewOnly(!board.isViewOnly());
             updateViewOnlyState();
+            localStorage.setItem('wema-viewonly', board.isViewOnly());
+            localStorage.setItem('wema-locked', 'false');
           }
         });
       }

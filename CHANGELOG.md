@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-02-18
+
+### Added
+
+- **接続先ノードの自動作成** — アンカーから接続線をドラッグして空白にドロップすると、その場に新しい付箋を作成して自動的に繋ぐ
+- **部分木の折り畳み/展開** — 出力先を持つ付箋にカーソルを乗せると右端に折り畳みボタン（−）が表示される。クリックするとその付箋から出ている全ての接続線と接続先の部分木を再帰的に非表示にし、隠れているノード数を示す数字バッジに変わる。バッジをクリックすると再展開。状態は `WemaEdge.collapsed` としてエクスポート/インポートで永続化される
+
+### Removed
+
+- 付箋の折り畳み機能（v0.2.0 で追加したムーブハンドルのシェブロンボタン）を削除し、接続線ベースの部分木折り畳みに置き換えた
+
 ## [0.2.0] - 2026-02-18
 
 ### Added
@@ -42,5 +53,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.3.0]: https://github.com/kan/wema/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kan/wema/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kan/wema/releases/tag/v0.1.0

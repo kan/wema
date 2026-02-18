@@ -22,9 +22,12 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 
 - 付箋の追加・編集・ドラッグ移動・リサイズ・削除
 - 接続線（Edge）の作成・スタイル編集
+- **接続線を空白にドロップ** → そこに新しい付箋を自動作成して接続
+- **部分木の折り畳み** → 付箋にカーソルを乗せると折り畳みボタン（−）が出現。クリックで全ての接続先とその子孫を一括非表示。数字バッジをクリックで再展開
 - リッチテキスト（太字、テキスト色、箇条書き、チェックボックス、リンク、画像、Embed）
 - 複数選択・整列・均等配置・自動レイアウト
 - Undo/Redo（Ctrl+Z / Ctrl+Y）
+- autoSize モード（コンテンツに合わせて付箋サイズを自動調整）
 - 5色のカラーパレット
 - IndexedDB による自動保存
 - JSON エクスポート/インポート
@@ -92,7 +95,7 @@ const board = new WemaBoard({
 | メソッド | 説明 |
 |---------|------|
 | `addEdge(from, to, params?)` | 接続線を追加 |
-| `updateEdge(id, params)` | 接続線を更新（線種・矢印・太さ等） |
+| `updateEdge(id, params)` | 接続線を更新（線種・矢印・太さ・折り畳み等） |
 | `deleteEdge(id)` | 接続線を削除 |
 | `getEdges()` | 全接続線を取得 |
 | `getEdgesOf(noteId)` | 指定付箋に接続された線を取得 |
@@ -160,6 +163,79 @@ const board = new WemaBoard({
 ```typescript
 board.on('change', ({ data }) => { /* ... */ });
 board.off('change', handler);
+```
+
+## モード
+
+### ロックモード（readOnly）
+
+付箋の作成・編集・移動・削除、接続線の操作をすべて禁止する。付箋の閲覧と選択は可能。
+
+```typescript
+const board = new WemaBoard({ container, readOnly: true });
+// または実行時に切り替え
+board.setReadOnly(true);
+board.setReadOnly(false);
+```
+
+スタンドアロン版では 🔒 ボタン（Ctrl+L）で切替。状態はリロード後も保持される。
+
+### 参照モード（viewOnly）
+
+アンカー・リサイズハンドル・ポップアップなど編集 UI をすべて非表示にする。ロックモードより表示がクリーンで、ボードを「見せる」用途に向く。
+
+```typescript
+const board = new WemaBoard({ container, viewOnly: true });
+// または実行時に切り替え
+board.setViewOnly(true);
+board.setViewOnly(false);
+```
+
+**参照モード中も可能な操作（一時的・データは変更されない）:**
+- 付箋のドラッグ移動 — モード終了時に元の位置に戻る
+- 部分木の折り畳み/展開 — モード終了時に元の状態に戻る
+
+スタンドアロン版では 👁 ボタン（Ctrl+Shift+L）で切替。状態はリロード後も保持される。
+
+### モード比較
+
+| 操作 | 通常 | ロック | 参照 |
+|------|:----:|:------:|:----:|
+| 付箋の閲覧 | ✓ | ✓ | ✓ |
+| 付箋の移動 | ✓ | ✗ | ✓（一時的） |
+| 付箋の編集 | ✓ | ✗ | ✗ |
+| 付箋の追加・削除 | ✓ | ✗ | ✗ |
+| 接続線の操作 | ✓ | ✗ | ✗ |
+| 折り畳み/展開 | ✓ | ✗ | ✓（一時的） |
+| Undo/Redo | ✓ | ✗ | ✗ |
+
+## データモデル
+
+```typescript
+interface WemaNote {
+  id: string;
+  x: number; y: number;
+  width: number; height: number;
+  text: string;         // HTML文字列
+  color: string;
+  zIndex: number;
+  autoSize?: boolean;   // コンテンツに合わせてサイズ自動調整
+}
+
+interface WemaEdge {
+  id: string;
+  from: string; to: string;
+  fromAnchor: 'top' | 'right' | 'bottom' | 'left' | 'auto';
+  toAnchor:   'top' | 'right' | 'bottom' | 'left' | 'auto';
+  style: 'arrow' | 'line' | 'dashed';
+  lineStyle?: 'solid' | 'dashed' | 'dotted';
+  arrowHead?: 'none' | 'start' | 'end' | 'both';
+  strokeWidth?: number;
+  arrowSize?: number;
+  routing?: 'curve' | 'polyline';
+  label?: string;
+  collapsed?: boolean;  // true のとき接続先の部分木を非表示
+}
 ```
 
 ## CSS カスタマイズ

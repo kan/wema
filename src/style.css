@@ -679,3 +679,10 @@
 .wema-viewonly .wema-resize-handle {
   display: none;
 }
+
+/* Disable edge click/hover effect in read-only and view-only modes */
+.wema-readonly .wema-edge-hit,
+.wema-viewonly .wema-edge-hit {
+  pointer-events: none !important;
+  cursor: default;
+}

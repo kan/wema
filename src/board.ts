@@ -45,6 +45,7 @@ export class WemaBoard {
   private defaultNoteWidth: number;
   private defaultNoteHeight: number;
   private positionSnapshot: { id: NoteId; x: number; y: number }[] | null = null;
+  private collapsedEdgeSnapshot: Map<EdgeId, boolean> | null = null;
   private theme: NoteTheme;
   private rubberBandMoved = false;
   private noteDragged = false;
@@ -689,8 +690,9 @@ export class WemaBoard {
     this.viewOnly = viewOnly;
     this.richTextToolbar.setViewOnly(viewOnly);
     if (viewOnly) {
-      // Snapshot note positions before entering viewOnly
+      // Snapshot note positions and edge collapsed states before entering viewOnly
       this.positionSnapshot = this.noteManager.getNotes().map((n) => ({ id: n.id, x: n.x, y: n.y }));
+      this.collapsedEdgeSnapshot = new Map(this.edgeManager.getEdges().map((e) => [e.id, !!e.collapsed]));
       this.boardEl.classList.add('wema-viewonly');
       this.selectionManager.clear();
       this.noteManager.setViewOnly(true);
@@ -703,6 +705,13 @@ export class WemaBoard {
           this.noteManager.updateNote(snap.id, { x: snap.x, y: snap.y });
         }
         this.positionSnapshot = null;
+      }
+      // Restore edge collapsed states from snapshot
+      if (this.collapsedEdgeSnapshot) {
+        for (const [id, wasCollapsed] of this.collapsedEdgeSnapshot) {
+          this.edgeManager.updateEdge(id, { collapsed: wasCollapsed ? true : undefined });
+        }
+        this.collapsedEdgeSnapshot = null;
       }
       this.boardEl.classList.remove('wema-viewonly');
       this.noteManager.setViewOnly(false);
@@ -922,8 +931,8 @@ export class WemaBoard {
 
       const outgoing = outgoingByNote.get(note.id) ?? [];
 
-      // Hide button when: no outgoing edges, note itself is hidden, or read/view-only mode
-      if (outgoing.length === 0 || hiddenNotes.has(note.id) || this.readOnly || this.viewOnly) {
+      // Hide button when: no outgoing edges, note itself is hidden, or read-only mode
+      if (outgoing.length === 0 || hiddenNotes.has(note.id) || this.readOnly) {
         btn.style.display = 'none';
         continue;
       }
