@@ -42,6 +42,8 @@ export class WemaBoard {
   private container: HTMLElement;
   private readOnly: boolean;
   private viewOnly: boolean;
+  private defaultNoteWidth: number;
+  private defaultNoteHeight: number;
   private positionSnapshot: { id: NoteId; x: number; y: number }[] | null = null;
   private theme: NoteTheme;
   private rubberBandMoved = false;
@@ -58,6 +60,8 @@ export class WemaBoard {
     this.container = options.container;
     this.readOnly = options.readOnly ?? false;
     this.viewOnly = options.viewOnly ?? false;
+    this.defaultNoteWidth = options.defaultNoteWidth ?? 200;
+    this.defaultNoteHeight = options.defaultNoteHeight ?? 150;
     this.theme = options.theme ?? 'default';
 
     // Create board element
@@ -139,6 +143,16 @@ export class WemaBoard {
       edgeManager: this.edgeManager,
       emitter: this.emitter,
       getReadOnly: isRestricted,
+      onDropOnEmpty: (x, y, fromNoteId) => {
+        const newNote = this.noteManager.addNote({
+          x: x - this.defaultNoteWidth / 2,
+          y: y - this.defaultNoteHeight / 2,
+        });
+        this.edgeManager.addEdge(fromNoteId, newNote.id, {
+          fromAnchor: 'auto',
+          toAnchor: 'auto',
+        });
+      },
     });
 
     this.resizeManager = new ResizeManager({

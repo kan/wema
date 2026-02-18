@@ -12,7 +12,7 @@ import { computeTempEdgePath } from './utils/geometry.js';
  * 1. Hover note → anchors appear (CSS handles this)
  * 2. Drag from anchor → temp line follows cursor
  * 3. Drop on another note's anchor or body → create edge
- * 4. Drop on empty space → cancel
+ * 4. Drop on empty space → create a new note there and connect it
  */
 export class AnchorDragManager {
   private boardEl: HTMLElement;
@@ -21,6 +21,7 @@ export class AnchorDragManager {
   private edgeManager: EdgeManager;
   private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
+  private onDropOnEmpty?: (x: number, y: number, fromNoteId: NoteId) => void;
 
   private dragging = false;
   private fromNoteId: NoteId | null = null;
@@ -38,6 +39,7 @@ export class AnchorDragManager {
     edgeManager: EdgeManager;
     emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
+    onDropOnEmpty?: (x: number, y: number, fromNoteId: NoteId) => void;
   }) {
     this.boardEl = options.boardEl;
     this.svgEl = options.svgEl;
@@ -45,6 +47,7 @@ export class AnchorDragManager {
     this.edgeManager = options.edgeManager;
     this.emitter = options.emitter;
     this.getReadOnly = options.getReadOnly;
+    this.onDropOnEmpty = options.onDropOnEmpty;
 
     this.handlePointerDown = this.onPointerDown.bind(this);
     this.handlePointerMove = this.onPointerMove.bind(this);
@@ -149,6 +152,11 @@ export class AnchorDragManager {
         fromAnchor: 'auto',
         toAnchor: 'auto',
       });
+    } else if (!targetNoteId && this.fromNoteId) {
+      const rect = this.boardEl.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      this.onDropOnEmpty?.(x, y, this.fromNoteId);
     }
 
     this.cleanup();
