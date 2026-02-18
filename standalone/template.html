@@ -130,6 +130,7 @@
     <div class="separator"></div>
     <button id="btn-export" title="Export JSON"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
     <button id="btn-import" title="Import JSON"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+    <button id="btn-help" title="使い方"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
     <span id="status"></span>
     <a class="github-link" href="https://github.com/kan/wema" target="_blank" rel="noopener" title="GitHub"><svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
   </div>
@@ -275,6 +276,59 @@
           updateStatus();
         });
 
+        // ---- Help notes ----
+        var btnHelp = document.getElementById('btn-help');
+
+        function showHelpNotes() {
+          // autoSize: true で内容に合わせてサイズ自動調整
+          // height はオートレイアウトのスペーシングヒント用
+          var n1 = board.addNote({
+            autoSize: true, width: 230, height: 90, color: '#FFF9C4',
+            text: '<b>wema へようこそ！</b><div>付箋を自由に配置・接続して情報を整理するボードです。このヘルプ付箋は削除してお使いください。</div>'
+          });
+          var n2 = board.addNote({
+            autoSize: true, width: 230, height: 165, color: '#BBDEFB',
+            text: '<b>付箋の基本操作</b><ul><li>ダブルクリック → 新規作成</li><li>グリップをドラッグ → 移動</li><li>右下をドラッグ → リサイズ</li><li>選択して Delete → 削除</li><li>Shift+クリック・ラバーバンド → 複数選択</li></ul>'
+          });
+          var n3 = board.addNote({
+            autoSize: true, width: 230, height: 145, color: '#C8E6C9',
+            text: '<b>接続線</b><ul><li>付箋の縁の ● をドラッグ → 接続</li><li>空白にドロップ → 接続先を自動作成</li><li>接続線をクリック → スタイル編集</li><li>右端 − ボタン → 接続先を一括折り畳み</li></ul>'
+          });
+          var n4 = board.addNote({
+            autoSize: true, width: 230, height: 125, color: '#FFCDD2',
+            text: '<b>ロック・参照モード</b><ul><li>🔒 Ctrl+L : ロックモード（編集禁止）</li><li>👁 Ctrl+Shift+L : 参照モード（UI 非表示）</li><li>参照モードでは移動・折り畳みが可能（終了時に元に戻る）</li></ul>'
+          });
+          var n5 = board.addNote({
+            autoSize: true, width: 230, height: 110, color: '#E1BEE7',
+            text: '<b>ショートカット</b><ul><li>Ctrl+Z / Ctrl+Y : Undo / Redo</li><li>Ctrl+A : 全選択</li><li>Delete : 付箋・接続線を削除</li></ul>'
+          });
+          if (n1 && n2) board.addEdge(n1.id, n2.id);
+          if (n1 && n3) board.addEdge(n1.id, n3.id);
+          if (n2 && n4) board.addEdge(n2.id, n4.id);
+          if (n3 && n5) board.addEdge(n3.id, n5.id);
+          // 通常のオートレイアウトより広いギャップで手動配置
+          // ツリー: n1(ルート) → n2,n3 → n4,n5
+          var hGap = 160;  // autoSize ノートは描画幅が可変なので広めに
+          var vGap = 100;  // 縦の余白 (デフォルト 60)
+          var margin = 60;
+          var noteW = 230;
+          var h1 = 90; var h2 = 165; // レイアウト計算用のヒント高さ
+          // n1 は n2/n3 の中央上に配置
+          var col1x = margin;
+          var col2x = margin + noteW + hGap;
+          var n1x = margin + (noteW + hGap) / 2;
+          var row1y = margin;
+          var row2y = margin + h1 + vGap;
+          var row3y = row2y + h2 + vGap;
+          if (n1) board.updateNote(n1.id, { x: n1x, y: row1y });
+          if (n2) board.updateNote(n2.id, { x: col1x, y: row2y });
+          if (n3) board.updateNote(n3.id, { x: col2x, y: row2y });
+          if (n4) board.updateNote(n4.id, { x: col1x, y: row3y });
+          if (n5) board.updateNote(n5.id, { x: col2x + 50, y: row3y });
+        }
+
+        btnHelp.addEventListener('click', showHelpNotes);
+
         // Lock toggle
         var btnLock = document.getElementById('btn-lock');
         var btnAdd = document.getElementById('btn-add');
@@ -290,6 +344,7 @@
             btnLock.classList.remove('locked');
           }
           btnAdd.disabled = locked;
+          btnHelp.disabled = locked || board.isViewOnly();
           status.textContent = (status.textContent || '').replace(/ *\[LOCKED\]/, '') + (locked ? ' [LOCKED]' : '');
         }
         btnLock.addEventListener('click', function() {
@@ -314,6 +369,7 @@
             btnViewOnly.classList.remove('viewonly');
           }
           btnAdd.disabled = vo || board.isReadOnly();
+          btnHelp.disabled = vo || board.isReadOnly();
           // Update status
           status.textContent = (status.textContent || '').replace(/ *\[READ ONLY\]/, '').replace(/ *\[LOCKED\]/, '');
           if (board.isReadOnly()) {
@@ -333,6 +389,11 @@
           localStorage.setItem('wema-viewonly', board.isViewOnly());
           localStorage.setItem('wema-locked', 'false');
         });
+
+        // Show help notes on first load (no saved data)
+        if (!savedData || savedData.notes.length === 0) {
+          showHelpNotes();
+        }
 
         // Apply saved lock/viewOnly state on startup
         if (savedLocked) {
