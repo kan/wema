@@ -250,12 +250,9 @@
   cursor: pointer;
 }
 
-/* Per-note collapse/expand button (right edge of note) */
+/* Per-note collapse/expand button (one per side) */
 .wema-note-collapse-btn {
   position: absolute;
-  right: -14px;
-  top: 50%;
-  transform: translateY(-50%);
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -272,11 +269,35 @@
   box-sizing: border-box;
 }
 
+.wema-note-collapse-btn[data-side="right"] {
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.wema-note-collapse-btn[data-side="left"] {
+  left: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.wema-note-collapse-btn[data-side="top"] {
+  top: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.wema-note-collapse-btn[data-side="bottom"] {
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
 .wema-note:hover .wema-note-collapse-btn {
   opacity: 1;
 }
 
-/* Badge mode: all outgoing edges are collapsed — always visible */
+/* Badge mode: side's outgoing edges are collapsed — always visible */
 .wema-note-collapse-badge {
   background: var(--wema-anchor-color, #4A90D9);
   border-color: var(--wema-anchor-color, #4A90D9);

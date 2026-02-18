@@ -22,6 +22,7 @@ import { HistoryManager } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
 import { createElement, createSvgElement, setStyles } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
+import { resolveAutoAnchor } from './utils/geometry.js';
 
 /** Main API class for the wema board */
 export class WemaBoard {
@@ -911,67 +912,88 @@ export class WemaBoard {
   }
 
   /**
-   * Update the collapse/expand button on each note based on its outgoing edges.
-   * One button per source note collapses/expands ALL its outgoing edges at once.
+   * Update per-side collapse/expand buttons on each note.
+   * Each side button controls only edges exiting from that side.
    */
   private updateNoteCollapseBtns(edges: WemaEdge[], hiddenNotes: Set<NoteId>): void {
-    // Group outgoing edges by from-note
-    const outgoingByNote = new Map<NoteId, WemaEdge[]>();
+    type Side = 'top' | 'right' | 'bottom' | 'left';
+
+    // Group outgoing edges by (from-note, resolved side)
+    const outgoingBySide = new Map<NoteId, Map<Side, WemaEdge[]>>();
     for (const edge of edges) {
-      let list = outgoingByNote.get(edge.from);
-      if (!list) { list = []; outgoingByNote.set(edge.from, list); }
+      const fromNote = this.noteManager.getNote(edge.from);
+      const toNote = this.noteManager.getNote(edge.to);
+      if (!fromNote || !toNote) continue;
+
+      const side: Side = edge.fromAnchor === 'auto'
+        ? resolveAutoAnchor(fromNote, toNote)
+        : edge.fromAnchor;
+
+      let noteMap = outgoingBySide.get(edge.from);
+      if (!noteMap) { noteMap = new Map(); outgoingBySide.set(edge.from, noteMap); }
+      let list = noteMap.get(side);
+      if (!list) { list = []; noteMap.set(side, list); }
       list.push(edge);
     }
+
+    const sides: Side[] = ['top', 'right', 'bottom', 'left'];
 
     for (const note of this.noteManager.getNotes()) {
       const el = this.noteManager.getElement(note.id);
       if (!el) continue;
-      const btn = el.querySelector('.wema-note-collapse-btn') as HTMLElement | null;
-      if (!btn) continue;
 
-      const outgoing = outgoingByNote.get(note.id) ?? [];
+      const sideMap = outgoingBySide.get(note.id);
 
-      // Hide button when: no outgoing edges, note itself is hidden, or read-only mode
-      if (outgoing.length === 0 || hiddenNotes.has(note.id) || this.readOnly) {
-        btn.style.display = 'none';
-        continue;
-      }
+      for (const side of sides) {
+        const btn = el.querySelector(`.wema-note-collapse-btn[data-side="${side}"]`) as HTMLElement | null;
+        if (!btn) continue;
 
-      const allCollapsed = outgoing.every((e) => e.collapsed);
+        const sideEdges = sideMap?.get(side);
 
-      btn.style.display = '';
-      // Capture snapshot for click handler
-      const snapshot = outgoing.map((e) => e.id);
-      btn.onclick = (ev) => {
-        ev.stopPropagation();
-        if (allCollapsed) {
-          for (const id of snapshot) this.edgeManager.updateEdge(id, { collapsed: false });
-        } else {
-          for (const id of snapshot) this.edgeManager.updateEdge(id, { collapsed: true });
+        // Hide button when: no edges on this side, note hidden, or read-only
+        if (!sideEdges || sideEdges.length === 0 || hiddenNotes.has(note.id) || this.readOnly) {
+          btn.style.display = 'none';
+          continue;
         }
-      };
 
-      if (allCollapsed) {
-        // Badge mode: show hidden subtree count, always visible
-        const count = this.countSubtreeFromNote(note.id, edges);
-        btn.className = 'wema-note-collapse-btn wema-note-collapse-badge';
-        btn.textContent = String(count);
-      } else {
-        // Collapse mode: show minus icon, visible on note hover
-        btn.className = 'wema-note-collapse-btn';
-        btn.innerHTML = '<svg width="10" height="2" viewBox="0 0 10 2" fill="none">'
-          + '<line x1="1" y1="1" x2="9" y2="1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
-          + '</svg>';
+        const allCollapsed = sideEdges.every((e) => e.collapsed);
+
+        btn.style.display = '';
+        // Capture snapshot for click handler
+        const snapshot = sideEdges.map((e) => e.id);
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          if (allCollapsed) {
+            for (const id of snapshot) this.edgeManager.updateEdge(id, { collapsed: false });
+          } else {
+            for (const id of snapshot) this.edgeManager.updateEdge(id, { collapsed: true });
+          }
+        };
+
+        if (allCollapsed) {
+          // Badge mode: show hidden subtree count for this side's edges
+          const count = this.countSubtreeFromEdges(sideEdges, edges);
+          btn.className = 'wema-note-collapse-btn wema-note-collapse-badge';
+          btn.dataset.side = side;
+          btn.textContent = String(count);
+        } else {
+          // Collapse mode: show minus icon, visible on note hover
+          btn.className = 'wema-note-collapse-btn';
+          btn.dataset.side = side;
+          btn.innerHTML = '<svg width="10" height="2" viewBox="0 0 10 2" fill="none">'
+            + '<line x1="1" y1="1" x2="9" y2="1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+            + '</svg>';
+        }
       }
     }
   }
 
-  /** Count all notes in the subtree hidden by this note's collapsed outgoing edges */
-  private countSubtreeFromNote(noteId: NoteId, edges: WemaEdge[]): number {
+  /** Count all notes in the subtree reachable from a set of collapsed edges */
+  private countSubtreeFromEdges(sideEdges: WemaEdge[], allEdges: WemaEdge[]): number {
     const visited = new Set<NoteId>();
-    for (const edge of edges) {
-      if (edge.from === noteId && edge.collapsed) {
-        this.countSubtreeDFS(edge.to, edges, visited);
+    for (const edge of sideEdges) {
+      if (edge.collapsed) {
+        this.countSubtreeDFS(edge.to, allEdges, visited);
       }
     }
     return visited.size;

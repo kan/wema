@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { WemaBoard } from '../src/board';
-import type { WemaBoardData, WemaNote } from '../src/types';
+import type { WemaBoardData, WemaNote, WemaEdge } from '../src/types';
 
 describe('WemaBoard', () => {
   let container: HTMLElement;
@@ -472,6 +472,106 @@ describe('WemaBoard', () => {
       expect(b2.getNotes()[0].text).toBe('loaded');
       b2.destroy();
       c2.remove();
+    });
+  });
+
+  describe('Per-side edge collapse', () => {
+    it('creates 4 collapse buttons per note (one per side)', () => {
+      const note = board.addNote();
+      const noteEl = container.querySelector(`[data-note-id="${note.id}"]`);
+      const btns = noteEl?.querySelectorAll('.wema-note-collapse-btn');
+      expect(btns?.length).toBe(4);
+      const sides = Array.from(btns!).map((b) => (b as HTMLElement).dataset.side);
+      expect(sides).toEqual(['top', 'right', 'bottom', 'left']);
+    });
+
+    it('shows collapse button only on the side where edges exit', () => {
+      // Center note at origin, target to the right → edge exits from "right" side
+      const center = board.addNote({ x: 100, y: 100, width: 100, height: 100 });
+      const right = board.addNote({ x: 400, y: 100, width: 100, height: 100 });
+      board.addEdge(center.id, right.id);
+
+      const el = container.querySelector(`[data-note-id="${center.id}"]`);
+      const rightBtn = el?.querySelector('.wema-note-collapse-btn[data-side="right"]') as HTMLElement;
+      const leftBtn = el?.querySelector('.wema-note-collapse-btn[data-side="left"]') as HTMLElement;
+      const topBtn = el?.querySelector('.wema-note-collapse-btn[data-side="top"]') as HTMLElement;
+      const bottomBtn = el?.querySelector('.wema-note-collapse-btn[data-side="bottom"]') as HTMLElement;
+
+      expect(rightBtn?.style.display).not.toBe('none');
+      expect(leftBtn?.style.display).toBe('none');
+      expect(topBtn?.style.display).toBe('none');
+      expect(bottomBtn?.style.display).toBe('none');
+    });
+
+    it('shows collapse buttons on multiple sides when edges exit different sides', () => {
+      const center = board.addNote({ x: 200, y: 200, width: 100, height: 100 });
+      const rightTarget = board.addNote({ x: 500, y: 200, width: 100, height: 100 });
+      const bottomTarget = board.addNote({ x: 200, y: 500, width: 100, height: 100 });
+      board.addEdge(center.id, rightTarget.id);
+      board.addEdge(center.id, bottomTarget.id);
+
+      const el = container.querySelector(`[data-note-id="${center.id}"]`);
+      const rightBtn = el?.querySelector('.wema-note-collapse-btn[data-side="right"]') as HTMLElement;
+      const bottomBtn = el?.querySelector('.wema-note-collapse-btn[data-side="bottom"]') as HTMLElement;
+      const leftBtn = el?.querySelector('.wema-note-collapse-btn[data-side="left"]') as HTMLElement;
+      const topBtn = el?.querySelector('.wema-note-collapse-btn[data-side="top"]') as HTMLElement;
+
+      expect(rightBtn?.style.display).not.toBe('none');
+      expect(bottomBtn?.style.display).not.toBe('none');
+      expect(leftBtn?.style.display).toBe('none');
+      expect(topBtn?.style.display).toBe('none');
+    });
+
+    it('collapsing one side does not affect edges on other sides', () => {
+      const center = board.addNote({ x: 200, y: 200, width: 100, height: 100 });
+      const rightTarget = board.addNote({ x: 500, y: 200, width: 100, height: 100 });
+      const bottomTarget = board.addNote({ x: 200, y: 500, width: 100, height: 100 });
+      const rightEdge = board.addEdge(center.id, rightTarget.id);
+      const bottomEdge = board.addEdge(center.id, bottomTarget.id);
+
+      // Collapse only the right side's edge
+      board.updateEdge(rightEdge.id, { collapsed: true });
+
+      // Right target should be hidden, bottom target should be visible
+      const rightEl = container.querySelector(`[data-note-id="${rightTarget.id}"]`) as HTMLElement;
+      const bottomEl = container.querySelector(`[data-note-id="${bottomTarget.id}"]`) as HTMLElement;
+      expect(rightEl?.style.display).toBe('none');
+      expect(bottomEl?.style.display).not.toBe('none');
+
+      // Bottom side button should still show minus (not badge)
+      const centerEl = container.querySelector(`[data-note-id="${center.id}"]`);
+      const bottomBtn = centerEl?.querySelector('.wema-note-collapse-btn[data-side="bottom"]') as HTMLElement;
+      expect(bottomBtn?.classList.contains('wema-note-collapse-badge')).toBe(false);
+
+      // Right side button should show badge
+      const rightBtn = centerEl?.querySelector('.wema-note-collapse-btn[data-side="right"]') as HTMLElement;
+      expect(rightBtn?.classList.contains('wema-note-collapse-badge')).toBe(true);
+    });
+
+    it('badge count reflects only the subtree from that side', () => {
+      // center → right → rightChild
+      // center → bottom
+      const center = board.addNote({ x: 200, y: 200, width: 100, height: 100 });
+      const rightTarget = board.addNote({ x: 500, y: 200, width: 100, height: 100 });
+      const rightChild = board.addNote({ x: 800, y: 200, width: 100, height: 100 });
+      const bottomTarget = board.addNote({ x: 200, y: 500, width: 100, height: 100 });
+
+      const rightEdge = board.addEdge(center.id, rightTarget.id);
+      board.addEdge(rightTarget.id, rightChild.id);
+      const bottomEdge = board.addEdge(center.id, bottomTarget.id);
+
+      // Collapse both sides
+      board.updateEdge(rightEdge.id, { collapsed: true });
+      board.updateEdge(bottomEdge.id, { collapsed: true });
+
+      const centerEl = container.querySelector(`[data-note-id="${center.id}"]`);
+      const rightBtn = centerEl?.querySelector('.wema-note-collapse-btn[data-side="right"]') as HTMLElement;
+      const bottomBtn = centerEl?.querySelector('.wema-note-collapse-btn[data-side="bottom"]') as HTMLElement;
+
+      // Right side subtree: rightTarget + rightChild = 2
+      expect(rightBtn?.textContent).toBe('2');
+      // Bottom side subtree: bottomTarget = 1
+      expect(bottomBtn?.textContent).toBe('1');
     });
   });
 });

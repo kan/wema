@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-02-18
+
+### Changed
+
+- **辺ごとの折り畳みボタン** — 折り畳みボタンを接続線が実際に出ている辺（上/右/下/左）にそれぞれ配置するように変更。各ボタンはその辺から出る接続線のみを独立して折り畳み/展開する。バッジ数もその辺の部分木のみをカウント
+- 折り畳みボタンの位置をアンカーポイントと重ならないよう外側にオフセット
+
 ## [0.3.0] - 2026-02-18
 
 ### Added
@@ -53,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.3.1]: https://github.com/kan/wema/releases/tag/v0.3.1
 [0.3.0]: https://github.com/kan/wema/releases/tag/v0.3.0
 [0.2.0]: https://github.com/kan/wema/releases/tag/v0.2.0
 [0.1.0]: https://github.com/kan/wema/releases/tag/v0.1.0
