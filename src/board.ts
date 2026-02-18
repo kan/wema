@@ -91,12 +91,6 @@ export class WemaBoard {
       defaultHeight: options.defaultNoteHeight ?? 150,
       defaultColor: options.defaultNoteColor ?? '#FFF9C4',
       readOnly: this.readOnly,
-      onCollapseToggle: (noteId) => {
-        const note = this.noteManager.getNote(noteId);
-        if (!note || this.readOnly || this.viewOnly) return;
-        this.noteManager.updateNote(noteId, { collapsed: !note.collapsed });
-        this.updateNotePopup();
-      },
     });
 
     this.selectionManager = new SelectionManager({
@@ -188,7 +182,6 @@ export class WemaBoard {
           text: note.text,
           color: note.color,
           ...(note.autoSize ? { autoSize: true } : {}),
-          ...(note.collapsed ? { collapsed: true } : {}),
         });
         this.selectionManager.select([newNote.id]);
         this.notePopup.show(newNote.id);

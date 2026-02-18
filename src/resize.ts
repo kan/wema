@@ -72,8 +72,8 @@ export class ResizeManager {
     const note = this.noteManager.getNote(noteId);
     if (!note) return;
 
-    // autoSize or collapsed notes are not manually resizable
-    if (note.autoSize || note.collapsed) return;
+    // autoSize notes are not manually resizable
+    if (note.autoSize) return;
 
     e.preventDefault();
     e.stopPropagation();
