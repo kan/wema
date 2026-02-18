@@ -254,6 +254,13 @@ export class WemaBoard {
       this.edgeManager.updateEdgesOf(note.id);
     });
 
+    // Recompute collapse visibility on any structural change
+    this.emitter.on('edge:create', () => this.recomputeVisibility());
+    this.emitter.on('edge:update', () => this.recomputeVisibility());
+    this.emitter.on('edge:delete', () => this.recomputeVisibility());
+    this.emitter.on('note:create', () => this.recomputeVisibility());
+    this.emitter.on('note:delete', () => this.recomputeVisibility());
+
     // Coalesce change events via microtask
     this.emitter.on('note:create', () => this.scheduleChange());
     this.emitter.on('note:update', () => this.scheduleChange());
@@ -634,6 +641,7 @@ export class WemaBoard {
       this.edgeManager.renderAll(data.edges);
     }
     this.historyManager.clear();
+    this.recomputeVisibility();
   }
 
   // --- Events ---
@@ -665,6 +673,7 @@ export class WemaBoard {
       this.boardEl.classList.remove('wema-readonly');
     }
     this.emitter.emit('readOnly:change', { readOnly });
+    this.recomputeVisibility();
   }
 
   /** Check if the board is read-only */
@@ -699,6 +708,7 @@ export class WemaBoard {
       this.noteManager.setViewOnly(false);
     }
     this.emitter.emit('viewOnly:change', { viewOnly });
+    this.recomputeVisibility();
   }
 
   /** Check if the board is in view-only mode */
@@ -843,6 +853,127 @@ export class WemaBoard {
     }
     content.dispatchEvent(new Event('input', { bubbles: true }));
     this.noteManager.updateNote(noteId, { text: content.innerHTML });
+  }
+
+  /**
+   * Recompute which notes/edges are hidden due to collapsed edges,
+   * apply visibility to DOM/SVG elements, then update collapse buttons.
+   */
+  private recomputeVisibility(): void {
+    const edges = this.edgeManager.getEdges();
+    const hiddenNotes = new Set<NoteId>();
+    const hiddenEdges = new Set<EdgeId>();
+
+    // DFS from each collapsed edge's target
+    for (const edge of edges) {
+      if (edge.collapsed) {
+        hiddenEdges.add(edge.id);
+        this.dfsHideNotes(edge.to, edges, hiddenNotes, hiddenEdges);
+      }
+    }
+
+    // Apply to note DOM elements
+    for (const note of this.noteManager.getNotes()) {
+      const el = this.noteManager.getElement(note.id);
+      if (el) el.style.display = hiddenNotes.has(note.id) ? 'none' : '';
+    }
+
+    // Apply to edge SVG elements
+    this.edgeManager.applyVisibility(hiddenEdges);
+
+    // Update per-note collapse buttons
+    this.updateNoteCollapseBtns(edges, hiddenNotes);
+  }
+
+  private dfsHideNotes(
+    noteId: NoteId,
+    edges: WemaEdge[],
+    hiddenNotes: Set<NoteId>,
+    hiddenEdges: Set<EdgeId>,
+  ): void {
+    if (hiddenNotes.has(noteId)) return;
+    hiddenNotes.add(noteId);
+    for (const edge of edges) {
+      if (edge.from === noteId) {
+        hiddenEdges.add(edge.id);
+        this.dfsHideNotes(edge.to, edges, hiddenNotes, hiddenEdges);
+      }
+    }
+  }
+
+  /**
+   * Update the collapse/expand button on each note based on its outgoing edges.
+   * One button per source note collapses/expands ALL its outgoing edges at once.
+   */
+  private updateNoteCollapseBtns(edges: WemaEdge[], hiddenNotes: Set<NoteId>): void {
+    // Group outgoing edges by from-note
+    const outgoingByNote = new Map<NoteId, WemaEdge[]>();
+    for (const edge of edges) {
+      let list = outgoingByNote.get(edge.from);
+      if (!list) { list = []; outgoingByNote.set(edge.from, list); }
+      list.push(edge);
+    }
+
+    for (const note of this.noteManager.getNotes()) {
+      const el = this.noteManager.getElement(note.id);
+      if (!el) continue;
+      const btn = el.querySelector('.wema-note-collapse-btn') as HTMLElement | null;
+      if (!btn) continue;
+
+      const outgoing = outgoingByNote.get(note.id) ?? [];
+
+      // Hide button when: no outgoing edges, note itself is hidden, or read/view-only mode
+      if (outgoing.length === 0 || hiddenNotes.has(note.id) || this.readOnly || this.viewOnly) {
+        btn.style.display = 'none';
+        continue;
+      }
+
+      const allCollapsed = outgoing.every((e) => e.collapsed);
+
+      btn.style.display = '';
+      // Capture snapshot for click handler
+      const snapshot = outgoing.map((e) => e.id);
+      btn.onclick = (ev) => {
+        ev.stopPropagation();
+        if (allCollapsed) {
+          for (const id of snapshot) this.edgeManager.updateEdge(id, { collapsed: false });
+        } else {
+          for (const id of snapshot) this.edgeManager.updateEdge(id, { collapsed: true });
+        }
+      };
+
+      if (allCollapsed) {
+        // Badge mode: show hidden subtree count, always visible
+        const count = this.countSubtreeFromNote(note.id, edges);
+        btn.className = 'wema-note-collapse-btn wema-note-collapse-badge';
+        btn.textContent = String(count);
+      } else {
+        // Collapse mode: show minus icon, visible on note hover
+        btn.className = 'wema-note-collapse-btn';
+        btn.innerHTML = '<svg width="10" height="2" viewBox="0 0 10 2" fill="none">'
+          + '<line x1="1" y1="1" x2="9" y2="1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+          + '</svg>';
+      }
+    }
+  }
+
+  /** Count all notes in the subtree hidden by this note's collapsed outgoing edges */
+  private countSubtreeFromNote(noteId: NoteId, edges: WemaEdge[]): number {
+    const visited = new Set<NoteId>();
+    for (const edge of edges) {
+      if (edge.from === noteId && edge.collapsed) {
+        this.countSubtreeDFS(edge.to, edges, visited);
+      }
+    }
+    return visited.size;
+  }
+
+  private countSubtreeDFS(noteId: NoteId, edges: WemaEdge[], visited: Set<NoteId>): void {
+    if (visited.has(noteId)) return;
+    visited.add(noteId);
+    for (const edge of edges) {
+      if (edge.from === noteId) this.countSubtreeDFS(edge.to, edges, visited);
+    }
   }
 
   private scheduleChange(): void {

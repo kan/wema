@@ -475,10 +475,17 @@ export class NoteManager {
       resizeHandle.style.display = 'none';
     }
 
+    // Collapse button (managed by board via updateNoteCollapseBtns)
+    const collapseBtn = createElement('div', 'wema-note-collapse-btn');
+    collapseBtn.style.display = 'none';
+    collapseBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    collapseBtn.addEventListener('click', (e) => e.stopPropagation());
+
     el.appendChild(moveHandle);
     el.appendChild(content);
     el.appendChild(anchors);
     el.appendChild(resizeHandle);
+    el.appendChild(collapseBtn);
 
     this.applyStyles(el, note);
     this.boardEl.appendChild(el);

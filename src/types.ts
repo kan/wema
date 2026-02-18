@@ -49,6 +49,7 @@ export interface WemaEdge {
   arrowHead?: ArrowHead;
   arrowSize?: number;
   routing?: EdgeRouting;
+  collapsed?: boolean;
 }
 
 /** Serializable board data */

@@ -11,6 +11,7 @@ const DEFAULT_ARROW_SIZE = 12;
 
 export class EdgeManager {
   private edges = new Map<EdgeId, WemaEdge>();
+  private groupElements = new Map<EdgeId, SVGGElement>();
   private pathElements = new Map<EdgeId, SVGPathElement>();
   private hitElements = new Map<EdgeId, SVGPathElement>();
   private labelElements = new Map<EdgeId, SVGTextElement>();
@@ -167,6 +168,17 @@ export class EdgeManager {
     }
   }
 
+  /**
+   * Show/hide edge SVG groups based on which edges are in the hidden set.
+   * Called by board.ts after recomputing collapse visibility.
+   */
+  applyVisibility(hiddenEdges: Set<EdgeId>): void {
+    for (const [id] of this.edges) {
+      const group = this.groupElements.get(id);
+      if (group) group.style.display = hiddenEdges.has(id) ? 'none' : '';
+    }
+  }
+
   destroy(): void {
     this.clear();
   }
@@ -206,6 +218,10 @@ export class EdgeManager {
     const toNote = this.noteManager.getNote(edge.to);
     if (!fromNote || !toNote) return;
 
+    // Group wrapper (enables CSS :hover for future per-edge controls)
+    const group = createSvgElement('g', 'wema-edge-group') as SVGGElement;
+    group.dataset.edgeId = edge.id;
+
     // Invisible wide hit area for click targeting
     const hit = createSvgElement('path', 'wema-edge-hit');
     hit.dataset.edgeId = edge.id;
@@ -220,27 +236,25 @@ export class EdgeManager {
     path.dataset.edgeId = edge.id;
     this.applyEdgeStyle(path, edge);
 
-    this.svgEl.appendChild(hit);
-    this.svgEl.appendChild(path);
-    this.hitElements.set(edge.id, hit);
-    this.pathElements.set(edge.id, path);
+    group.appendChild(hit);
+    group.appendChild(path);
 
     // Label
     if (edge.label) {
-      this.renderLabel(edge);
+      const text = createSvgElement('text', 'wema-edge-label') as SVGTextElement;
+      text.textContent = edge.label;
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('dy', '-6');
+      group.appendChild(text);
+      this.labelElements.set(edge.id, text);
     }
 
-    this.updateEdgePath(edge.id);
-  }
+    this.svgEl.appendChild(group);
+    this.groupElements.set(edge.id, group);
+    this.hitElements.set(edge.id, hit);
+    this.pathElements.set(edge.id, path);
 
-  private renderLabel(edge: WemaEdge): void {
-    if (!edge.label) return;
-    const text = createSvgElement('text', 'wema-edge-label');
-    text.textContent = edge.label;
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('dy', '-6');
-    this.svgEl.appendChild(text);
-    this.labelElements.set(edge.id, text);
+    this.updateEdgePath(edge.id);
   }
 
   private updateEdgePath(id: EdgeId): void {
@@ -307,9 +321,9 @@ export class EdgeManager {
   }
 
   private removeEdgeElements(id: EdgeId): void {
-    this.pathElements.get(id)?.remove();
+    this.groupElements.get(id)?.remove();
+    this.groupElements.delete(id);
     this.pathElements.delete(id);
-    this.hitElements.get(id)?.remove();
     this.hitElements.delete(id);
     this.labelElements.get(id)?.remove();
     this.labelElements.delete(id);

@@ -65,7 +65,7 @@ export function resolveAutoAnchor(note: WemaNote, other: WemaNote): 'top' | 'rig
 }
 
 /** Normal direction vector for each anchor */
-function anchorNormal(anchor: 'top' | 'right' | 'bottom' | 'left'): Point {
+export function getAnchorNormal(anchor: 'top' | 'right' | 'bottom' | 'left'): Point {
   switch (anchor) {
     case 'top': return { x: 0, y: -1 };
     case 'bottom': return { x: 0, y: 1 };
@@ -98,8 +98,8 @@ export function computeEdgePath(
   const dist = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
   const offset = Math.min(Math.max(dist * 0.4, 40), 150);
 
-  const n1 = anchorNormal(resolvedFrom);
-  const n2 = anchorNormal(resolvedTo);
+  const n1 = getAnchorNormal(resolvedFrom);
+  const n2 = getAnchorNormal(resolvedTo);
 
   const cp1x = p1.x + n1.x * offset;
   const cp1y = p1.y + n1.y * offset;
@@ -145,8 +145,8 @@ function computePolylinePath(
   fromAnchor: 'top' | 'right' | 'bottom' | 'left',
   toAnchor: 'top' | 'right' | 'bottom' | 'left',
 ): string {
-  const n1 = anchorNormal(fromAnchor);
-  const n2 = anchorNormal(toAnchor);
+  const n1 = getAnchorNormal(fromAnchor);
+  const n2 = getAnchorNormal(toAnchor);
   const fromHoriz = fromAnchor === 'left' || fromAnchor === 'right';
   const toHoriz = toAnchor === 'left' || toAnchor === 'right';
 
@@ -222,7 +222,7 @@ export function computeTempEdgePath(
 
   const offset = Math.min(Math.max(dist * 0.4, 40), 150);
 
-  const n1 = anchorNormal(fromAnchor);
+  const n1 = getAnchorNormal(fromAnchor);
   const cp1x = p1.x + n1.x * offset;
   const cp1y = p1.y + n1.y * offset;
 
