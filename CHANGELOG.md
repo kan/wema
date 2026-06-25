@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.2] - 2026-06-25
+
+### Changed
+
+- 依存関係の更新（開発依存のみ、ライブラリ実体に影響なし）
+  - esbuild 0.27.3 → 0.28.1（脆弱性修正）
+  - undici 7.25.0 → 7.28.0（脆弱性修正）
+  - vitest 4.1.5 → 4.1.9
+  - tsx 4.21.0 → 4.22.4
+  - actions/checkout 6 → 7
+
 ## [0.3.1] - 2026-02-18
 
 ### Changed
