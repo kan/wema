@@ -1,6 +1,6 @@
 {
   "name": "@kanf/wema",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A framework-agnostic TypeScript library for placing sticky notes on a web board",
   "type": "module",
   "main": "./dist/wema.umd.js",
@@ -22,6 +22,7 @@
     "build": "npm run build:lib && npm run build:standalone",
     "build:lib": "vite build",
     "build:standalone": "tsx scripts/build-standalone.ts",
+    "verify:package": "tsx scripts/verify-package.ts",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },

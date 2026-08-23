@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.3] - 2026-08-23
+
+### Fixed
+
+- **公開パッケージに型定義エントリ `dist/wema.d.ts` が含まれず、TypeScript から利用するとビルドが失敗する問題を修正** ([#42](https://github.com/kan/wema/issues/42)) — vite-plugin-dts 5 系でオプション名が `rollupTypes` から `bundleTypes` へリネームされたことにより、`vite.config.ts` の `rollupTypes: true` が黙って無視され、型定義エントリが出力されなくなっていた。`insertTypesEntry: true` に変更してエントリを生成するようにした。`package.json` の `types` / `exports` の参照先は変更していない
+
+### Added
+
+- **公開物の検証スクリプト** (`npm run verify:package`) — `npm pack` の成果物に `package.json` が宣言するエントリファイル（`types` / `main` / `module` / `exports`）がすべて含まれるかを検査する。CI のビルド後に実行し、同種の欠落を公開前に検出する
+
+### Changed
+
+- 依存関係の更新（開発依存のみ、ライブラリ実体に影響なし）
+  - typescript 6.0.3 → 7.0.2（TypeScript 7 は JavaScript Compiler API を提供しないため、フォールバックの `@typescript/typescript6` を追加）
+  - postcss 8.5.15 → 8.5.26（脆弱性修正）
+  - undici 7.28.0 → 7.29.0（脆弱性修正）
+  - nanoid 3.3.17 → 3.3.18（脆弱性修正）
+  - vite 8.0.16 → 8.2.2
+  - vitest 4.1.9 → 4.1.10
+  - tsx 4.22.4 → 4.23.0
+  - vite-plugin-dts 5.0.2 → 5.0.3
+  - actions/setup-node 6 → 7
+
 ## [0.3.2] - 2026-06-25
 
 ### Changed

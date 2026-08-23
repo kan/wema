@@ -30,6 +30,7 @@ npm run build        # ライブラリビルド + スタンドアロンHTMLビ�
 npm run build:lib    # ライブラリのみビルド
 npm run build:standalone  # スタンドアロンHTMLのみビルド
 npm test             # テスト実行
+npm run verify:package    # npm pack の成果物に公開エントリが揃っているか検証
 npm run lint         # リント (tsc --noEmit)
 ```
 
@@ -46,7 +47,8 @@ wema/
 ├── tsconfig.json
 ├── vite.config.ts
 ├── scripts/
-│   └── build-standalone.ts   # wema.html ビルドスクリプト
+│   ├── build-standalone.ts   # wema.html ビルドスクリプト
+│   └── verify-package.ts     # 公開物にエントリファイルが揃っているか検証
 ├── src/                      # ライブラリ本体
 │   ├── index.ts              # public API re-export
 │   ├── types.ts              # 型定義
