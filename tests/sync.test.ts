@@ -318,6 +318,30 @@ describe('Sync API', () => {
       expect(board.getEdges()[0].collapsed).toBeUndefined();
     });
 
+    it('ignores keys that are not note or edge fields', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+
+      // As received from the network: JSON.parse keeps "__proto__" as an own key
+      const deltas: HistoryDelta[] = JSON.parse(`[
+        {"type":"note:update","noteId":"${n1.id}","before":{},
+         "after":{"x":5,"id":"hijack","unknown":1,"__proto__":{"autoSize":true}}},
+        {"type":"edge:update","edgeId":"${edge.id}","before":{},
+         "after":{"strokeWidth":4,"from":"${n2.id}","to":"${n1.id}","unknown":1,"__proto__":{"collapsed":true}}}
+      ]`);
+      board.applyRemote(deltas);
+
+      const data = board.exportData();
+      expect(Object.keys(data.notes[0]).sort()).toEqual(Object.keys(n1).sort());
+      expect(data.notes[0]).toEqual({ ...n1, x: 5 });
+      expect(data.edges[0]).toEqual(expect.objectContaining({ id: edge.id, from: n1.id, to: n2.id, strokeWidth: 4 }));
+      expect(data.edges[0]).not.toHaveProperty('unknown');
+      // The prototype was not swapped: no inherited flags took effect
+      expect(container.querySelector('.wema-auto-size')).toBeNull();
+      expect(container.querySelectorAll('.wema-note')[1]).toHaveProperty('style.display', '');
+    });
+
     it('skips deltas whose target is missing or already exists', () => {
       const local = board.addNote({ text: 'local' });
       const createHandler = vi.fn();

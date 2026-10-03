@@ -76,13 +76,31 @@ function diffKeys<T extends { id: string }>(
 }
 
 /**
- * Params that take an object from `before` to `after`.
- * A key present only in `before` is reset to undefined.
+ * The note fields an update delta may change.
+ * Written as a record so that a field added to WemaNote fails to compile here
+ * until it is listed (a missing key would be dropped from undo and sync).
  */
-function updateParams<T extends object>(before: Partial<T>, after: Partial<T>): Partial<T> {
-  const params: Partial<T> = { ...after };
-  for (const key of Object.keys(before) as (keyof T)[]) {
-    if (!(key in after)) params[key] = undefined;
+const NOTE_UPDATE_KEYS = Object.keys({
+  x: true, y: true, width: true, height: true, text: true, color: true, zIndex: true, autoSize: true,
+} satisfies Record<Exclude<keyof WemaNote, 'id'>, true>) as (keyof WemaNote)[];
+
+/** The edge fields an update delta may change (same rule as NOTE_UPDATE_KEYS) */
+const EDGE_UPDATE_KEYS = Object.keys({
+  fromAnchor: true, toAnchor: true, style: true, label: true, lineStyle: true, strokeWidth: true,
+  arrowHead: true, arrowSize: true, routing: true, collapsed: true,
+} satisfies Record<Exclude<keyof WemaEdge, 'id' | 'from' | 'to'>, true>) as (keyof WemaEdge)[];
+
+/**
+ * Params that take an object from `before` to `after`.
+ * A key present only in `before` is reset to undefined. Only `keys` are
+ * considered: a delta may come from the network, and anything else in it
+ * (unknown fields, `__proto__`) must not reach the model.
+ */
+function updateParams<T extends object>(before: Partial<T>, after: Partial<T>, keys: (keyof T)[]): Partial<T> {
+  const params: Partial<T> = {};
+  for (const key of keys) {
+    if (Object.hasOwn(after, key)) params[key] = after[key];
+    else if (Object.hasOwn(before, key)) params[key] = undefined;
   }
   return params;
 }
@@ -141,7 +159,7 @@ export function replayDeltas(deltas: HistoryDelta[], replay: ReplayCallbacks): v
         replay.addNoteWithId(delta.note);
         break;
       case 'note:update':
-        replay.updateNote(delta.noteId, updateParams(delta.before, delta.after));
+        replay.updateNote(delta.noteId, updateParams(delta.before, delta.after, NOTE_UPDATE_KEYS));
         break;
       case 'note:delete':
         replay.deleteNote(delta.note.id);
@@ -150,7 +168,7 @@ export function replayDeltas(deltas: HistoryDelta[], replay: ReplayCallbacks): v
         replay.addEdgeWithId(delta.edge);
         break;
       case 'edge:update':
-        replay.updateEdge(delta.edgeId, updateParams(delta.before, delta.after));
+        replay.updateEdge(delta.edgeId, updateParams(delta.before, delta.after, EDGE_UPDATE_KEYS));
         break;
       case 'edge:delete':
         replay.deleteEdge(delta.edge.id);
