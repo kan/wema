@@ -5,7 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-03
+
+### Security
+
+- 付箋の HTML サニタイザが、危険な URL を通す問題を修正した
+  - `java&#9;script:` のように制御文字を挟んだ `javascript:` URL、`vbscript:` URL、`<iframe>` の `data:` URL を除去していなかった。ブラウザは URL の解析時にタブや改行を捨てるため、こうした URL はスクリプトとして実行される
+  - `href` / `src` / `poster` の検査を、URL スキームの許可リスト（`http` / `https` / `mailto` / `tel` と相対 URL）へ変更した。`data:` は `<img>` / `<video>` / `<audio>` で、種類の合うメディアに限って許可する
+  - 付箋内のリンクをクリックしたとき、リンクの挿入時、埋め込み URL の入力時にも同じ検査をする
+  - **この変更により、`file:` / `ftp:` / `blob:` や独自スキーム（`obsidian://` など）のリンクは、既存の付箋を読み込んだ時点で `href` が除去される**
+- `<a` を大量に並べたテキストで、プレーンテキスト判定の正規表現の処理時間が入力長の 2 乗で増える問題を修正した
 
 ### Added
 
@@ -24,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **参照モード中の `undo()` / `redo()` は何もしない。** 従来はキーボードショートカットだけが無効で、メソッドを直接呼ぶと動いていた
 - **`viewOnly: true` で作成したボードも、参照モードを終えると作成時点の位置と折り畳み状態へ戻る。** 従来、戻るのは `setViewOnly(true)` を呼んで参照モードへ入った場合だけだった
 - **`change` イベントの `data` に常にボードのデータが入るようにした。** 従来はテキスト編集の確定時やドラッグ終了時に、`data` が `undefined` の `change` が余分に発火していた
+- 1 回の操作の中で同じ付箋や接続線を何度も更新した場合、Undo 履歴の差分を 1 件にまとめる。元の位置へ戻しただけのドラッグは Undo 履歴に残らない
+- 依存関係の更新（開発依存のみ、ライブラリ実体に影響なし）
+  - undici 7.29.0 → 8.11.2（脆弱性修正、jsdom の更新による）
+  - jsdom 29.1.1 → 30.1.1
+  - vitest 4.1.10 → 5.0.0
+  - tsx 4.23.0 → 4.23.13
+  - vite-plugin-dts 5.0.3 → 5.1.0
+- CI と GitHub Pages のビルドに使う Node.js を 20 から 24 へ更新した（jsdom 30 と vitest 5 が Node.js 22 以上を要求するため）
 
 ### Fixed
 

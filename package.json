@@ -1,6 +1,6 @@
 {
   "name": "@kanf/wema",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "A framework-agnostic TypeScript library for placing sticky notes on a web board",
   "type": "module",
   "main": "./dist/wema.umd.js",
