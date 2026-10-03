@@ -1,7 +1,7 @@
 import type { Anchor, EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.js';
 import { EdgeManager } from './edge.js';
 import { NoteManager } from './note.js';
-import { createElement } from './utils/dom.js';
+import { createElement, shiftElement } from './utils/dom.js';
 
 // SVG icon helpers (24x16 viewBox)
 const LINE_ICONS: Record<LineStyle, { svg: string; title: string }> = {
@@ -362,6 +362,13 @@ export class EdgeStylePopup {
     this.popupEl.style.top = `${this.lastY + 12}px`;
 
     this.popupEl.style.display = '';
+  }
+
+  /** Move the popup with the board content when the viewport is panned by (dx, dy) */
+  moveBy(dx: number, dy: number): void {
+    this.lastX += dx;
+    this.lastY += dy;
+    shiftElement(this.popupEl, dx, dy);
   }
 
   hide(): void {

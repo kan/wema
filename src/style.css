@@ -20,13 +20,21 @@
   outline: none;
 }
 
-/* SVG edge layer */
+/* .wema-viewport, the layer that holds the notes and edges and is moved when
+   panning, is positioned by inline styles set in board.ts */
+
+.wema-board.wema-pan-ready {
+  cursor: grab;
+}
+
+.wema-board.wema-panning,
+.wema-board.wema-panning * {
+  cursor: grabbing !important;
+}
+
+/* SVG edge layer: its size and position are inline styles set in board.ts
+   (a 1px box the edges are drawn outside of, wherever the notes are) */
 .wema-edges {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
   pointer-events: none;
 }
 
@@ -526,8 +534,10 @@
 }
 
 /* Auto-size mode */
+/* max-content, not fit-content: fit-content is limited by the width of the
+   containing block, and the viewport layer the notes sit in has none */
 .wema-note.wema-auto-size {
-  width: fit-content !important;
+  width: max-content !important;
   height: auto !important;
   min-width: 80px;
   max-width: 600px;

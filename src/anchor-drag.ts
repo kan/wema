@@ -4,6 +4,7 @@ import { NoteManager } from './note.js';
 import { EdgeManager } from './edge.js';
 import { createSvgElement } from './utils/dom.js';
 import { computeTempEdgePath } from './utils/geometry.js';
+import type { ToBoardPoint } from './utils/geometry.js';
 
 /**
  * Handles dragging from anchor points to create edges.
@@ -21,6 +22,7 @@ export class AnchorDragManager {
   private edgeManager: EdgeManager;
   private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
+  private toBoardPoint: ToBoardPoint;
   private onDropOnEmpty?: (x: number, y: number, fromNoteId: NoteId) => void;
 
   private dragging = false;
@@ -39,8 +41,11 @@ export class AnchorDragManager {
     edgeManager: EdgeManager;
     emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
+    /** Convert a pointer position (clientX / clientY) to board coordinates */
+    toBoardPoint: ToBoardPoint;
     onDropOnEmpty?: (x: number, y: number, fromNoteId: NoteId) => void;
   }) {
+    this.toBoardPoint = options.toBoardPoint;
     this.boardEl = options.boardEl;
     this.svgEl = options.svgEl;
     this.noteManager = options.noteManager;
@@ -98,8 +103,7 @@ export class AnchorDragManager {
     const fromNote = this.noteManager.getNote(this.fromNoteId);
     if (!fromNote) return;
 
-    const rect = this.boardEl.getBoundingClientRect();
-    const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const point = this.toBoardPoint(e.clientX, e.clientY);
 
     const d = computeTempEdgePath(fromNote, this.fromAnchor, point);
     this.tempPath.setAttribute('d', d);
@@ -153,9 +157,7 @@ export class AnchorDragManager {
         toAnchor: 'auto',
       });
     } else if (!targetNoteId && this.fromNoteId) {
-      const rect = this.boardEl.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const { x, y } = this.toBoardPoint(e.clientX, e.clientY);
       this.onDropOnEmpty?.(x, y, this.fromNoteId);
     }
 

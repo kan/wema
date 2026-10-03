@@ -110,18 +110,35 @@ wema/
 ### 描画方式: DOM + SVG ハイブリッド
 
 ```
-┌─ .wema-board ────────────────────────────────────┐
-│  ┌─ svg.wema-edges (position: absolute, 全面) ──┐│
-│  │  <path> ... </path>                           ││
-│  └───────────────────────────────────────────────┘│
-│  ┌─ .wema-note (position: absolute) ─┐           │
-│  │  .wema-move-handle (ドラッグ用グリップ)        │
-│  │  .wema-note-content (contenteditable)          │
-│  │  .wema-note-anchors (接続ポイント4辺)          │
-│  │  .wema-resize-handle (リサイズ)                │
-│  └────────────────────────────────────┘           │
-└──────────────────────────────────────────────────┘
+┌─ .wema-board (overflow: hidden、画面座標) ───────────┐
+│  ┌─ .wema-viewport (translate でパン、ボード座標) ─┐ │
+│  │  svg.wema-edges (1px、overflow: visible)        │ │
+│  │    <path> ... </path>                           │ │
+│  │  .wema-note (position: absolute)                │ │
+│  │    .wema-move-handle (ドラッグ用グリップ)       │ │
+│  │    .wema-note-content (contenteditable)         │ │
+│  │    .wema-note-anchors (接続ポイント4辺)         │ │
+│  │    .wema-resize-handle (リサイズ)               │ │
+│  │  .wema-rubberband                               │ │
+│  └─────────────────────────────────────────────────┘ │
+│  .wema-note-popup / .wema-edge-popup                 │
+│  .wema-richtext-toolbar / .wema-image-overlay        │
+└──────────────────────────────────────────────────────┘
 ```
+
+### 表示位置（パン）と座標
+
+- ボード座標で描くもの（付箋、接続線、ラバーバンド）は `.wema-viewport` の中に置く。ポップアップ類は `.wema-board` の直下に置き、画面座標で位置を決める
+- `.wema-viewport` は大きさ 0 なので、空いている場所のイベントの `target` は `.wema-board` 自身になる。`svg.wema-edges` は 1px の箱からはみ出して描く（`overflow: visible`）
+- **ポインタの座標（`clientX` / `clientY`）をボード座標にするときは、必ず `WemaBoard.clientToBoard()` を通す。** ポップアップをボード座標の位置へ出すときは `boardToScreen()` を通す。`clientX - rect.left` を直接書くと、パンした分だけずれる
+- 表示位置は表示だけの状態（`zIndex` や絞り込みと同じ扱い）。`setViewport()` が発火するのは `viewport:change` だけで、`note:*` / `edge:*` / `history:commit` / `change` は出さず、`exportData()` にも含めない
+- 表示位置が動いたら、ポップアップ類も同じ量だけ動かす（`setViewport()` が各オーバーレイの `moveBy` / `updatePosition` を呼ぶ）。閉じてはいけない。埋め込み URL の入力中にトラックパッドが少し動いただけで、入力内容が消えるため
+- ポップアップ類のセレクタは `board.ts` の `OVERLAY_SELECTOR` の 1 か所で管理する。オーバーレイを増やしたら、ここと `setViewport()` に足す
+- Space + ドラッグの Space は、フォーカスではなく「ポインタがボードの上にあるか」で受け付ける（`document` の keydown / keyup と、ボードの pointerenter / pointerleave）。`window` の blur で解除する
+- 座標を省略した `addNote()` は、ボード座標の固定位置ではなく、表示中の領域の左上を基準にする
+- パンの開始は `wantsPan()` で決める。中ボタン、Space + 左ドラッグ、readOnly / viewOnly の空いている場所の左ドラッグ（viewOnly の Shift + ドラッグはラバーバンド選択）。`pointerdown` をキャプチャ段階で受けるので、付箋の上から始めたパンは付箋のドラッグより優先される
+- ダブルクリックは、付箋を作成できるとき（通常モードで `createOnDblClick` が有効）は作成、できないときはその位置を中央へパンする
+- ズームは未実装（#52）。`WemaViewport.zoom` は常に 1。実装するときは `clientToBoard` / `boardToScreen` と、ドラッグ・リサイズの移動量に倍率を入れる
 
 ### データの流れ
 
@@ -181,7 +198,7 @@ interface WemaBoardData {
   version: 1;
   notes: WemaNote[];
   edges: WemaEdge[];
-  viewport?: { x: number; y: number; zoom: number };
+  viewport?: { x: number; y: number; zoom: number };  // 未使用（exportData は書かず、importData は無視する）
 }
 ```
 
@@ -215,6 +232,12 @@ class WemaBoard {
   // 絞り込み（表示だけを変える。データ・イベント・履歴には影響しない）
   setNoteFilter(noteIds: NoteId[] | null): void;
   getNoteFilter(): NoteId[] | null;
+
+  // 表示位置（表示だけを変える。viewport:change のみ発火）
+  getViewport(): WemaViewport;                 // { x, y, zoom }（zoom は常に 1）
+  setViewport(viewport: Partial<WemaViewport>): void;
+  revealNotes(noteIds: NoteId[], options?: { padding?: number }): void;
+  centerContent(options?: { noteIds?: NoteId[]; padding?: number }): void;  // fitToContent（倍率も合わせる）はズームと一緒に追加する
 
   // レイアウト
   alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void;
@@ -258,6 +281,7 @@ interface WemaBoardOptions {
   theme?: NoteTheme;           // default: 'default'
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
+  wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
 }
 ```
 
@@ -302,6 +326,7 @@ interface WemaEventMap {
   'history:change':  { canUndo: boolean; canRedo: boolean };
   'history:commit':  { deltas: HistoryDelta[]; origin: HistoryOrigin };
   'image:error':     { noteId: NoteId; file: File; error: unknown };
+  'viewport:change': WemaViewport;
   'change':          { data: WemaBoardData };
 }
 ```
@@ -413,13 +438,12 @@ autoSize の付箋の `width` / `height` は、内容と CSS から決まる派�
 
 ### Phase 6 — パン & ズーム
 
-CSS transform (translate + scale) をボード内コンテナ (`.wema-viewport`) に適用する方式。
-- ズーム: Ctrl+ホイール、ピンチ、ツールバー +/- ボタン
-- パン: 中ボタンドラッグ、Space+ドラッグ
-- 全座標系にビューポート変換を挟む (ドラッグ、リサイズ、ラバーバンド、アンカードラッグ、ダブルクリック作成)
-- SVG 層も同じ transform を適用
-- `exportData()` / `importData()` の `viewport` フィールドを実際に使う
-- ビューポート操作は Undo/Redo 対象外
+設計と進め方は issue #52。パン（`.wema-viewport`、`setViewport` / `revealNotes` / `centerContent`、ホイールやドラッグの操作）は実装済みで、仕様は「表示位置（パン）と座標」の節にある。残りは次のとおり。
+
+- ズーム: Ctrl+ホイール、ピンチ、`zoomTo`、`fitToContent`、`minZoom` / `maxZoom`、ツールバー +/- ボタン。`.wema-viewport` の transform に scale を足す
+- ズームの前に行う整理: 表示位置と座標変換を 1 つのクラス（`Viewport`）にまとめる。`pointerdown` で始まる操作（パン、リサイズ、アンカー、付箋のドラッグ、ラバーバンド）の開始判定を 1 か所にまとめる。ドラッグ開始の閾値（`DRAG_THRESHOLD`）は画面のピクセルで比べる
+- スタンドアロン版: ズームのボタン、表示位置の保存
+- 表示位置は `exportData()` / `importData()` に含めない（各クライアントの表示状態として扱う、と決定済み）
 
 ### Phase 7 — 入れ子ボード
 

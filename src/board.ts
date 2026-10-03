@@ -7,13 +7,15 @@ import type {
   WemaBoardData,
   WemaBoardOptions,
   WemaBatchOptions,
+  WemaViewport,
+  WemaViewportMoveOptions,
   WemaEventMap,
   HistoryDelta,
   ChangeOrigin,
 } from './types.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
-import { DragManager } from './drag.js';
+import { DragManager, DRAG_THRESHOLD } from './drag.js';
 import { SelectionManager } from './selection.js';
 import { EdgeManager } from './edge.js';
 import { AnchorDragManager } from './anchor-drag.js';
@@ -25,16 +27,31 @@ import type { NotePosition, NoteAlignment, DistributeDirection } from './layout.
 import { HistoryManager, replayDeltas } from './history.js';
 import type { ReplayCallbacks } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
-import { createElement, createSvgElement, setStyles } from './utils/dom.js';
+import { createElement, createSvgElement, setStyles, shiftElement } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
 import { isSafeUrl } from './utils/sanitize.js';
 import { resolveAutoAnchor } from './utils/geometry.js';
+import type { Point } from './utils/geometry.js';
+
+/** Popups and toolbars that sit on the board; a pointer event on one of them is not a board gesture */
+const OVERLAY_SELECTOR =
+  '.wema-edge-popup, .wema-note-popup, .wema-richtext-toolbar, .wema-image-overlay, .wema-embed-input';
 
 /** Main API class for the wema board */
 export class WemaBoard {
   private emitter = new EventEmitter<WemaEventMap>();
   private boardEl: HTMLElement;
+  private viewportEl: HTMLElement;
   private svgEl: SVGSVGElement;
+  /** How far the board content is moved, in screen pixels (see WemaViewport) */
+  private viewport = { x: 0, y: 0 };
+  private wheelPan: boolean;
+  private spaceHeld = false;
+  private pointerInside = false;
+  /** The inline URL input for embeds, while it is open */
+  private embedInputEl: HTMLElement | null = null;
+  private pan: { pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null = null;
+  private panMoved = false;
   private noteManager: NoteManager;
   private dragManager: DragManager;
   private selectionManager: SelectionManager;
@@ -69,6 +86,15 @@ export class WemaBoard {
   private handleRubberBandDown: (e: PointerEvent) => void;
   private handleRubberBandMove: (e: PointerEvent) => void;
   private handleRubberBandUp: (e: PointerEvent) => void;
+  private handlePanDown: (e: PointerEvent) => void;
+  private handlePanMove: (e: PointerEvent) => void;
+  private handlePanUp: (e: PointerEvent) => void;
+  private handlePointerEnter: () => void;
+  private handlePointerLeave: () => void;
+  private handleSpaceDown: (e: KeyboardEvent) => void;
+  private handleKeyUp: (e: KeyboardEvent) => void;
+  private handleBlur: () => void;
+  private handleWheel: (e: WheelEvent) => void;
 
   constructor(options: WemaBoardOptions) {
     this.container = options.container;
@@ -78,6 +104,7 @@ export class WemaBoard {
     this.defaultNoteHeight = options.defaultNoteHeight ?? 150;
     this.theme = options.theme ?? 'default';
     this.onImageUpload = options.onImageUpload;
+    this.wheelPan = options.wheelPan ?? true;
 
     // Create board element
     this.boardEl = createElement('div', 'wema-board');
@@ -87,17 +114,23 @@ export class WemaBoard {
     setStyles(this.boardEl, { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' });
     this.boardEl.tabIndex = 0;
 
-    // Create SVG layer for edges
+    // Layer for everything drawn in board coordinates; panning moves it
+    this.viewportEl = createElement('div', 'wema-viewport');
+    setStyles(this.viewportEl, { position: 'absolute', top: '0', left: '0', width: '0', height: '0' });
+    this.boardEl.appendChild(this.viewportEl);
+
+    // Create SVG layer for edges (drawn outside its own box, wherever the notes are)
     this.svgEl = createSvgElement('svg', 'wema-edges');
-    this.svgEl.setAttribute('width', '100%');
-    this.svgEl.setAttribute('height', '100%');
+    this.svgEl.setAttribute('width', '1');
+    this.svgEl.setAttribute('height', '1');
     setStyles(this.svgEl as unknown as HTMLElement, {
       position: 'absolute',
       top: '0',
       left: '0',
+      overflow: 'visible',
       pointerEvents: 'none',
     });
-    this.boardEl.appendChild(this.svgEl);
+    this.viewportEl.appendChild(this.svgEl);
 
     // Mount to container
     this.container.appendChild(this.boardEl);
@@ -105,6 +138,7 @@ export class WemaBoard {
     // Initialize managers
     this.noteManager = new NoteManager({
       boardEl: this.boardEl,
+      layerEl: this.viewportEl,
       emitter: this.emitter,
       defaultWidth: options.defaultNoteWidth ?? 200,
       defaultHeight: options.defaultNoteHeight ?? 150,
@@ -119,7 +153,7 @@ export class WemaBoard {
     });
 
     this.selectionManager = new SelectionManager({
-      boardEl: this.boardEl,
+      layerEl: this.viewportEl,
       noteManager: this.noteManager,
       emitter: this.emitter,
       isSelectable: (noteId) => !this.hiddenNoteIds.has(noteId),
@@ -140,6 +174,7 @@ export class WemaBoard {
       noteManager: this.noteManager,
       getReadOnly: isLocked,
       getSelection: () => this.selectionManager.getSelection(),
+      toBoardPoint: (clientX, clientY) => this.clientToBoard(clientX, clientY),
       onDragStart: () => {
         this.notePopup.hide();
         this.noteDragged = true;
@@ -164,6 +199,7 @@ export class WemaBoard {
       edgeManager: this.edgeManager,
       emitter: this.emitter,
       getReadOnly: isRestricted,
+      toBoardPoint: (clientX, clientY) => this.clientToBoard(clientX, clientY),
       onDropOnEmpty: (x, y, fromNoteId) => {
         const newNote = this.noteManager.addNote({
           x: x - this.defaultNoteWidth / 2,
@@ -180,6 +216,7 @@ export class WemaBoard {
       boardEl: this.boardEl,
       noteManager: this.noteManager,
       getReadOnly: isRestricted,
+      toBoardPoint: (clientX, clientY) => this.clientToBoard(clientX, clientY),
       onResizeStart: () => { this.historyManager.beginBatch(); },
       onResizeEnd: () => { this.historyManager.endBatch(); },
     });
@@ -197,6 +234,7 @@ export class WemaBoard {
     this.notePopup = new NoteStylePopup({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
+      toScreen: (x, y) => this.boardToScreen(x, y),
       onColorChange: (noteId, color) => {
         this.noteManager.updateNote(noteId, { color });
       },
@@ -306,15 +344,21 @@ export class WemaBoard {
 
     // Double-click to create note
     this.handleDblClick = (e: MouseEvent) => {
-      if (this.readOnly || this.viewOnly) return;
-      if ((options.createOnDblClick ?? true) === false) return;
-      // Only create if clicking on the board itself, not on a note
-      if ((e.target as HTMLElement).closest('.wema-note')) return;
+      // Only on an empty area of the board, not on a note or a popup
+      const target = e.target as HTMLElement;
+      if (target.closest(`.wema-note, ${OVERLAY_SELECTOR}`)) return;
 
+      const createsNote = !this.readOnly && !this.viewOnly && (options.createOnDblClick ?? true);
+      if (createsNote) {
+        this.addNote(this.clientToBoard(e.clientX, e.clientY));
+        return;
+      }
+
+      // Where a double click creates nothing, it brings that point to the center
       const rect = this.boardEl.getBoundingClientRect();
-      this.addNote({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+      this.setViewport({
+        x: this.viewport.x + rect.left + rect.width / 2 - e.clientX,
+        y: this.viewport.y + rect.top + rect.height / 2 - e.clientY,
       });
     };
     this.boardEl.addEventListener('dblclick', this.handleDblClick);
@@ -362,7 +406,11 @@ export class WemaBoard {
 
     // Click on board: select note, select edge, or deselect
     this.handleBoardClick = (e: MouseEvent) => {
-      // After rubberband drag or note drag, skip the click that follows pointerup
+      // After a pan, rubberband drag or note drag, skip the click that follows pointerup
+      if (this.panMoved) {
+        this.panMoved = false;
+        return;
+      }
       if (this.rubberBandMoved) {
         this.rubberBandMoved = false;
         return;
@@ -373,11 +421,7 @@ export class WemaBoard {
       }
 
       // Don't handle clicks from popups or toolbar
-      if ((e.target as HTMLElement).closest('.wema-edge-popup')) return;
-      if ((e.target as HTMLElement).closest('.wema-note-popup')) return;
-      if ((e.target as HTMLElement).closest('.wema-richtext-toolbar')) return;
-      if ((e.target as HTMLElement).closest('.wema-image-overlay')) return;
-      if ((e.target as HTMLElement).closest('.wema-embed-input')) return;
+      if ((e.target as HTMLElement).closest(OVERLAY_SELECTOR)) return;
 
       if (this.readOnly) return;
 
@@ -426,17 +470,11 @@ export class WemaBoard {
     this.handleRubberBandDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       if (this.readOnly) return;
+      if (this.pan) return; // this drag pans the board instead
       // Only start rubberband from empty board area (not notes, anchors, handles, toolbars)
-      if ((e.target as HTMLElement).closest('.wema-note')) return;
-      if ((e.target as HTMLElement).closest('.wema-edge-popup')) return;
-      if ((e.target as HTMLElement).closest('.wema-note-popup')) return;
-      if ((e.target as HTMLElement).closest('.wema-richtext-toolbar')) return;
-      if ((e.target as HTMLElement).closest('.wema-image-overlay')) return;
-      if ((e.target as HTMLElement).closest('.wema-embed-input')) return;
+      if ((e.target as HTMLElement).closest(`.wema-note, ${OVERLAY_SELECTOR}`)) return;
 
-      const rect = this.boardEl.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const { x, y } = this.clientToBoard(e.clientX, e.clientY);
 
       this.selectionManager.startRubberBand(x, y);
       this.boardEl.setPointerCapture(e.pointerId);
@@ -447,9 +485,7 @@ export class WemaBoard {
     this.handleRubberBandMove = (e: PointerEvent) => {
       if (!this.selectionManager.isRubberBandActive()) return;
       this.rubberBandMoved = true;
-      const rect = this.boardEl.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const { x, y } = this.clientToBoard(e.clientX, e.clientY);
       this.selectionManager.updateRubberBand(x, y);
     };
 
@@ -466,6 +502,102 @@ export class WemaBoard {
     };
 
     this.boardEl.addEventListener('pointerdown', this.handleRubberBandDown);
+
+    // --- Pan ---
+    // Registered in the capture phase, so a pan started over a note wins over
+    // the note's own drag.
+    this.handlePanDown = (e: PointerEvent) => {
+      if (!this.wantsPan(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.pan = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        originX: this.viewport.x,
+        originY: this.viewport.y,
+        moved: false,
+      };
+      this.boardEl.classList.add('wema-panning');
+      this.boardEl.setPointerCapture(e.pointerId);
+      this.boardEl.addEventListener('pointermove', this.handlePanMove);
+      this.boardEl.addEventListener('pointerup', this.handlePanUp);
+      this.boardEl.addEventListener('pointercancel', this.handlePanUp);
+    };
+
+    this.handlePanMove = (e: PointerEvent) => {
+      if (!this.pan || e.pointerId !== this.pan.pointerId) return;
+      const dx = e.clientX - this.pan.startX;
+      const dy = e.clientY - this.pan.startY;
+      if (Math.abs(dx) >= DRAG_THRESHOLD || Math.abs(dy) >= DRAG_THRESHOLD) this.pan.moved = true;
+      this.setViewport({ x: this.pan.originX + dx, y: this.pan.originY + dy });
+    };
+
+    this.handlePanUp = (e: PointerEvent) => {
+      if (!this.pan || e.pointerId !== this.pan.pointerId) return;
+      this.boardEl.removeEventListener('pointermove', this.handlePanMove);
+      this.boardEl.removeEventListener('pointerup', this.handlePanUp);
+      this.boardEl.removeEventListener('pointercancel', this.handlePanUp);
+      try {
+        this.boardEl.releasePointerCapture(e.pointerId);
+      } catch {
+        // may already be released
+      }
+      // Only a left-button drag that ends normally is followed by a click that
+      // must be skipped (a cancelled one is not: the flag would eat the next click)
+      this.panMoved = this.pan.moved && e.type === 'pointerup' && e.button === 0;
+      this.pan = null;
+      this.boardEl.classList.remove('wema-panning');
+    };
+
+    // Hold Space to pan with a left drag. Decided by where the pointer is, not
+    // by focus: the board does not always have focus (right after loading,
+    // after a click on the host's own buttons, in readOnly), and a key state
+    // tied to focus is lost when focus moves while the key is down.
+    this.handlePointerEnter = () => { this.pointerInside = true; };
+    this.handlePointerLeave = () => { this.pointerInside = false; };
+    this.handleSpaceDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!this.pointerInside) return;
+      // Space belongs to whatever is being typed in or activated
+      if (document.activeElement?.closest('[contenteditable="true"], input, textarea, select, button')) return;
+      e.preventDefault();
+      this.setSpaceHeld(true);
+    };
+    this.handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') this.setSpaceHeld(false);
+    };
+    this.handleBlur = () => this.setSpaceHeld(false);
+
+    this.handleWheel = (e: WheelEvent) => {
+      if (!this.wheelPan) return;
+      // Ctrl/Cmd + wheel is the browser's (and later the board's) zoom gesture
+      if (e.ctrlKey || e.metaKey) return;
+      const target = e.target as HTMLElement;
+      if (target.closest(OVERLAY_SELECTOR)) return;
+      // A note whose content scrolls keeps the wheel for itself
+      const content = target.closest('.wema-note-content');
+      if (content && content.scrollHeight > content.clientHeight) return;
+
+      e.preventDefault();
+      // deltaMode: 0 = pixels, 1 = lines, 2 = pages
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.boardEl.clientHeight : 1;
+      let dx = e.deltaX * unit;
+      let dy = e.deltaY * unit;
+      if (e.shiftKey && dx === 0) {
+        dx = dy;
+        dy = 0;
+      }
+      this.setViewport({ x: this.viewport.x - dx, y: this.viewport.y - dy });
+    };
+
+    this.boardEl.addEventListener('pointerdown', this.handlePanDown, true);
+    this.boardEl.addEventListener('pointerenter', this.handlePointerEnter);
+    this.boardEl.addEventListener('pointerleave', this.handlePointerLeave);
+    document.addEventListener('keydown', this.handleSpaceDown);
+    document.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.handleBlur);
+    this.boardEl.addEventListener('wheel', this.handleWheel, { passive: false });
 
     // Import initial data if provided
     if (options.data) {
@@ -486,6 +618,16 @@ export class WemaBoard {
     this.boardEl.removeEventListener('pointerdown', this.handleRubberBandDown);
     this.boardEl.removeEventListener('pointermove', this.handleRubberBandMove);
     this.boardEl.removeEventListener('pointerup', this.handleRubberBandUp);
+    this.boardEl.removeEventListener('pointerdown', this.handlePanDown, true);
+    this.boardEl.removeEventListener('pointermove', this.handlePanMove);
+    this.boardEl.removeEventListener('pointerup', this.handlePanUp);
+    this.boardEl.removeEventListener('pointercancel', this.handlePanUp);
+    this.boardEl.removeEventListener('pointerenter', this.handlePointerEnter);
+    this.boardEl.removeEventListener('pointerleave', this.handlePointerLeave);
+    document.removeEventListener('keydown', this.handleSpaceDown);
+    document.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.handleBlur);
+    this.boardEl.removeEventListener('wheel', this.handleWheel);
     this.noteManager.destroy();
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
@@ -505,7 +647,10 @@ export class WemaBoard {
   /** Add a new note to the board */
   addNote(params?: Partial<Omit<WemaNote, 'id'>>): WemaNote {
     if (this.readOnly || this.viewOnly) return undefined as never;
-    return this.noteManager.addNote(params);
+    // Without a position, the note goes near the top-left of what is shown
+    // (not of the board, which may be panned out of view)
+    const origin = this.visibleOrigin();
+    return this.noteManager.addNote({ ...params, x: params?.x ?? origin.x + 100, y: params?.y ?? origin.y + 100 });
   }
 
   /** Update an existing note */
@@ -615,6 +760,137 @@ export class WemaBoard {
   /** Get the IDs of the notes shown by the filter, or null when no filter is set */
   getNoteFilter(): NoteId[] | null {
     return this.noteFilter ? Array.from(this.noteFilter) : null;
+  }
+
+  // --- Viewport ---
+
+  /** Get which part of the board is shown */
+  getViewport(): WemaViewport {
+    return { x: this.viewport.x, y: this.viewport.y, zoom: 1 };
+  }
+
+  /**
+   * Move the viewport. Display state only: note positions do not change, no
+   * note/edge event or `change` is emitted and nothing is recorded in the undo
+   * history; `viewport:change` is emitted. Works in readOnly and viewOnly.
+   * `zoom` is not supported yet and is ignored.
+   */
+  setViewport(viewport: Partial<WemaViewport>): void {
+    const x = viewport.x ?? this.viewport.x;
+    const y = viewport.y ?? this.viewport.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (x === this.viewport.x && y === this.viewport.y) return;
+
+    const dx = x - this.viewport.x;
+    const dy = y - this.viewport.y;
+    this.viewport = { x, y };
+    this.viewportEl.style.transform = `translate(${x}px, ${y}px)`;
+
+    // Overlays live in screen space: move them along with what they belong to
+    this.notePopup.updatePosition();
+    this.edgePopup.moveBy(dx, dy);
+    this.richTextToolbar.moveBy(dx, dy);
+    this.noteManager.moveOverlayBy(dx, dy);
+    if (this.embedInputEl) shiftElement(this.embedInputEl, dx, dy);
+
+    this.emitter.emit('viewport:change', this.getViewport());
+  }
+
+  /**
+   * Pan just enough to bring the given notes into view. Notes that are hidden
+   * (by the filter or a collapsed edge) are left out. If the notes do not fit,
+   * their top-left corner is shown.
+   */
+  revealNotes(noteIds: NoteId[], options?: WemaViewportMoveOptions): void {
+    const padding = options?.padding ?? 24;
+    this.panToNotes(noteIds, padding, (start, end, size) => {
+      if (start < padding) return padding;
+      if (end > size - padding) return size - padding - (end - start);
+      return start;
+    });
+  }
+
+  /**
+   * Pan so that all shown notes (or `options.noteIds`) are in the middle of
+   * the board. If they do not fit, their top-left corner is shown. Notes that
+   * are hidden (by the filter or a collapsed edge) are left out.
+   */
+  centerContent(options?: WemaViewportMoveOptions & { noteIds?: NoteId[] }): void {
+    this.panToNotes(options?.noteIds, options?.padding ?? 24, (start, end, size) => (size - (end - start)) / 2);
+  }
+
+  /**
+   * Pan so that the box around the given notes lands where `place` says.
+   * `place` works on one axis in screen pixels: it gets the box as
+   * [start, end] and the board's size, and returns where `start` should be.
+   * A box too large to fit (with `padding` on both sides) is put at `padding`.
+   */
+  private panToNotes(
+    noteIds: NoteId[] | undefined,
+    padding: number,
+    place: (start: number, end: number, size: number) => number,
+  ): void {
+    const bounds = this.visibleBounds(noteIds);
+    const width = this.boardEl.clientWidth;
+    const height = this.boardEl.clientHeight;
+    if (!bounds || width === 0 || height === 0) return;
+
+    const from = this.boardToScreen(bounds.left, bounds.top);
+    const to = this.boardToScreen(bounds.right, bounds.bottom);
+    const target = (start: number, end: number, size: number): number =>
+      end - start + padding * 2 > size ? padding : place(start, end, size);
+    this.setViewport({
+      x: this.viewport.x + target(from.x, to.x, width) - from.x,
+      y: this.viewport.y + target(from.y, to.y, height) - from.y,
+    });
+  }
+
+  /** Bounding box, in board coordinates, of the shown notes among `noteIds` (default: all) */
+  private visibleBounds(noteIds?: NoteId[]): { left: number; top: number; right: number; bottom: number } | null {
+    const ids = noteIds ? new Set(noteIds) : null;
+    const notes = this.noteManager.getNotes()
+      .filter((note) => (!ids || ids.has(note.id)) && !this.hiddenNoteIds.has(note.id));
+    if (notes.length === 0) return null;
+    return {
+      left: Math.min(...notes.map((n) => n.x)),
+      top: Math.min(...notes.map((n) => n.y)),
+      right: Math.max(...notes.map((n) => n.x + n.width)),
+      bottom: Math.max(...notes.map((n) => n.y + n.height)),
+    };
+  }
+
+  /** Convert a pointer position (clientX / clientY) to board coordinates */
+  private clientToBoard(clientX: number, clientY: number): Point {
+    const rect = this.boardEl.getBoundingClientRect();
+    return { x: clientX - rect.left - this.viewport.x, y: clientY - rect.top - this.viewport.y };
+  }
+
+  /** Board coordinates of the board element's top-left corner */
+  private visibleOrigin(): Point {
+    return { x: -this.viewport.x, y: -this.viewport.y };
+  }
+
+  /** Convert board coordinates to a position inside the board element (for overlays) */
+  private boardToScreen(x: number, y: number): Point {
+    return { x: x + this.viewport.x, y: y + this.viewport.y };
+  }
+
+  /** Whether this pointerdown starts a pan rather than a selection or a note drag */
+  private wantsPan(e: PointerEvent): boolean {
+    const target = e.target as HTMLElement;
+    if (target.closest(OVERLAY_SELECTOR)) return false;
+    if (e.button === 1) return true; // middle button, anywhere
+    if (e.button !== 0) return false;
+    if (this.spaceHeld) return true; // Space + drag, anywhere
+    // With nothing to select or edit on an empty area, a plain drag pans.
+    // In viewOnly, Shift + drag still starts a rubberband selection.
+    const onEmptyArea = !target.closest('.wema-note');
+    return onEmptyArea && (this.readOnly || (this.viewOnly && !e.shiftKey));
+  }
+
+  private setSpaceHeld(held: boolean): void {
+    this.spaceHeld = held;
+    this.boardEl.classList.toggle('wema-pan-ready', held);
   }
 
   // --- Layout ---
@@ -933,15 +1209,22 @@ export class WemaBoard {
   /** Show an inline URL input for embedding an iframe into the note */
   private showEmbedInput(noteId: NoteId): void {
     // Remove any existing embed input
-    this.boardEl.querySelector('.wema-embed-input')?.remove();
+    this.embedInputEl?.remove();
+    this.embedInputEl = null;
 
     const note = this.noteManager.getNote(noteId);
     if (!note) return;
 
     const container = createElement('div', 'wema-embed-input');
+    this.embedInputEl = container;
+    const close = (): void => {
+      container.remove();
+      if (this.embedInputEl === container) this.embedInputEl = null;
+    };
     container.style.position = 'absolute';
-    container.style.left = `${note.x + note.width / 2}px`;
-    container.style.top = `${note.y + note.height + 50}px`;
+    const below = this.boardToScreen(note.x + note.width / 2, note.y + note.height);
+    container.style.left = `${below.x}px`;
+    container.style.top = `${below.y + 50}px`;
     container.style.transform = 'translateX(-50%)';
     container.style.zIndex = '10002';
     container.addEventListener('click', (e) => e.stopPropagation());
@@ -957,14 +1240,13 @@ export class WemaBoard {
     okBtn.textContent = 'OK';
     okBtn.addEventListener('click', () => {
       const rawUrl = input.value.trim();
-      if (!rawUrl) { container.remove(); return; }
-      this.embedUrl(noteId, rawUrl);
-      container.remove();
+      if (rawUrl) this.embedUrl(noteId, rawUrl);
+      close();
     });
 
     const cancelBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     cancelBtn.textContent = '✕';
-    cancelBtn.addEventListener('click', () => container.remove());
+    cancelBtn.addEventListener('click', close);
 
     container.appendChild(input);
     container.appendChild(okBtn);

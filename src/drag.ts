@@ -1,7 +1,9 @@
 import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
+import type { ToBoardPoint } from './utils/geometry.js';
 
-const DRAG_THRESHOLD = 4;
+/** How far the pointer must move, in pixels, before a press becomes a drag rather than a click */
+export const DRAG_THRESHOLD = 4;
 
 type DragState = 'IDLE' | 'PENDING' | 'DRAGGING';
 
@@ -28,6 +30,7 @@ export class DragManager {
   private noteManager: NoteManager;
   private getReadOnly: () => boolean;
   private getSelection: () => NoteId[];
+  private toBoardPoint: ToBoardPoint;
   private onDragStart?: () => void;
   private onDragEnd?: (noteId: NoteId) => void;
 
@@ -40,9 +43,12 @@ export class DragManager {
     noteManager: NoteManager;
     getReadOnly: () => boolean;
     getSelection: () => NoteId[];
+    /** Convert a pointer position (clientX / clientY) to board coordinates */
+    toBoardPoint: ToBoardPoint;
     onDragStart?: () => void;
     onDragEnd?: (noteId: NoteId) => void;
   }) {
+    this.toBoardPoint = options.toBoardPoint;
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.getReadOnly = options.getReadOnly;
@@ -96,10 +102,13 @@ export class DragManager {
       }
     }
 
+    // Positions are kept in board coordinates, so the note stays under the
+    // pointer even if the viewport moves during the drag
+    const start = this.toBoardPoint(e.clientX, e.clientY);
     this.ctx = {
       noteId,
-      startX: e.clientX,
-      startY: e.clientY,
+      startX: start.x,
+      startY: start.y,
       noteStartX: note.x,
       noteStartY: note.y,
       pointerId: e.pointerId,
@@ -114,8 +123,9 @@ export class DragManager {
   private onPointerMove(e: PointerEvent): void {
     if (!this.ctx) return;
 
-    const dx = e.clientX - this.ctx.startX;
-    const dy = e.clientY - this.ctx.startY;
+    const point = this.toBoardPoint(e.clientX, e.clientY);
+    const dx = point.x - this.ctx.startX;
+    const dy = point.y - this.ctx.startY;
 
     if (this.state === 'PENDING') {
       if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {

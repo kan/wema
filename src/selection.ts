@@ -7,7 +7,7 @@ export class SelectionManager {
   private selected = new Set<NoteId>();
   private noteManager: NoteManager;
   private emitter: EventEmitter<WemaEventMap>;
-  private boardEl: HTMLElement;
+  private layerEl: HTMLElement;
   private isSelectable: (noteId: NoteId) => boolean;
 
   // Rubberband state
@@ -16,13 +16,14 @@ export class SelectionManager {
   private rubberBandActive = false;
 
   constructor(options: {
-    boardEl: HTMLElement;
+    /** Element the rubberband is drawn into (the panned layer, in board coordinates) */
+    layerEl: HTMLElement;
     noteManager: NoteManager;
     emitter: EventEmitter<WemaEventMap>;
     /** Whether a note may be selected (a hidden note may not) */
     isSelectable: (noteId: NoteId) => boolean;
   }) {
-    this.boardEl = options.boardEl;
+    this.layerEl = options.layerEl;
     this.noteManager = options.noteManager;
     this.emitter = options.emitter;
     this.isSelectable = options.isSelectable;
@@ -121,7 +122,7 @@ export class SelectionManager {
     this.rubberBandEl.style.top = `${y}px`;
     this.rubberBandEl.style.width = '0';
     this.rubberBandEl.style.height = '0';
-    this.boardEl.appendChild(this.rubberBandEl);
+    this.layerEl.appendChild(this.rubberBandEl);
   }
 
   /** Update the rubberband rectangle to the given board-relative coordinates */

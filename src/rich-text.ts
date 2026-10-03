@@ -1,4 +1,4 @@
-import { createElement } from './utils/dom.js';
+import { createElement, shiftElement } from './utils/dom.js';
 import { isSafeUrl } from './utils/sanitize.js';
 
 const TEXT_COLORS = [
@@ -77,6 +77,11 @@ export class RichTextToolbar {
     this.activeContentEl = null;
     this.savedRange = null;
     this.subPanelOpen = false;
+  }
+
+  /** Move the toolbar with the board content when the viewport is panned by (dx, dy) */
+  moveBy(dx: number, dy: number): void {
+    shiftElement(this.toolbarEl, dx, dy);
   }
 
   private onSelectionChange(): void {

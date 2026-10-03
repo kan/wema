@@ -1,11 +1,13 @@
 import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
-import { createElement, setStyles } from './utils/dom.js';
+import { createElement, setStyles, shiftElement } from './utils/dom.js';
 import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUrl } from './utils/sanitize.js';
 
 interface NoteManagerOptions {
   boardEl: HTMLElement;
+  /** Element the notes are rendered into (the panned layer inside the board) */
+  layerEl: HTMLElement;
   emitter: EventEmitter<WemaEventMap>;
   defaultWidth: number;
   defaultHeight: number;
@@ -25,6 +27,7 @@ export class NoteManager {
   private elements = new Map<NoteId, HTMLElement>();
   private zCounter = 1;
   private boardEl: HTMLElement;
+  private layerEl: HTMLElement;
   private emitter: EventEmitter<WemaEventMap>;
   private defaultWidth: number;
   private defaultHeight: number;
@@ -45,6 +48,7 @@ export class NoteManager {
 
   constructor(options: NoteManagerOptions) {
     this.boardEl = options.boardEl;
+    this.layerEl = options.layerEl;
     this.emitter = options.emitter;
     this.defaultWidth = options.defaultWidth;
     this.defaultHeight = options.defaultHeight;
@@ -327,6 +331,11 @@ export class NoteManager {
     this.imageOverlay.style.display = '';
   }
 
+  /** Move the image overlay with the board content when the viewport is panned by (dx, dy) */
+  moveOverlayBy(dx: number, dy: number): void {
+    shiftElement(this.imageOverlay, dx, dy);
+  }
+
   /** Hide the image overlay */
   private hideImageOverlay(): void {
     this.imageOverlay.style.display = 'none';
@@ -541,7 +550,7 @@ export class NoteManager {
     el.appendChild(resizeHandle);
 
     this.applyStyles(el, note);
-    this.boardEl.appendChild(el);
+    this.layerEl.appendChild(el);
     this.elements.set(note.id, el);
   }
 

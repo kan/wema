@@ -70,18 +70,14 @@
     }
     .layout-panel button:hover { border-color: #ccc; }
 
+    /* The board fills the container; notes outside it are reached by panning */
     #board-container {
       flex: 1;
-      overflow: auto;
+      overflow: hidden;
       background:
         linear-gradient(90deg, #f0f0f0 1px, transparent 1px),
         linear-gradient(#f0f0f0 1px, transparent 1px);
       background-size: 20px 20px;
-    }
-    #board-container .wema-board {
-      overflow: visible;
-      min-height: 100%;
-      min-width: 100%;
     }
 
     #status {
@@ -207,29 +203,14 @@
         }
         updateStatus();
 
-        // Resize board to encompass all notes (enables scrolling)
-        var boardEl = container.querySelector('.wema-board');
-        var BOARD_PADDING = 40;
-        function updateBoardSize() {
-          var notes = board.getNotes();
-          var maxRight = 0;
-          var maxBottom = 0;
-          for (var i = 0; i < notes.length; i++) {
-            var n = notes[i];
-            var r = n.x + n.width + BOARD_PADDING;
-            var b = n.y + n.height + BOARD_PADDING;
-            if (r > maxRight) maxRight = r;
-            if (b > maxBottom) maxBottom = b;
-          }
-          boardEl.style.width = maxRight > 0 ? maxRight + 'px' : '';
-          boardEl.style.height = maxBottom > 0 ? maxBottom + 'px' : '';
-        }
-        updateBoardSize();
+        // The background grid moves with the board when it is panned
+        board.on('viewport:change', function(viewport) {
+          container.style.backgroundPosition = viewport.x + 'px ' + viewport.y + 'px';
+        });
 
         // Auto-save with 300ms debounce (skip in viewOnly mode)
         board.on('change', function() {
           updateStatus();
-          updateBoardSize();
           if (board.isViewOnly()) return;
           if (saveTimer) clearTimeout(saveTimer);
           saveTimer = setTimeout(function() {
@@ -239,11 +220,13 @@
 
         // Add note
         document.getElementById('btn-add').addEventListener('click', function() {
+          // Place it in the part of the board that is shown, a little further each time
           var notes = board.getNotes();
-          var offset = notes.length * 20;
+          var offset = (notes.length % 10) * 20;
+          var viewport = board.getViewport();
           board.addNote({
-            x: 120 + offset,
-            y: 80 + offset,
+            x: 120 + offset - viewport.x,
+            y: 80 + offset - viewport.y,
           });
         });
 

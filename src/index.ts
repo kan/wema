@@ -24,6 +24,8 @@ export type {
   WemaBoardData,
   WemaBoardOptions,
   WemaBatchOptions,
+  WemaViewport,
+  WemaViewportMoveOptions,
   WemaEventMap,
   HistoryDelta,
   HistoryOrigin,

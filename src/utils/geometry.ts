@@ -6,6 +6,9 @@ export interface Point {
   y: number;
 }
 
+/** Converts a pointer position (clientX / clientY) to board coordinates */
+export type ToBoardPoint = (clientX: number, clientY: number) => Point;
+
 const CONCRETE_ANCHORS: readonly ('top' | 'right' | 'bottom' | 'left')[] = ['top', 'right', 'bottom', 'left'];
 
 /** Get the pixel coordinates of an anchor point on a note */

@@ -57,7 +57,29 @@ export interface WemaBoardData {
   version: 1;
   notes: WemaNote[];
   edges: WemaEdge[];
+  /**
+   * Not used: the viewport is display state of each client, so `exportData()`
+   * does not write it and `importData()` ignores it. Use `getViewport()` /
+   * `setViewport()` to save and restore it yourself.
+   */
   viewport?: { x: number; y: number; zoom: number };
+}
+
+/**
+ * Which part of the board is shown. `x` / `y` are how far the board content
+ * is moved, in screen pixels: a note at board position (nx, ny) is drawn at
+ * (nx + x, ny + y) inside the board element. `zoom` is always 1 for now.
+ */
+export interface WemaViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+/** Options for `revealNotes()` and `fitToContent()` */
+export interface WemaViewportMoveOptions {
+  /** Space to keep between the notes and the edge of the board, in pixels (default: 24) */
+  padding?: number;
 }
 
 /** Options for creating a WemaBoard */
@@ -86,6 +108,11 @@ export interface WemaBoardOptions {
    * new tab. Also called in readOnly and viewOnly.
    */
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
+  /**
+   * Pan the board with the mouse wheel / trackpad scroll (default: true).
+   * Set to false when the board sits in a page that should scroll instead.
+   */
+  wheelPan?: boolean;
 }
 
 /**
@@ -129,5 +156,7 @@ export interface WemaEventMap {
   'history:commit': { deltas: HistoryDelta[]; origin: HistoryOrigin };
   /** `onImageUpload` rejected or returned an unusable URL; no image was inserted */
   'image:error': { noteId: NoteId; file: File; error: unknown };
+  /** The viewport moved (pan, `setViewport()`, `revealNotes()`, `fitToContent()`). Does not emit `change`. */
+  'viewport:change': WemaViewport;
   'change': { data: WemaBoardData };
 }

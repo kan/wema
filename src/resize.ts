@@ -1,5 +1,6 @@
 import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
+import type { ToBoardPoint } from './utils/geometry.js';
 
 const MIN_WIDTH = 80;
 const MIN_HEIGHT = 60;
@@ -17,6 +18,7 @@ export class ResizeManager {
   private boardEl: HTMLElement;
   private noteManager: NoteManager;
   private getReadOnly: () => boolean;
+  private toBoardPoint: ToBoardPoint;
   private onResizeStart?: () => void;
   private onResizeEnd?: () => void;
   private ctx: ResizeContext | null = null;
@@ -29,9 +31,12 @@ export class ResizeManager {
     boardEl: HTMLElement;
     noteManager: NoteManager;
     getReadOnly: () => boolean;
+    /** Convert a pointer position (clientX / clientY) to board coordinates */
+    toBoardPoint: ToBoardPoint;
     onResizeStart?: () => void;
     onResizeEnd?: () => void;
   }) {
+    this.toBoardPoint = options.toBoardPoint;
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.getReadOnly = options.getReadOnly;
@@ -74,10 +79,13 @@ export class ResizeManager {
     e.preventDefault();
     e.stopPropagation();
 
+    // Kept in board coordinates, so the handle stays under the pointer even
+    // if the viewport moves during the resize
+    const start = this.toBoardPoint(e.clientX, e.clientY);
     this.ctx = {
       noteId,
-      startX: e.clientX,
-      startY: e.clientY,
+      startX: start.x,
+      startY: start.y,
       startWidth: note.width,
       startHeight: note.height,
       pointerId: e.pointerId,
@@ -93,8 +101,9 @@ export class ResizeManager {
   private onPointerMove(e: PointerEvent): void {
     if (!this.ctx) return;
 
-    const dx = e.clientX - this.ctx.startX;
-    const dy = e.clientY - this.ctx.startY;
+    const point = this.toBoardPoint(e.clientX, e.clientY);
+    const dx = point.x - this.ctx.startX;
+    const dy = point.y - this.ctx.startY;
 
     const newWidth = Math.max(MIN_WIDTH, this.ctx.startWidth + dx);
     const newHeight = Math.max(MIN_HEIGHT, this.ctx.startHeight + dy);

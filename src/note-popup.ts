@@ -1,6 +1,7 @@
 import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
 import { createElement } from './utils/dom.js';
+import type { Point } from './utils/geometry.js';
 
 const NOTE_COLORS: { hex: string; name: string }[] = [
   { hex: '#FFF9C4', name: 'Butter' },
@@ -44,6 +45,9 @@ export class NoteStylePopup {
   private onMultiAutoSizeToggle: ((noteIds: NoteId[]) => void) | null = null;
   private currentNoteId: NoteId | null = null;
   private currentNoteIds: NoteId[] | null = null;
+  private toScreen: (x: number, y: number) => Point;
+  /** Where the popup points to, in board coordinates (null while hidden) */
+  private anchor: Point | null = null;
 
   constructor(options: {
     boardEl: HTMLElement;
@@ -57,7 +61,10 @@ export class NoteStylePopup {
     onInsertEmbed?: (noteId: NoteId) => void;
     onAutoSizeToggle?: (noteId: NoteId) => void;
     onMultiAutoSizeToggle?: (noteIds: NoteId[]) => void;
+    /** Convert board coordinates to a position inside the board element */
+    toScreen: (x: number, y: number) => Point;
   }) {
+    this.toScreen = options.toScreen;
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.onColorChange = options.onColorChange;
@@ -207,8 +214,8 @@ export class NoteStylePopup {
     this.popupEl.appendChild(colorGrid);
 
     // Position below the note, centered horizontally
-    this.popupEl.style.left = `${note.x + note.width / 2}px`;
-    this.popupEl.style.top = `${note.y + note.height + 8}px`;
+    this.anchor = { x: note.x + note.width / 2, y: note.y + note.height };
+    this.updatePosition();
     this.popupEl.style.display = '';
   }
 
@@ -289,15 +296,24 @@ export class NoteStylePopup {
     const minX = Math.min(...notes.map((n) => n.x));
     const maxX = Math.max(...notes.map((n) => n.x + n.width));
     const maxY = Math.max(...notes.map((n) => n.y + n.height));
-    this.popupEl.style.left = `${(minX + maxX) / 2}px`;
-    this.popupEl.style.top = `${maxY + 8}px`;
+    this.anchor = { x: (minX + maxX) / 2, y: maxY };
+    this.updatePosition();
     this.popupEl.style.display = '';
+  }
+
+  /** Place the popup under what it points to (call again after the viewport moves) */
+  updatePosition(): void {
+    if (!this.anchor) return;
+    const { x, y } = this.toScreen(this.anchor.x, this.anchor.y);
+    this.popupEl.style.left = `${x}px`;
+    this.popupEl.style.top = `${y + 8}px`;
   }
 
   hide(): void {
     this.popupEl.style.display = 'none';
     this.currentNoteId = null;
     this.currentNoteIds = null;
+    this.anchor = null;
   }
 
   destroy(): void {
