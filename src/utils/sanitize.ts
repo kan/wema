@@ -57,18 +57,20 @@ export function isSafeUrl(url: string, dataMediaType?: string): boolean {
 export function resolveSafeUrl(href: string): string | null {
   if (!isSafeUrl(href)) return null;
   let url: URL;
-  let pageProtocol: string;
+  let page: URL;
   try {
     url = new URL(href, document.baseURI);
-    pageProtocol = new URL(document.baseURI).protocol;
+    page = new URL(document.baseURI);
   } catch {
     return null;
   }
-  // After resolving, the scheme must be allowed too. The one exception is the
-  // page's own scheme, which a relative link inherits (file: when the
-  // standalone HTML is opened from disk); an explicit "file:" never passes
-  // the check above.
-  if (!isSafeUrl(url.href) && url.protocol !== pageProtocol) return null;
+  // After resolving, the scheme must be allowed too. The one exception is a
+  // relative link on a page with another scheme (file: when the standalone
+  // HTML is opened from disk): it may stay on the page's scheme and host.
+  // The host must match as well, or "//server/share" on a file: page would
+  // reach another machine.
+  const staysOnPage = url.protocol === page.protocol && url.host === page.host;
+  if (!isSafeUrl(url.href) && !staysOnPage) return null;
   return url.href;
 }
 

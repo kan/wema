@@ -177,6 +177,35 @@ describe('resolveSafeUrl', () => {
     }
   });
 
+  describe('on a page opened from disk (file:)', () => {
+    const fileBase = 'file:///home/user/wema.html';
+
+    function withBase<T>(fn: () => T): T {
+      const base = document.createElement('base');
+      base.href = fileBase;
+      document.head.appendChild(base);
+      try {
+        return fn();
+      } finally {
+        base.remove();
+      }
+    }
+
+    it('allows a relative link that stays on the local disk', () => {
+      expect(withBase(() => resolveSafeUrl('notes/a.html'))).toBe('file:///home/user/notes/a.html');
+    });
+
+    it('rejects a link that resolves to another host', () => {
+      for (const href of ['//server/share/x', '/\\server/share/x', '\\\\server\\share\\x']) {
+        expect(withBase(() => resolveSafeUrl(href))).toBeNull();
+      }
+    });
+
+    it('still allows links to the web', () => {
+      expect(withBase(() => resolveSafeUrl('https://example.com/a'))).toBe('https://example.com/a');
+    });
+  });
+
   it('returns null for a URL that cannot be parsed', () => {
     expect(resolveSafeUrl('https://exa mple.com:99999999/')).toBeNull();
   });
