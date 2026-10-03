@@ -2,7 +2,7 @@ import type { NoteId, WemaNote, WemaEventMap } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import { createElement, setStyles } from './utils/dom.js';
-import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret } from './utils/sanitize.js';
+import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, isSafeUrl } from './utils/sanitize.js';
 
 interface NoteManagerOptions {
   boardEl: HTMLElement;
@@ -408,7 +408,7 @@ export class NoteManager {
         const linkEl = (target.tagName === 'A' ? target : target.closest('a')) as HTMLAnchorElement;
         e.preventDefault();
         const href = linkEl.getAttribute('href');
-        if (href) {
+        if (href && isSafeUrl(href)) {
           window.open(href, '_blank', 'noopener');
         }
         return;

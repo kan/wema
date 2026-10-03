@@ -78,6 +78,31 @@ describe('sanitizeHtml', () => {
     expect(result).not.toContain('javascript:');
   });
 
+  it('removes javascript: URLs obfuscated with control characters', () => {
+    expect(sanitizeHtml('<a href="java&#9;script:alert(1)">x</a>')).toBe('<a>x</a>');
+    expect(sanitizeHtml('<a href="&#1;javascript:alert(1)">x</a>')).toBe('<a>x</a>');
+    expect(sanitizeHtml('<iframe src="jav&#10;ascript:alert(1)"></iframe>')).toBe('<iframe></iframe>');
+  });
+
+  it('removes URLs with schemes outside the allowlist', () => {
+    expect(sanitizeHtml('<a href="vbscript:msgbox(1)">x</a>')).toBe('<a>x</a>');
+    expect(sanitizeHtml('<a href="data:text/html,x">x</a>')).toBe('<a>x</a>');
+  });
+
+  it('removes data: URLs whose media type does not match the tag', () => {
+    expect(sanitizeHtml('<iframe src="data:image/svg+xml,x"></iframe>')).toBe('<iframe></iframe>');
+    expect(sanitizeHtml('<img src="data:text/html,x">')).toBe('<img>');
+    expect(sanitizeHtml('<video src="data:video/mp4;base64,abc" poster="data:text/html,x"></video>'))
+      .toBe('<video src="data:video/mp4;base64,abc"></video>');
+  });
+
+  it('preserves mailto:, tel: and relative URLs', () => {
+    expect(sanitizeHtml('<a href="mailto:a@example.com">m</a>')).toContain('href="mailto:a@example.com"');
+    expect(sanitizeHtml('<a href="tel:+81312345678">t</a>')).toContain('href="tel:+81312345678"');
+    expect(sanitizeHtml('<a href="/docs/a.html#top">r</a>')).toContain('href="/docs/a.html#top"');
+    expect(sanitizeHtml('<a href="my file: v2.html">r</a>')).toContain('href="my file: v2.html"');
+  });
+
   it('removes disallowed CSS properties from style', () => {
     const input = '<span style="color: red; position: fixed; top: 0;">text</span>';
     const result = sanitizeHtml(input);
@@ -151,5 +176,11 @@ describe('isPlainText', () => {
 
   it('returns false for img tags', () => {
     expect(isPlainText('<img src="x">')).toBe(false);
+  });
+
+  it('stays fast on many unclosed tag openers', () => {
+    const start = performance.now();
+    expect(isPlainText('<a'.repeat(40000))).toBe(true);
+    expect(performance.now() - start).toBeLessThan(200);
   });
 });

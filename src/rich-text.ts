@@ -1,4 +1,5 @@
 import { createElement } from './utils/dom.js';
+import { isSafeUrl } from './utils/sanitize.js';
 
 const TEXT_COLORS = [
   '#333333', '#D32F2F', '#1976D2', '#388E3C',
@@ -305,6 +306,10 @@ export class RichTextToolbar {
 
   private applyLink(url: string): void {
     if (!this.activeContentEl) return;
+    if (!isSafeUrl(url)) {
+      this.savedRange = null;
+      return;
+    }
 
     // Restore saved selection range
     this.restoreSavedRange();

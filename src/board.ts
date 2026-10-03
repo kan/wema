@@ -22,6 +22,7 @@ import { HistoryManager } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
 import { createElement, createSvgElement, setStyles } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
+import { isSafeUrl } from './utils/sanitize.js';
 import { resolveAutoAnchor } from './utils/geometry.js';
 
 /** Main API class for the wema board */
@@ -829,6 +830,7 @@ export class WemaBoard {
 
   /** Convert URL to embed URL and insert iframe/img/video into a note */
   private async embedUrl(noteId: NoteId, rawUrl: string): Promise<void> {
+    if (!isSafeUrl(rawUrl)) return;
     const noteEl = this.noteManager.getElement(noteId);
     if (!noteEl) return;
     const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;

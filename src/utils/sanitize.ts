@@ -24,9 +24,34 @@ const ALLOWED_CSS_PROPS = new Set([
   'list-style-type', 'white-space',
 ]);
 
+/** URL schemes allowed in href/src attributes (relative URLs are always allowed) */
+const SAFE_URL_SCHEMES = new Set(['http', 'https', 'mailto', 'tel']);
+
+/** Media type prefix a data: URL must have to be used as the src of each tag */
+const DATA_URL_MEDIA_TYPES: Record<string, string> = {
+  img: 'image/',
+  video: 'video/',
+  audio: 'audio/',
+};
+
+/**
+ * Check whether a URL is safe to use as an href/src value.
+ * Allows relative URLs and http/https/mailto/tel. A data: URL is allowed only
+ * when its media type starts with `dataMediaType` (e.g. 'image/').
+ */
+export function isSafeUrl(url: string, dataMediaType?: string): boolean {
+  // Browsers drop leading control characters/spaces and any tab/newline while
+  // parsing a URL, so "java\tscript:" still runs
+  const normalized = url.replace(/^[\u0000- ]+/, '').replace(/[\t\n\r]/g, '').toLowerCase();
+  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(normalized)?.[1];
+  if (scheme === undefined || SAFE_URL_SCHEMES.has(scheme)) return true;
+  return scheme === 'data' && dataMediaType !== undefined
+    && normalized.startsWith(`data:${dataMediaType}`);
+}
+
 /**
  * Sanitize an HTML string by removing disallowed tags, attributes,
- * and dangerous content (event handlers, javascript: URLs).
+ * and dangerous content (event handlers, URLs with unsafe schemes).
  */
 export function sanitizeHtml(html: string): string {
   const parser = new DOMParser();
@@ -115,11 +140,10 @@ function walkAndSanitize(node: Node): void {
         continue;
       }
 
-      // Sanitize href/src for javascript: URLs
-      if (name === 'href' || name === 'src') {
-        const val = attr.value.trim().toLowerCase();
-        // eslint-disable-next-line no-script-url
-        if (val.startsWith('javascript:') || val.startsWith('data:text/html')) {
+      // Remove URLs with unsafe schemes (poster is loaded as an image)
+      if (name === 'href' || name === 'src' || name === 'poster') {
+        const dataMediaType = name === 'poster' ? 'image/' : DATA_URL_MEDIA_TYPES[tagName];
+        if (!isSafeUrl(attr.value, dataMediaType)) {
           attrsToRemove.push(attr.name);
         }
       }
@@ -169,7 +193,8 @@ export function escapeHtml(text: string): string {
  * Check if a string is plain text (contains no HTML tags).
  */
 export function isPlainText(text: string): boolean {
-  return !/<[a-z][^>]*>/i.test(text);
+  // [^<>] instead of [^>] keeps matching linear on input like "<a<a<a..."
+  return !/<[a-z][^<>]*>/i.test(text);
 }
 
 /**
