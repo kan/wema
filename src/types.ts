@@ -68,7 +68,8 @@ export interface WemaBoardData {
 /**
  * Which part of the board is shown. `x` / `y` are how far the board content
  * is moved, in screen pixels: a note at board position (nx, ny) is drawn at
- * (nx + x, ny + y) inside the board element. `zoom` is always 1 for now.
+ * (nx * zoom + x, ny * zoom + y) inside the board element. `zoom` is the
+ * scale (1 = actual size).
  */
 export interface WemaViewport {
   x: number;
@@ -76,10 +77,31 @@ export interface WemaViewport {
   zoom: number;
 }
 
-/** Options for `revealNotes()` and `fitToContent()` */
+/** Options for `revealNotes()`, `centerContent()` and `fitToContent()` */
 export interface WemaViewportMoveOptions {
-  /** Space to keep between the notes and the edge of the board, in pixels (default: 24) */
+  /** Space to keep between the notes and the edge of the board, in screen pixels (default: 24) */
   padding?: number;
+}
+
+/** Options for `centerContent()` */
+export interface WemaCenterOptions extends WemaViewportMoveOptions {
+  /** Notes to center or fit (default: all shown notes) */
+  noteIds?: NoteId[];
+}
+
+/** Options for `fitToContent()` */
+export interface WemaFitOptions extends WemaCenterOptions {
+  /**
+   * Largest zoom to use (default: 1, so a few small notes are not enlarged).
+   * The board's `minZoom` / `maxZoom` still apply.
+   */
+  maxZoom?: number;
+}
+
+/** A point on screen, as in a pointer event */
+export interface WemaClientPoint {
+  clientX: number;
+  clientY: number;
 }
 
 /** Options for creating a WemaBoard */
@@ -113,6 +135,15 @@ export interface WemaBoardOptions {
    * Set to false when the board sits in a page that should scroll instead.
    */
   wheelPan?: boolean;
+  /**
+   * Zoom the board with Ctrl / Cmd + wheel and the trackpad pinch
+   * (default: true). When false, the browser zooms the page as usual.
+   */
+  wheelZoom?: boolean;
+  /** Smallest zoom (default: 0.25) */
+  minZoom?: number;
+  /** Largest zoom (default: 2) */
+  maxZoom?: number;
 }
 
 /**
@@ -156,7 +187,7 @@ export interface WemaEventMap {
   'history:commit': { deltas: HistoryDelta[]; origin: HistoryOrigin };
   /** `onImageUpload` rejected or returned an unusable URL; no image was inserted */
   'image:error': { noteId: NoteId; file: File; error: unknown };
-  /** The viewport moved (pan, `setViewport()`, `revealNotes()`, `fitToContent()`). Does not emit `change`. */
+  /** The viewport moved or its zoom changed (by the user or through the API). Does not emit `change`. */
   'viewport:change': WemaViewport;
   'change': { data: WemaBoardData };
 }

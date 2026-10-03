@@ -1,4 +1,4 @@
-import { createElement, shiftElement } from './utils/dom.js';
+import { createElement } from './utils/dom.js';
 import { isSafeUrl } from './utils/sanitize.js';
 
 const TEXT_COLORS = [
@@ -79,9 +79,13 @@ export class RichTextToolbar {
     this.subPanelOpen = false;
   }
 
-  /** Move the toolbar with the board content when the viewport is panned by (dx, dy) */
-  moveBy(dx: number, dy: number): void {
-    shiftElement(this.toolbarEl, dx, dy);
+  /** Place the toolbar above the selection it was opened for (call again after the viewport changes) */
+  updatePosition(): void {
+    if (!this.activeContentEl) return;
+    // While the link input has focus, the selection in the note is the saved one
+    const sel = document.getSelection();
+    const range = this.savedRange ?? (sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null);
+    if (range) this.positionToolbar(range);
   }
 
   private onSelectionChange(): void {

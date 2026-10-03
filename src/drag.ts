@@ -2,7 +2,7 @@ import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
 import type { ToBoardPoint } from './utils/geometry.js';
 
-/** How far the pointer must move, in pixels, before a press becomes a drag rather than a click */
+/** How far the pointer must move, in screen pixels, before a press becomes a drag rather than a click */
 export const DRAG_THRESHOLD = 4;
 
 type DragState = 'IDLE' | 'PENDING' | 'DRAGGING';
@@ -17,6 +17,8 @@ interface DragContext {
   noteId: NoteId;
   startX: number;
   startY: number;
+  startClientX: number;
+  startClientY: number;
   noteStartX: number;
   noteStartY: number;
   pointerId: number;
@@ -109,6 +111,8 @@ export class DragManager {
       noteId,
       startX: start.x,
       startY: start.y,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
       noteStartX: note.x,
       noteStartY: note.y,
       pointerId: e.pointerId,
@@ -128,7 +132,11 @@ export class DragManager {
     const dy = point.y - this.ctx.startY;
 
     if (this.state === 'PENDING') {
-      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) {
+      // Compared on screen: in board coordinates the distance depends on the zoom
+      if (
+        Math.abs(e.clientX - this.ctx.startClientX) < DRAG_THRESHOLD
+        && Math.abs(e.clientY - this.ctx.startClientY) < DRAG_THRESHOLD
+      ) {
         return;
       }
       this.state = 'DRAGGING';

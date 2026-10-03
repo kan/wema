@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **ズーム** ([#52](https://github.com/kan/wema/issues/52))
+  - `setViewport()` が `zoom` を受け付ける。`getViewport()` と `viewport:change` の `zoom` は実際の倍率を返す
+  - `zoomTo(zoom, center?)` — 画面上の点（省略時はボードの中央）を動かさずに倍率を変える
+  - `fitToContent(options?)` — 付箋全体（絞り込み中は表示対象）がボードに収まる倍率と位置にする。等倍より大きくはしない（`options.maxZoom` で変えられる）
+  - 操作: Ctrl / Cmd + ホイール、トラックパッドのピンチ。ポインタの位置を中心に拡大・縮小する。readOnly / viewOnly でも使える
+  - オプション: `minZoom`（既定値 0.25）、`maxZoom`（既定値 2）、`wheelZoom`（`false` で Ctrl / Cmd + ホイールのズームを無効にする）
+  - 倍率も表示位置と同じく各クライアントの表示状態として扱う。`note:*` / `edge:*` / `history:commit` / `change` は発火せず、`exportData()` にも含めない
+- スタンドアロン版に、拡大・縮小・等倍に戻す・全体を表示するボタンを追加した。表示位置と倍率はブラウザに保存し、次に開いたときに復元する
+
+### Changed
+
+- **ボードの上で Ctrl / Cmd + ホイールを回すと、ページではなくボードが拡大・縮小する。** 従来の挙動に戻すには `wheelZoom: false` を指定する
+- `setViewport()` に渡した `zoom` を無視しなくなった。`getViewport()` の結果を保存して `setViewport()` へ戻すコードは、そのまま倍率も復元する
+- 付箋のドラッグを開始する移動量（4px）を、ボード座標ではなく画面上の距離で判定する。等倍では従来と同じ
+
 ## [0.6.0] - 2026-10-03
 
 ### Security

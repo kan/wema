@@ -1,7 +1,9 @@
 import type { Anchor, EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.js';
 import { EdgeManager } from './edge.js';
 import { NoteManager } from './note.js';
-import { createElement, shiftElement } from './utils/dom.js';
+import { createElement } from './utils/dom.js';
+import type { Point } from './utils/geometry.js';
+import type { Viewport } from './viewport.js';
 
 // SVG icon helpers (24x16 viewBox)
 const LINE_ICONS: Record<LineStyle, { svg: string; title: string }> = {
@@ -130,17 +132,20 @@ export class EdgeStylePopup {
   private noteManager: NoteManager;
   private onDelete: (edgeId: EdgeId) => void;
   private currentEdgeId: EdgeId | null = null;
-  private lastX = 0;
-  private lastY = 0;
+  /** The clicked point of the edge, in board coordinates */
+  private anchor: Point = { x: 0, y: 0 };
+  private view: Viewport;
   private detailsOpen = false;
 
   constructor(options: {
     boardEl: HTMLElement;
+    view: Viewport;
     edgeManager: EdgeManager;
     noteManager: NoteManager;
     onDelete: (edgeId: EdgeId) => void;
   }) {
     this.boardEl = options.boardEl;
+    this.view = options.view;
     this.edgeManager = options.edgeManager;
     this.noteManager = options.noteManager;
     this.onDelete = options.onDelete;
@@ -352,23 +357,20 @@ export class EdgeStylePopup {
     this.popupEl.appendChild(detailsWrapper);
     this.popupEl.appendChild(deleteSection);
 
-    // Position at click point (convert client coords to board-relative)
+    // Remember the clicked point in board coordinates, so that the popup stays on the edge
     if (clientX != null && clientY != null) {
-      const rect = this.boardEl.getBoundingClientRect();
-      this.lastX = clientX - rect.left;
-      this.lastY = clientY - rect.top;
+      this.anchor = this.view.clientToBoard(clientX, clientY);
     }
-    this.popupEl.style.left = `${this.lastX}px`;
-    this.popupEl.style.top = `${this.lastY + 12}px`;
+    this.updatePosition();
 
     this.popupEl.style.display = '';
   }
 
-  /** Move the popup with the board content when the viewport is panned by (dx, dy) */
-  moveBy(dx: number, dy: number): void {
-    this.lastX += dx;
-    this.lastY += dy;
-    shiftElement(this.popupEl, dx, dy);
+  /** Place the popup under the clicked point of the edge (call again after the viewport changes) */
+  updatePosition(): void {
+    const { x, y } = this.view.boardToScreen(this.anchor.x, this.anchor.y);
+    this.popupEl.style.left = `${x}px`;
+    this.popupEl.style.top = `${y + 12}px`;
   }
 
   hide(): void {

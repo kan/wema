@@ -61,6 +61,7 @@ wema/
 │   ├── anchor-drag.ts        # アンカーからのEdge作成ドラッグ
 │   ├── resize.ts             # 付箋のリサイズ
 │   ├── rich-text.ts          # リッチテキスト編集 (Selection/Range API)
+│   ├── viewport.ts           # 表示位置・倍率の状態と座標変換
 │   ├── history.ts            # Undo/Redo 履歴管理 (デルタベース)
 │   ├── edge-popup.ts         # Edge スタイル編集ポップアップ
 │   ├── note-popup.ts         # ノートスタイル編集ポップアップ (単一/複数)
@@ -111,7 +112,7 @@ wema/
 
 ```
 ┌─ .wema-board (overflow: hidden、画面座標) ───────────┐
-│  ┌─ .wema-viewport (translate でパン、ボード座標) ─┐ │
+│  ┌─ .wema-viewport (translate + scale、ボード座標) ┐ │
 │  │  svg.wema-edges (1px、overflow: visible)        │ │
 │  │    <path> ... </path>                           │ │
 │  │  .wema-note (position: absolute)                │ │
@@ -126,19 +127,24 @@ wema/
 └──────────────────────────────────────────────────────┘
 ```
 
-### 表示位置（パン）と座標
+### 表示位置（パンとズーム）と座標
 
-- ボード座標で描くもの（付箋、接続線、ラバーバンド）は `.wema-viewport` の中に置く。ポップアップ類は `.wema-board` の直下に置き、画面座標で位置を決める
+- ボード座標で描くもの（付箋、接続線、ラバーバンド）は `.wema-viewport` の中に置く。ポップアップ類は `.wema-board` の直下に置き、画面座標で位置を決める。ズームしてもポップアップ類の大きさは変えない
 - `.wema-viewport` は大きさ 0 なので、空いている場所のイベントの `target` は `.wema-board` 自身になる。`svg.wema-edges` は 1px の箱からはみ出して描く（`overflow: visible`）
-- **ポインタの座標（`clientX` / `clientY`）をボード座標にするときは、必ず `WemaBoard.clientToBoard()` を通す。** ポップアップをボード座標の位置へ出すときは `boardToScreen()` を通す。`clientX - rect.left` を直接書くと、パンした分だけずれる
-- 表示位置は表示だけの状態（`zIndex` や絞り込みと同じ扱い）。`setViewport()` が発火するのは `viewport:change` だけで、`note:*` / `edge:*` / `history:commit` / `change` は出さず、`exportData()` にも含めない
-- 表示位置が動いたら、ポップアップ類も同じ量だけ動かす（`setViewport()` が各オーバーレイの `moveBy` / `updatePosition` を呼ぶ）。閉じてはいけない。埋め込み URL の入力中にトラックパッドが少し動いただけで、入力内容が消えるため
+- 表示位置と倍率の状態、`.wema-viewport` の transform、座標変換は `Viewport` クラス（`src/viewport.ts`）の 1 か所にある。座標系は 3 つ: client（`clientX` / `clientY`）、screen（`.wema-board` の中のピクセル。ポップアップ類の位置）、board（付箋の座標）
+- **ポインタの座標（`clientX` / `clientY`）をボード座標にするときは、必ず `clientToBoard()` を通す。** ポップアップをボード座標の位置へ出すときは `boardToScreen()` を通す。`clientX - rect.left` を直接書くと、パンした分と倍率の分だけずれる
+- **ドラッグやリサイズの移動量は、ポインタの位置を `clientToBoard()` でボード座標にしてから差を取る。** `clientX` の差をそのまま付箋の座標に足すと、倍率の分だけずれる。逆に「ドラッグを始めるか」の判定（`DRAG_THRESHOLD`）と、パンの移動量（`viewport.x` / `y`）は画面のピクセルで扱う
+- 表示位置と倍率は表示だけの状態（`zIndex` や絞り込みと同じ扱い）。`setViewport()` が発火するのは `viewport:change` だけで、`note:*` / `edge:*` / `history:commit` / `change` は出さず、`exportData()` にも含めない
+- 表示位置と倍率を変える経路は `setViewport()` の 1 つだけ（`zoomTo` / `revealNotes` / `centerContent` / `fitToContent`、ホイール、ドラッグはすべてここを通る）。倍率の範囲（`minZoom` / `maxZoom`）と値の検査は `Viewport.set()` が行う
+- 表示位置や倍率が変わったら、ポップアップ類も付いていかせる（`setViewport()` が各オーバーレイの `updatePosition` を呼ぶ。各オーバーレイは、対象のボード座標または対象の要素の位置から、自分の位置を計算し直す。画面座標を保存しておいて差分で動かす方式にはしない）。閉じてはいけない。埋め込み URL の入力中にトラックパッドが少し動いただけで、入力内容が消えるため。対象との間隔（付箋の下 8px など）は画面のピクセルで、倍率を掛けない
 - ポップアップ類のセレクタは `board.ts` の `OVERLAY_SELECTOR` の 1 か所で管理する。オーバーレイを増やしたら、ここと `setViewport()` に足す
+- Ctrl / Cmd + ホイール（トラックパッドのピンチも同じイベントで届く）は、ポインタの位置を中心にズームする。1 回のイベントで変える量には上限を設けている（マウスのホイール 1 ノッチで倍率が飛ばないようにするため）
+- autoSize の計測（`offsetWidth` / `offsetHeight`）は transform の影響を受けないので、倍率で割らない。`getBoundingClientRect()` は倍率の掛かった値を返すので、計測には使わない
 - Space + ドラッグの Space は、フォーカスではなく「ポインタがボードの上にあるか」で受け付ける（`document` の keydown / keyup と、ボードの pointerenter / pointerleave）。`window` の blur で解除する
 - 座標を省略した `addNote()` は、ボード座標の固定位置ではなく、表示中の領域の左上を基準にする
 - パンの開始は `wantsPan()` で決める。中ボタン、Space + 左ドラッグ、readOnly / viewOnly の空いている場所の左ドラッグ（viewOnly の Shift + ドラッグはラバーバンド選択）。`pointerdown` をキャプチャ段階で受けるので、付箋の上から始めたパンは付箋のドラッグより優先される
 - ダブルクリックは、付箋を作成できるとき（通常モードで `createOnDblClick` が有効）は作成、できないときはその位置を中央へパンする
-- ズームは未実装（#52）。`WemaViewport.zoom` は常に 1。実装するときは `clientToBoard` / `boardToScreen` と、ドラッグ・リサイズの移動量に倍率を入れる
+- jsdom はレイアウトも transform も計算しない。ズーム中の表示と操作（ドラッグ、リサイズ、ポップアップの位置）を変えたら、実ブラウザでも確認する
 
 ### データの流れ
 
@@ -233,11 +239,13 @@ class WemaBoard {
   setNoteFilter(noteIds: NoteId[] | null): void;
   getNoteFilter(): NoteId[] | null;
 
-  // 表示位置（表示だけを変える。viewport:change のみ発火）
-  getViewport(): WemaViewport;                 // { x, y, zoom }（zoom は常に 1）
-  setViewport(viewport: Partial<WemaViewport>): void;
-  revealNotes(noteIds: NoteId[], options?: { padding?: number }): void;
-  centerContent(options?: { noteIds?: NoteId[]; padding?: number }): void;  // fitToContent（倍率も合わせる）はズームと一緒に追加する
+  // 表示位置と倍率（表示だけを変える。viewport:change のみ発火）
+  getViewport(): WemaViewport;                 // { x, y, zoom }
+  setViewport(viewport: Partial<WemaViewport>): void;  // zoom は minZoom〜maxZoom に収める
+  zoomTo(zoom: number, center?: { clientX: number; clientY: number }): void;  // center（省略時はボードの中央）を動かさない
+  revealNotes(noteIds: NoteId[], options?: { padding?: number }): void;       // 倍率は変えない
+  centerContent(options?: { noteIds?: NoteId[]; padding?: number }): void;    // 倍率は変えない
+  fitToContent(options?: { noteIds?: NoteId[]; padding?: number; maxZoom?: number }): void;  // 収まる倍率にする（既定では等倍を超えない）
 
   // レイアウト
   alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void;
@@ -282,6 +290,9 @@ interface WemaBoardOptions {
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
+  wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
+  minZoom?: number;            // default: 0.25
+  maxZoom?: number;            // default: 2
 }
 ```
 
@@ -438,12 +449,11 @@ autoSize の付箋の `width` / `height` は、内容と CSS から決まる派�
 
 ### Phase 6 — パン & ズーム
 
-設計と進め方は issue #52。パン（`.wema-viewport`、`setViewport` / `revealNotes` / `centerContent`、ホイールやドラッグの操作）は実装済みで、仕様は「表示位置（パン）と座標」の節にある。残りは次のとおり。
+設計と進め方は issue #52。パンとズーム（`.wema-viewport`、`setViewport` / `zoomTo` / `revealNotes` / `centerContent` / `fitToContent`、ホイールやドラッグの操作、スタンドアロン版のボタンと表示位置の保存）は実装済みで、仕様は「表示位置（パンとズーム）と座標」の節にある。残りは次のとおり。
 
-- ズーム: Ctrl+ホイール、ピンチ、`zoomTo`、`fitToContent`、`minZoom` / `maxZoom`、ツールバー +/- ボタン。`.wema-viewport` の transform に scale を足す
-- ズームの前に行う整理: 表示位置と座標変換を 1 つのクラス（`Viewport`）にまとめる。`pointerdown` で始まる操作（パン、リサイズ、アンカー、付箋のドラッグ、ラバーバンド）の開始判定を 1 か所にまとめる。ドラッグ開始の閾値（`DRAG_THRESHOLD`）は画面のピクセルで比べる
-- スタンドアロン版: ズームのボタン、表示位置の保存
-- 表示位置は `exportData()` / `importData()` に含めない（各クライアントの表示状態として扱う、と決定済み）
+- タッチ操作（1 本指のパン、2 本指のピンチ）。Phase 8 で扱う
+- `pointerdown` で始まる操作（パン、リサイズ、アンカー、付箋のドラッグ、ラバーバンド）の開始判定を 1 か所にまとめる。現在は、パンがキャプチャ段階で先に受け取り、伝播を止めている。タッチ操作を足すときに一緒に行う
+- 表示位置と倍率は `exportData()` / `importData()` に含めない（各クライアントの表示状態として扱う、と決定済み）
 
 ### Phase 7 — 入れ子ボード
 

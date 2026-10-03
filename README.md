@@ -80,6 +80,9 @@ const board = new WemaBoard({
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
+  wheelZoom?: boolean,         // default: true（Ctrl / Cmd + ホイールで拡大・縮小する）
+  minZoom?: number,            // default: 0.25
+  maxZoom?: number,            // default: 2
 });
 ```
 
@@ -159,38 +162,44 @@ board.setNoteFilter(null);        // 全部表示に戻す
 - 絞り込み中に引数なしで `autoLayout()` を呼ぶと、表示対象の付箋だけを配置する
 - `importData()` を呼ぶと絞り込みは解除される
 
-#### 表示位置（パン）
+#### 表示位置（パンとズーム）
 
-ボードはコンテナの大きさで表示し、はみ出した付箋へは表示位置を動かして届く。
+ボードはコンテナの大きさで表示し、はみ出した付箋へは表示位置を動かして届く。倍率を下げれば、広い範囲を一度に表示できる。
 
 | メソッド | 説明 |
 |---------|------|
-| `getViewport()` | 表示位置 `{ x, y, zoom }` を取得 |
-| `setViewport({ x?, y? })` | 表示位置を設定 |
-| `revealNotes(noteIds, options?)` | 指定した付箋が見えるよう、必要な分だけ表示位置を動かす |
-| `centerContent(options?)` | 付箋全体（絞り込み中は表示対象）がボードの中央に来るよう動かす。`options.noteIds` で対象を絞れる |
+| `getViewport()` | 表示位置と倍率 `{ x, y, zoom }` を取得 |
+| `setViewport({ x?, y?, zoom? })` | 表示位置と倍率を設定 |
+| `zoomTo(zoom, center?)` | 倍率を設定する。`center`（`{ clientX, clientY }`）の下にある点を画面上で動かさない。省略時はボードの中央 |
+| `revealNotes(noteIds, options?)` | 指定した付箋が見えるよう、必要な分だけ表示位置を動かす。倍率は変えない |
+| `centerContent(options?)` | 付箋全体（絞り込み中は表示対象）がボードの中央に来るよう動かす。倍率は変えない。`options.noteIds` で対象を絞れる |
+| `fitToContent(options?)` | 付箋全体（絞り込み中は表示対象）がボードに収まる倍率と位置にする。`options.noteIds` で対象を絞れる |
 
 ```typescript
 board.setNoteFilter(matchedIds);
-board.centerContent();         // 残った付箋へ寄せる
+board.fitToContent();          // 残った付箋が収まるように表示する
 board.revealNotes([noteId]);   // この付箋が見える位置まで動かす
+board.zoomTo(1);               // 等倍に戻す
 ```
 
-- `x` / `y` は、ボードの内容を画面上でずらす量（ピクセル）。ボード座標 `(nx, ny)` の付箋は、ボード要素の中の `(nx + x, ny + y)` に描かれる
-- 表示位置を動かしても、付箋の座標（`x` / `y`）は変わらない
+- `x` / `y` は、ボードの内容を画面上でずらす量（ピクセル）。`zoom` は倍率（1 が等倍）。ボード座標 `(nx, ny)` の付箋は、ボード要素の中の `(nx * zoom + x, ny * zoom + y)` に描かれる
+- 表示位置や倍率を変えても、付箋の座標と大きさ（`x` / `y` / `width` / `height`）は変わらない
+- 倍率は `minZoom`〜`maxZoom`（既定値 0.25〜2）に収める。範囲外の値を渡すと、範囲の端の値になる
+- `setViewport({ zoom })` のように `zoom` だけを渡すと、ボード座標の原点を中心に拡大・縮小する。画面上の点を中心にするには `zoomTo()` を使う
+- `fitToContent` は、付箋が少ないときに等倍より大きくしない。大きくしてよい場合は `options.maxZoom` で上限を指定する（ボードの `maxZoom` を超えることはない）
 - 表示位置は各クライアントの表示状態として扱う。`note:*` / `edge:*` / `history:commit` / `change` は発火せず、Undo 履歴にも積まれない。発火するのは `viewport:change` だけ
 - `exportData()` は表示位置を含めず、`importData()` は表示位置を変えない。保存したい場合は `getViewport()` で取得し、`setViewport()` で戻す
 - readOnly / viewOnly でも使える
-- `revealNotes` と `centerContent` は、非表示の付箋（折り畳み、絞り込み）を対象から外す。対象がボードに収まらないときは、左上を表示する。`options.padding` で、ボードの端との間隔を指定できる（既定値 24）
+- `revealNotes`、`centerContent`、`fitToContent` は、非表示の付箋（折り畳み、絞り込み）を対象から外す。対象がボードに収まらないとき（`fitToContent` では、最小の倍率でも収まらないとき）は、左上を表示する。`options.padding` で、ボードの端との間隔を画面のピクセルで指定できる（既定値 24）
 - 座標を省略した `addNote()` は、表示中の領域の左上から (100, 100) の位置に付箋を作る
-- 表示位置を動かすと、付箋や接続線のポップアップなども一緒に動く
-- **ズームは未対応。** `zoom` は常に 1 で、`setViewport()` に渡しても無視する。倍率を変えて全体を収めるメソッド（`fitToContent`）は、ズームと一緒に追加する予定
+- 表示位置や倍率を変えると、付箋や接続線のポップアップなども一緒に動く。ポップアップ自体の大きさは変わらない
 
 利用者の操作は次のとおり。
 
 | 操作 | 通常 | ロック（readOnly） | 参照（viewOnly） |
 |------|------|------|------|
 | ホイール（Shift で横） | パン | パン | パン |
+| Ctrl / Cmd + ホイール、トラックパッドのピンチ | ズーム | ズーム | ズーム |
 | 中ボタンのドラッグ | パン | パン | パン |
 | Space + 左ドラッグ | パン | パン | パン |
 | 空いている場所の左ドラッグ | ラバーバンド選択 | パン | パン |
@@ -198,7 +207,8 @@ board.revealNotes([noteId]);   // この付箋が見える位置まで動かす
 | 空いている場所のダブルクリック | 付箋を作成 | その位置を中央へ | その位置を中央へ |
 
 - 中身がスクロールできる付箋の上では、ホイールは付箋の中身をスクロールする
-- Ctrl / Cmd + ホイールには何も割り当てていない（ブラウザのズームのまま）
+- Ctrl / Cmd + ホイールは、ポインタの位置を中心に拡大・縮小する。ボードの上ではブラウザのページのズームが働かなくなる。`wheelZoom: false` で無効にできる
+- タッチ操作（2 本指のピンチ）でのズームは未対応
 - ホイールでのパンは、ページのスクロールを止める。ボードをスクロールするページに埋め込む場合は、`wheelPan: false` で無効にできる
 - Space は、ポインタがボードの上にある間だけパンの合図になる。ボードにフォーカスが無くても使える。テキストの編集中や、入力欄・ボタンにフォーカスがあるときは、通常のキー入力として扱う
 - 通常モードでも `createOnDblClick: false` を指定していれば、ダブルクリックはその位置を中央へ動かす
@@ -388,7 +398,7 @@ board.setViewOnly(false);
 | 接続線の操作 | ✓ | ✗ | ✗ |
 | 折り畳み/展開 | ✓ | ✗ | ✓（一時的） |
 | Undo/Redo | ✓ | ✗ | ✗ |
-| 表示位置の移動（パン） | ✓ | ✓ | ✓ |
+| 表示位置の移動（パン）とズーム | ✓ | ✓ | ✓ |
 
 ## データモデル
 

@@ -241,7 +241,9 @@ describe('Viewport', () => {
       expect(board.getViewport().y).toBe(-48);
     });
 
-    it('leaves Ctrl + wheel alone', () => {
+    it('does not pan on Ctrl + wheel when wheelZoom is false', () => {
+      board.destroy();
+      createBoard({ wheelZoom: false });
       const event = wheel(boardEl, { deltaY: 120, ctrlKey: true });
       expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 1 });
       expect(event.defaultPrevented).toBe(false);
@@ -554,6 +556,269 @@ describe('Viewport', () => {
       board.setViewport({ x: 7, y: 8 });
       board.centerContent();
       expect(board.getViewport()).toEqual({ x: 7, y: 8, zoom: 1 });
+    });
+  });
+
+  describe('zoom', () => {
+    it('scales the layer without changing note positions', () => {
+      const note = board.addNote({ x: 40, y: 60 });
+      board.setViewport({ x: 10, y: 20, zoom: 0.5 });
+
+      expect(board.getViewport()).toEqual({ x: 10, y: 20, zoom: 0.5 });
+      expect(viewportEl().style.transform).toBe('translate(10px, 20px) scale(0.5)');
+      expect(board.getNote(note.id)).toMatchObject({ x: 40, y: 60 });
+    });
+
+    it('keeps the zoom within minZoom / maxZoom', () => {
+      board.setViewport({ zoom: 10 });
+      expect(board.getViewport().zoom).toBe(2);
+      board.setViewport({ zoom: 0.01 });
+      expect(board.getViewport().zoom).toBe(0.25);
+
+      board.destroy();
+      createBoard({ minZoom: 0.5, maxZoom: 4 });
+      board.setViewport({ zoom: 10 });
+      expect(board.getViewport().zoom).toBe(4);
+      board.zoomTo(0.1);
+      expect(board.getViewport().zoom).toBe(0.5);
+    });
+
+    it('starts within a zoom range that does not include 1, and panning keeps it', () => {
+      board.destroy();
+      createBoard({ maxZoom: 0.5 });
+      expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 0.5 });
+      expect(viewportEl().style.transform).toBe('translate(0px, 0px) scale(0.5)');
+
+      board.setViewport({ x: 30 });
+      expect(board.getViewport()).toEqual({ x: 30, y: 0, zoom: 0.5 });
+    });
+
+    it('falls back to the default range for a minZoom / maxZoom that is not a positive number', () => {
+      board.destroy();
+      createBoard({ minZoom: 0, maxZoom: NaN });
+      board.setViewport({ zoom: 0 });
+      expect(board.getViewport().zoom).toBe(0.25);
+      board.setViewport({ zoom: 100 });
+      expect(board.getViewport().zoom).toBe(2);
+    });
+
+    it('keeps a zoom made in the middle of a pan drag', () => {
+      pointer('pointerdown', boardEl, { button: 1, clientX: 300, clientY: 300 });
+      pointer('pointermove', boardEl, { clientX: 320, clientY: 310 });
+      wheel(boardEl, { deltaY: -30, ctrlKey: true, clientX: 320, clientY: 310 });
+      const zoomed = board.getViewport();
+
+      pointer('pointermove', boardEl, { clientX: 330, clientY: 310 });
+      pointer('pointerup', boardEl, { button: 1, clientX: 330, clientY: 310 });
+
+      expect(board.getViewport()).toEqual({ x: zoomed.x + 10, y: zoomed.y, zoom: zoomed.zoom });
+    });
+
+    it('zooms the board, not the page, with Ctrl + wheel over a popup', () => {
+      const note = board.addNote({ x: 0, y: 0 });
+      (board as unknown as { showEmbedInput(id: string): void }).showEmbedInput(note.id);
+      const input = container.querySelector('.wema-embed-input') as HTMLElement;
+
+      const zoom = wheel(input, { deltaY: -30, ctrlKey: true });
+      expect(zoom.defaultPrevented).toBe(true);
+      expect(board.getViewport().zoom).toBeGreaterThan(1);
+
+      // A plain wheel over a popup is still left to the popup
+      const before = board.getViewport();
+      expect(wheel(input, { deltaY: 50 }).defaultPrevented).toBe(false);
+      expect(board.getViewport()).toEqual(before);
+    });
+
+    it('ignores a zoom that is not a number', () => {
+      board.setViewport({ zoom: NaN });
+      board.zoomTo(NaN);
+      expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 1 });
+    });
+
+    it('emits viewport:change and nothing else', async () => {
+      board.addNote({ x: 0, y: 0 });
+      await flush();
+      const viewportChange = vi.fn();
+      const others = vi.fn();
+      board.on('viewport:change', viewportChange);
+      board.on('note:update', others);
+      board.on('history:commit', others);
+      board.on('change', others);
+
+      board.zoomTo(1.5);
+      await flush();
+
+      expect(viewportChange).toHaveBeenCalledTimes(1);
+      expect(viewportChange.mock.calls[0][0].zoom).toBe(1.5);
+      expect(others).not.toHaveBeenCalled();
+      expect(board.exportData().viewport).toBeUndefined();
+    });
+
+    it('zoomTo keeps the middle of the board in place by default', () => {
+      board.setViewport({ x: 100, y: 50 });
+      board.zoomTo(2);
+      // The middle of the 800 x 600 board showed board point (300, 250) and still does
+      expect(board.getViewport()).toEqual({ x: -200, y: -200, zoom: 2 });
+    });
+
+    it('zoomTo keeps the point under the given position in place', () => {
+      // The board is at (100, 50) on screen: client (300, 250) is (200, 200) inside it
+      board.zoomTo(0.5, { clientX: 300, clientY: 250 });
+      expect(board.getViewport()).toEqual({ x: 100, y: 100, zoom: 0.5 });
+    });
+
+    it('zooms around the pointer with Ctrl + wheel', () => {
+      const out = wheel(boardEl, { deltaY: 100, ctrlKey: true, clientX: 300, clientY: 250 });
+      const zoomedOut = board.getViewport();
+      expect(out.defaultPrevented).toBe(true);
+      expect(zoomedOut.zoom).toBeLessThan(1);
+      // Board point (200, 200) stays under the pointer
+      expect(200 * zoomedOut.zoom + zoomedOut.x).toBeCloseTo(200);
+      expect(200 * zoomedOut.zoom + zoomedOut.y).toBeCloseTo(200);
+
+      wheel(boardEl, { deltaY: -100, metaKey: true, clientX: 300, clientY: 250 });
+      expect(board.getViewport().zoom).toBeCloseTo(1);
+    });
+
+    it('zooms with Ctrl + wheel even when wheelPan is false, and over a scrolling note', () => {
+      board.destroy();
+      createBoard({ wheelPan: false });
+      const note = board.addNote({ x: 0, y: 0 });
+      const content = container.querySelector(`[data-note-id="${note.id}"] .wema-note-content`) as HTMLElement;
+      Object.defineProperty(content, 'scrollHeight', { value: 500, configurable: true });
+      Object.defineProperty(content, 'clientHeight', { value: 100, configurable: true });
+
+      wheel(content, { deltaY: -100, ctrlKey: true });
+      expect(board.getViewport().zoom).toBeGreaterThan(1);
+    });
+
+    it('creates a note under the pointer on double click when zoomed', () => {
+      board.setViewport({ x: 100, y: 40, zoom: 0.5 });
+      boardEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 500, clientY: 290 }));
+      // (500 - 100 - 100) / 0.5, (290 - 50 - 40) / 0.5
+      expect(board.getNotes()[0]).toMatchObject({ x: 600, y: 400 });
+    });
+
+    it('moves a dragged note by the pointer distance divided by the zoom', () => {
+      const note = board.addNote({ x: 100, y: 100 });
+      board.setViewport({ zoom: 2 });
+      const handle = container.querySelector(`[data-note-id="${note.id}"] .wema-move-handle`) as HTMLElement;
+
+      drag(handle, 60, 40);
+
+      expect(board.getNote(note.id)).toMatchObject({ x: 130, y: 120 });
+    });
+
+    it('starts a note drag by the distance on screen, not on the board', () => {
+      const note = board.addNote({ x: 100, y: 100 });
+      board.setViewport({ zoom: 0.25 });
+      const handle = container.querySelector(`[data-note-id="${note.id}"] .wema-move-handle`) as HTMLElement;
+
+      // 3 screen pixels are 12 board pixels at this zoom: still a click
+      drag(handle, 3, 3);
+
+      expect(board.getNote(note.id)).toMatchObject({ x: 100, y: 100 });
+    });
+
+    it('places the note popup and the embed URL input by the zoom', () => {
+      const note = board.addNote({ x: 100, y: 100, width: 200, height: 100 });
+      board.select([note.id]);
+      (board as unknown as { updateNotePopup(): void }).updateNotePopup();
+      (board as unknown as { showEmbedInput(id: string): void }).showEmbedInput(note.id);
+      const popup = container.querySelector('.wema-note-popup') as HTMLElement;
+      const input = container.querySelector('.wema-embed-input') as HTMLElement;
+
+      board.setViewport({ x: 10, y: 20, zoom: 2 });
+
+      // Under the middle of the note's bottom edge: (200 * 2 + 10, 200 * 2 + 20), with gaps that do not scale
+      expect([popup.style.left, popup.style.top]).toEqual(['410px', '428px']);
+      expect([input.style.left, input.style.top]).toEqual(['410px', '470px']);
+    });
+
+    it('keeps the edge popup at the clicked point of the edge', () => {
+      const a = board.addNote({ x: 0, y: 0 });
+      const b = board.addNote({ x: 400, y: 0 });
+      const edge = board.addEdge(a.id, b.id);
+      const popup = container.querySelector('.wema-edge-popup') as HTMLElement;
+      (board as unknown as { edgePopup: { show(id: string, x: number, y: number): void } }).edgePopup
+        .show(edge.id, 400, 150);
+      expect([popup.style.left, popup.style.top]).toEqual(['300px', '112px']);
+
+      board.setViewport({ x: 50, y: 0, zoom: 0.5 });
+
+      // Board point (300, 100) is now at (200, 50) on screen
+      expect([popup.style.left, popup.style.top]).toEqual(['200px', '62px']);
+    });
+
+    it('adds a note without a position inside what is shown', () => {
+      board.setViewport({ x: -400, y: -200, zoom: 2 });
+      expect(board.addNote()).toMatchObject({ x: 300, y: 200 });
+    });
+
+    it('revealNotes keeps the zoom', () => {
+      const note = board.addNote({ x: 2000, y: 0, width: 200, height: 100 });
+      board.setViewport({ zoom: 0.5 });
+
+      board.revealNotes([note.id]);
+
+      // The note is 100 px wide on screen and ends 24 px from the right edge
+      expect(board.getViewport()).toEqual({ x: -324, y: 24, zoom: 0.5 });
+    });
+  });
+
+  describe('fitToContent', () => {
+    it('zooms out until the notes fit, in the middle', () => {
+      board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      board.addNote({ x: 1800, y: 900, width: 200, height: 100 });
+
+      board.fitToContent({ padding: 0 });
+
+      // 2000 x 1000 in 800 x 600: zoom 0.4, 800 x 400 on screen
+      expect(board.getViewport()).toEqual({ x: 0, y: 100, zoom: 0.4 });
+    });
+
+    it('leaves the padding free', () => {
+      board.addNote({ x: 0, y: 0, width: 1500, height: 100 });
+      board.fitToContent({ padding: 25 });
+      expect(board.getViewport()).toEqual({ x: 25, y: 275, zoom: 0.5 });
+    });
+
+    it('does not enlarge a few small notes unless maxZoom allows it', () => {
+      board.addNote({ x: 1000, y: 1000, width: 200, height: 100 });
+
+      board.fitToContent();
+      expect(board.getViewport()).toEqual({ x: -700, y: -750, zoom: 1 });
+
+      board.fitToContent({ maxZoom: 2 });
+      // 400 x 200 on screen, starting at (200, 200)
+      expect(board.getViewport()).toEqual({ x: -1800, y: -1800, zoom: 2 });
+    });
+
+    it('shows the top-left corner when the notes do not fit at minZoom', () => {
+      board.addNote({ x: -100, y: -100, width: 100, height: 100 });
+      board.addNote({ x: 9900, y: 9900, width: 100, height: 100 });
+
+      board.fitToContent();
+
+      expect(board.getViewport()).toEqual({ x: 49, y: 49, zoom: 0.25 });
+    });
+
+    it('fits only the notes shown by the filter, or the given ones', () => {
+      const a = board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      const b = board.addNote({ x: 5000, y: 5000, width: 200, height: 100 });
+      board.setNoteFilter([a.id]);
+      board.fitToContent();
+      expect(board.getViewport()).toEqual({ x: 300, y: 250, zoom: 1 });
+
+      board.setNoteFilter(null);
+      board.fitToContent({ noteIds: [b.id] });
+      expect(board.getViewport()).toEqual({ x: -4700, y: -4750, zoom: 1 });
+    });
+
+    it('does nothing on an empty board', () => {
+      board.setViewport({ x: 7, y: 8, zoom: 0.5 });
+      board.fitToContent();
+      expect(board.getViewport()).toEqual({ x: 7, y: 8, zoom: 0.5 });
     });
   });
 });
