@@ -50,6 +50,29 @@ export function isSafeUrl(url: string, dataMediaType?: string): boolean {
 }
 
 /**
+ * Resolve a link the way the browser will, and return the absolute URL to
+ * open, or null when it must not be opened. The caller uses the returned URL
+ * for everything (hook, window.open), so what was checked is what is used.
+ */
+export function resolveSafeUrl(href: string): string | null {
+  if (!isSafeUrl(href)) return null;
+  let url: URL;
+  let pageProtocol: string;
+  try {
+    url = new URL(href, document.baseURI);
+    pageProtocol = new URL(document.baseURI).protocol;
+  } catch {
+    return null;
+  }
+  // After resolving, the scheme must be allowed too. The one exception is the
+  // page's own scheme, which a relative link inherits (file: when the
+  // standalone HTML is opened from disk); an explicit "file:" never passes
+  // the check above.
+  if (!isSafeUrl(url.href) && url.protocol !== pageProtocol) return null;
+  return url.href;
+}
+
+/**
  * Sanitize an HTML string by removing disallowed tags, attributes,
  * and dangerous content (event handlers, URLs with unsafe schemes).
  */

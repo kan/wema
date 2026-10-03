@@ -99,7 +99,8 @@ const board = new WemaBoard({
 ```
 
 - **渡される URL は、ブラウザが解決した絶対 URL**（`href` 属性の値そのままではない）。サイト内のリンクかどうかは、オリジンを比べて判定すること。`//other.example/x` のように `/` で始まっていても別サイトを指す書き方があるので、文字列の先頭では判定できない
-- 呼び出されるのは、URL の安全性の検査（`http` / `https` / `mailto` / `tel`）を通ったリンクだけ
+- 呼び出されるのは、URL の安全性の検査（`http` / `https` / `mailto` / `tel`、および相対リンク）を通ったリンクだけ。検査を通らないリンクは、クリックしても何も開かない
+- 新しいタブで開くときも、同じ解決済みの URL を使う
 - ブラウザ既定の遷移は wema が止めている（`event.defaultPrevented` は `true`）
 - readOnly / viewOnly でも呼び出される
 

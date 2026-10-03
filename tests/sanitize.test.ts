@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeHtml, escapeHtml, isPlainText } from '../src/utils/sanitize';
+import { sanitizeHtml, escapeHtml, isPlainText, resolveSafeUrl } from '../src/utils/sanitize';
 
 describe('sanitizeHtml', () => {
   it('preserves allowed tags', () => {
@@ -150,6 +150,35 @@ describe('escapeHtml', () => {
 
   it('leaves safe text unchanged', () => {
     expect(escapeHtml('Hello world')).toBe('Hello world');
+  });
+});
+
+describe('resolveSafeUrl', () => {
+  it('returns the absolute URL for allowed schemes', () => {
+    expect(resolveSafeUrl('https://example.com/a?b=1#c')).toBe('https://example.com/a?b=1#c');
+    expect(resolveSafeUrl('mailto:a@example.com')).toBe('mailto:a@example.com');
+  });
+
+  it('resolves relative links against the page', () => {
+    expect(resolveSafeUrl('/p/home')).toBe(`${location.origin}/p/home`);
+    expect(resolveSafeUrl('p/home')).toBe(new URL('p/home', document.baseURI).href);
+  });
+
+  it('resolves links that only look like paths to their real host', () => {
+    for (const href of ['//other.example/x', '/\\other.example/x', '\\\\other.example/x']) {
+      expect(new URL(resolveSafeUrl(href)!).host).toBe('other.example');
+    }
+  });
+
+  it('returns null for schemes outside the allowlist', () => {
+    // eslint-disable-next-line no-script-url
+    for (const href of ['javascript:alert(1)', 'java\tscript:alert(1)', ' javascript:alert(1)', 'vbscript:x', 'data:text/html,x', 'file:///etc/passwd', 'blob:https://example.com/id']) {
+      expect(resolveSafeUrl(href)).toBeNull();
+    }
+  });
+
+  it('returns null for a URL that cannot be parsed', () => {
+    expect(resolveSafeUrl('https://exa mple.com:99999999/')).toBeNull();
   });
 });
 

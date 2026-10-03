@@ -2,7 +2,7 @@ import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import { createElement, setStyles } from './utils/dom.js';
-import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, isSafeUrl } from './utils/sanitize.js';
+import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUrl } from './utils/sanitize.js';
 
 interface NoteManagerOptions {
   boardEl: HTMLElement;
@@ -137,23 +137,6 @@ export class NoteManager {
       this.applyMeasuredSize(note);
     }
     return { note, prev };
-  }
-
-  /**
-   * Let `onLinkClick` handle a link. Returns whether it did.
-   * The hook gets the URL as the browser resolves it, never the raw attribute:
-   * "//host/path" or "/\host" look like paths but lead to another site, and a
-   * hook that judged the raw text would navigate there.
-   */
-  private handleLinkClick(href: string, event: MouseEvent): boolean {
-    if (!this.onLinkClick) return false;
-    let url: string;
-    try {
-      url = new URL(href, document.baseURI).href;
-    } catch {
-      return false;
-    }
-    return isSafeUrl(url) && this.onLinkClick(url, event) === true;
   }
 
   /** Emit a local note:update, reporting any size measured since the last one */
@@ -469,9 +452,13 @@ export class NoteManager {
       if (target.tagName === 'A' || target.closest('a')) {
         const linkEl = (target.tagName === 'A' ? target : target.closest('a')) as HTMLAnchorElement;
         e.preventDefault();
+        // The hook and window.open both get the resolved URL, never the raw
+        // attribute: "//host/path" or "/\host" look like paths but lead to
+        // another site. A link that does not pass the check opens nothing.
         const href = linkEl.getAttribute('href');
-        if (href && isSafeUrl(href) && !this.handleLinkClick(href, e)) {
-          window.open(href, '_blank', 'noopener');
+        const url = href ? resolveSafeUrl(href) : null;
+        if (url && this.onLinkClick?.(url, e) !== true) {
+          window.open(url, '_blank', 'noopener');
         }
         return;
       }
