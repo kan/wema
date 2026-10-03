@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-10-03
+
+### Security
+
+- 付箋内のリンクを開くとき、ブラウザが解決した URL を検査し、その URL を `onLinkClick` と新しいタブの両方で使う。従来は `href` 属性の値を検査し、新しいタブへも属性の値をそのまま渡していた。解決後の URL が検査を通らないリンクは、クリックしても何も開かない
+
 ## [0.5.0] - 2026-10-03
 
 ### Added
