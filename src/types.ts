@@ -79,10 +79,13 @@ export interface WemaBoardOptions {
   /**
    * Called when a link inside a note is clicked, after the URL passed the
    * safety check (the browser's own navigation is already prevented).
+   * `url` is the absolute URL the browser resolves the link to, not the raw
+   * `href` attribute: compare its origin to tell in-site links apart
+   * ("//other.example/x" is another site even though it starts with "/").
    * Return true to handle the click yourself; otherwise the link opens in a
    * new tab. Also called in readOnly and viewOnly.
    */
-  onLinkClick?: (href: string, event: MouseEvent) => boolean | void;
+  onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
 }
 
 /**

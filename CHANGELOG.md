@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - `setNoteFilter(noteIds)` / `getNoteFilter()` を追加した。指定した付箋だけを表示し、それ以外の付箋と、その付箋につながる接続線を非表示にする。データ、イベント、Undo 履歴には影響しない
-- `onLinkClick` オプションを追加した。付箋内のリンクのクリックを利用側で処理できる。`true` を返すと新しいタブを開かない
+- `onLinkClick` オプションを追加した。付箋内のリンクのクリックを利用側で処理できる。ブラウザが解決した絶対 URL を受け取り、`true` を返すと新しいタブを開かない
 
 ### Changed
 

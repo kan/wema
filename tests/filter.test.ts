@@ -325,9 +325,34 @@ describe('onLinkClick', () => {
 
     const event = clickLink(board, '/p/home');
 
-    expect(onLinkClick).toHaveBeenCalledWith('/p/home', event);
+    expect(onLinkClick).toHaveBeenCalledWith(`${location.origin}/p/home`, event);
     expect(event.defaultPrevented).toBe(true);
     expect(open).not.toHaveBeenCalled();
+    board.destroy();
+  });
+
+  it('passes the resolved URL, so links to another site cannot pass for a path', () => {
+    const onLinkClick = vi.fn().mockReturnValue(false);
+    const board = new WemaBoard({ container, onLinkClick });
+
+    // These start with "/" but the browser resolves them to another host
+    for (const href of ['//other.example/x', '/\\other.example/x', '\\\\other.example/x']) {
+      clickLink(board, href);
+    }
+
+    const urls = onLinkClick.mock.calls.map(([url]) => new URL(url as string));
+    expect(urls.map((url) => url.host)).toEqual(['other.example', 'other.example', 'other.example']);
+    expect(urls.every((url) => url.origin !== location.origin)).toBe(true);
+    board.destroy();
+  });
+
+  it('resolves a relative link against the page', () => {
+    const onLinkClick = vi.fn().mockReturnValue(true);
+    const board = new WemaBoard({ container, onLinkClick });
+
+    clickLink(board, 'p/home?x=1#top');
+
+    expect(onLinkClick.mock.calls[0][0]).toBe(new URL('p/home?x=1#top', document.baseURI).href);
     board.destroy();
   });
 

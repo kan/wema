@@ -78,26 +78,28 @@ const board = new WemaBoard({
   viewOnly?: boolean,          // default: false
   theme?: NoteTheme,           // default: 'default' ('default' | 'card')
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
-  onLinkClick?: (href: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
+  onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
 });
 ```
 
 `onImageUpload` を指定すると、付箋に挿入する画像を data URL で埋め込まず、返された URL の `<img>` として挿入する。アップロードが完了してから挿入し、失敗したときは挿入せずに `image:error` イベントを発火する。未指定のときは従来どおり data URL で埋め込む。
 
-付箋内のリンクは、クリックすると新しいタブで開く。`onLinkClick` を指定すると、クリックのたびに `href` 属性の値とクリックイベントを渡して呼び出す。`true` を返した場合は新しいタブを開かないので、同じタブでの遷移などを利用側で行える。それ以外を返した場合は、指定しないときと同じく新しいタブで開く。
+付箋内のリンクは、クリックすると新しいタブで開く。`onLinkClick` を指定すると、クリックのたびにリンク先の URL とクリックイベントを渡して呼び出す。`true` を返した場合は新しいタブを開かないので、同じタブでの遷移などを利用側で行える。それ以外を返した場合は、指定しないときと同じく新しいタブで開く。
 
 ```typescript
 const board = new WemaBoard({
   container,
-  onLinkClick: (href) => {
-    if (!href.startsWith('/')) return false;  // サイト外は新しいタブで開く
-    router.push(href);
+  onLinkClick: (url) => {
+    const target = new URL(url);
+    if (target.origin !== location.origin) return false;  // サイト外は新しいタブで開く
+    router.push(target.pathname + target.search + target.hash);
     return true;
   },
 });
 ```
 
-- 呼び出されるのは、URL の安全性の検査（`http` / `https` / `mailto` / `tel` と相対 URL）を通ったリンクだけ
+- **渡される URL は、ブラウザが解決した絶対 URL**（`href` 属性の値そのままではない）。サイト内のリンクかどうかは、オリジンを比べて判定すること。`//other.example/x` のように `/` で始まっていても別サイトを指す書き方があるので、文字列の先頭では判定できない
+- 呼び出されるのは、URL の安全性の検査（`http` / `https` / `mailto` / `tel`）を通ったリンクだけ
 - ブラウザ既定の遷移は wema が止めている（`event.defaultPrevented` は `true`）
 - readOnly / viewOnly でも呼び出される
 

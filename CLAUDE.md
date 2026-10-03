@@ -257,7 +257,7 @@ interface WemaBoardOptions {
   viewOnly?: boolean;          // default: false
   theme?: NoteTheme;           // default: 'default'
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
-  onLinkClick?: (href: string, event: MouseEvent) => boolean | void;  // true を返すと新しいタブを開かない
+  onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
 }
 ```
 

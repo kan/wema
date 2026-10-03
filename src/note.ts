@@ -16,8 +16,8 @@ interface NoteManagerOptions {
    * note event (the size is derived from the content, not a user operation).
    */
   onMeasure: (noteId: NoteId) => void;
-  /** Handle a click on a link with a safe URL. Return true to keep it from opening in a new tab. */
-  onLinkClick?: (href: string, event: MouseEvent) => boolean | void;
+  /** Handle a click on a link, given its resolved absolute URL. Return true to keep it from opening in a new tab. */
+  onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
 }
 
 export class NoteManager {
@@ -32,7 +32,7 @@ export class NoteManager {
   private readOnly: boolean;
   private viewOnly = false;
   private onMeasure: (noteId: NoteId) => void;
-  private onLinkClick?: (href: string, event: MouseEvent) => boolean | void;
+  private onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   /**
    * For notes whose measured size is not yet reported in a note event: the
    * size they had in the last one. The next note:update uses it as `prev`.
@@ -137,6 +137,23 @@ export class NoteManager {
       this.applyMeasuredSize(note);
     }
     return { note, prev };
+  }
+
+  /**
+   * Let `onLinkClick` handle a link. Returns whether it did.
+   * The hook gets the URL as the browser resolves it, never the raw attribute:
+   * "//host/path" or "/\host" look like paths but lead to another site, and a
+   * hook that judged the raw text would navigate there.
+   */
+  private handleLinkClick(href: string, event: MouseEvent): boolean {
+    if (!this.onLinkClick) return false;
+    let url: string;
+    try {
+      url = new URL(href, document.baseURI).href;
+    } catch {
+      return false;
+    }
+    return isSafeUrl(url) && this.onLinkClick(url, event) === true;
   }
 
   /** Emit a local note:update, reporting any size measured since the last one */
@@ -453,7 +470,7 @@ export class NoteManager {
         const linkEl = (target.tagName === 'A' ? target : target.closest('a')) as HTMLAnchorElement;
         e.preventDefault();
         const href = linkEl.getAttribute('href');
-        if (href && isSafeUrl(href) && this.onLinkClick?.(href, e) !== true) {
+        if (href && isSafeUrl(href) && !this.handleLinkClick(href, e)) {
           window.open(href, '_blank', 'noopener');
         }
         return;
