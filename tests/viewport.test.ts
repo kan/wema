@@ -262,7 +262,7 @@ describe('Viewport', () => {
     });
 
     it('pans over a note whose content does not scroll', () => {
-      board.addNote({ text: 'short' });
+      board.addNote({ x: 300, y: 300, text: 'short' });
       wheel(container.querySelector('.wema-note-content') as HTMLElement, { deltaY: 120 });
       expect(board.getViewport().y).toBe(-120);
     });
@@ -280,7 +280,7 @@ describe('Viewport', () => {
 
   describe('pan by dragging', () => {
     it('pans with the middle button, even over a note', () => {
-      const note = board.addNote({ x: 0, y: 0 });
+      const note = board.addNote({ x: 200, y: 200 });
       const noteEl = container.querySelector('.wema-note') as HTMLElement;
 
       pointer('pointerdown', noteEl, { button: 1, clientX: 300, clientY: 300 });
@@ -288,7 +288,7 @@ describe('Viewport', () => {
       pointer('pointerup', boardEl, { button: 1, clientX: 340, clientY: 280 });
 
       expect(board.getViewport()).toEqual({ x: 40, y: -20, zoom: 1 });
-      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ x: 0, y: 0 }));
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ x: 200, y: 200 }));
     });
 
     /** Press Space with the pointer over the board; the key goes to the document */
@@ -763,6 +763,107 @@ describe('Viewport', () => {
 
       // The note is 100 px wide on screen and ends 24 px from the right edge
       expect(board.getViewport()).toEqual({ x: -324, y: 24, zoom: 0.5 });
+    });
+  });
+
+  describe('pan limit', () => {
+    // The board is 800 x 600 and the default margin is 200
+    const wheelBy = (deltaX: number, deltaY: number): void => { wheel(boardEl, { deltaX, deltaY }); };
+
+    it('shows at most the margin of empty space beyond notes larger than the board', () => {
+      board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      board.addNote({ x: 1800, y: 1400, width: 200, height: 100 });
+
+      wheelBy(-5000, -5000);
+      expect(board.getViewport()).toEqual({ x: 200, y: 200, zoom: 1 });
+
+      wheelBy(9000, 9000);
+      // Right edge of the notes (2000) at 800 - 200, bottom edge (1500) at 600 - 200
+      expect(board.getViewport()).toEqual({ x: -1400, y: -1100, zoom: 1 });
+    });
+
+    it('keeps notes that fit in the board inside it', () => {
+      board.addNote({ x: 100, y: 100, width: 200, height: 100 });
+
+      wheelBy(5000, 5000);
+      expect(board.getViewport()).toEqual({ x: -100, y: -100, zoom: 1 });
+
+      wheelBy(-5000, -5000);
+      expect(board.getViewport()).toEqual({ x: 500, y: 400, zoom: 1 });
+    });
+
+    it('applies to a pan drag and to the double click that centers', () => {
+      board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      board.addNote({ x: 1800, y: 1400, width: 200, height: 100 });
+      board.setReadOnly(true);
+
+      drag(boardEl, 900, 700);
+      expect(board.getViewport()).toEqual({ x: 200, y: 200, zoom: 1 });
+
+      board.setViewport({ x: -1400, y: -1100 });
+      boardEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 890, clientY: 640 }));
+      expect(board.getViewport()).toEqual({ x: -1400, y: -1100, zoom: 1 });
+    });
+
+    it('scales with the zoom, and applies to Ctrl + wheel', () => {
+      board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      board.addNote({ x: 3800, y: 2900, width: 200, height: 100 });
+      board.setViewport({ zoom: 0.5 });
+
+      wheelBy(9000, 9000);
+      // The notes are 2000 x 1500 on screen at this zoom
+      expect(board.getViewport()).toEqual({ x: -1400, y: -1100, zoom: 0.5 });
+
+      // Zooming out around the top-left corner would pull the notes away from the bottom right
+      wheel(boardEl, { deltaY: 30, ctrlKey: true, clientX: 100, clientY: 50 });
+      const { x, y, zoom } = board.getViewport();
+      expect(zoom).toBeLessThan(0.5);
+      expect(4000 * zoom + x).toBeCloseTo(600);
+      expect(3000 * zoom + y).toBeCloseTo(400);
+    });
+
+    it('does not limit the API', () => {
+      board.addNote({ x: 0, y: 0 });
+      board.setViewport({ x: 5000, y: -5000 });
+      expect(board.getViewport()).toEqual({ x: 5000, y: -5000, zoom: 1 });
+    });
+
+    it('lets a viewport that is already outside come back, without a jump and without going further', () => {
+      board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      board.setViewport({ x: 5000, y: 0 });
+
+      wheelBy(-50, 0); // further away
+      expect(board.getViewport().x).toBe(5000);
+      wheelBy(50, 0); // back toward the notes
+      expect(board.getViewport().x).toBe(4950);
+    });
+
+    it('leaves hidden notes out', () => {
+      const a = board.addNote({ x: 100, y: 100, width: 200, height: 100 });
+      board.addNote({ x: 5000, y: 5000, width: 200, height: 100 });
+      board.setNoteFilter([a.id]);
+
+      wheelBy(9000, 9000);
+      expect(board.getViewport()).toEqual({ x: -100, y: -100, zoom: 1 });
+    });
+
+    it('has no limit on an empty board or with panMargin: Infinity', () => {
+      wheelBy(9000, 0);
+      expect(board.getViewport().x).toBe(-9000);
+
+      board.destroy();
+      createBoard({ panMargin: Infinity });
+      board.addNote({ x: 0, y: 0 });
+      wheelBy(9000, 0);
+      expect(board.getViewport().x).toBe(-9000);
+    });
+
+    it('takes the margin from panMargin', () => {
+      board.destroy();
+      createBoard({ panMargin: 50 });
+      board.addNote({ x: 0, y: 0, width: 2000, height: 1500 });
+      wheelBy(-9000, -9000);
+      expect(board.getViewport()).toEqual({ x: 50, y: 50, zoom: 1 });
     });
   });
 

@@ -144,6 +144,10 @@ wema/
 - 座標を省略した `addNote()` は、ボード座標の固定位置ではなく、表示中の領域の左上を基準にする
 - パンの開始は `wantsPan()` で決める。中ボタン、Space + 左ドラッグ、readOnly / viewOnly の空いている場所の左ドラッグ（viewOnly の Shift + ドラッグはラバーバンド選択）。`pointerdown` をキャプチャ段階で受けるので、付箋の上から始めたパンは付箋のドラッグより優先される
 - ダブルクリックは、付箋を作成できるとき（通常モードで `createOnDblClick` が有効）は作成、できないときはその位置を中央へパンする
+- 利用者の操作（ホイール、ドラッグ、ダブルクリック、Ctrl + ホイール）による移動は `panWithinLimit()` を通し、付箋のある範囲から `panMargin` より遠くへ行かせない。操作を増やすときも `setViewport()` を直接呼ばず、ここを通す。メソッド（`setViewport` / `zoomTo` / `revealNotes` / `centerContent` / `fitToContent`）は制限しない
+  - 軸ごとの規則: 付箋全体がボードより大きいときは、付箋の外側の余白を `panMargin` まで見せる。ボードに収まるときは、付箋がボードからはみ出さない範囲で動かせる（小さい付箋群を画面の外へ追い出せないようにするため）
+  - すでに範囲の外にあるとき（メソッドで動かした、付箋が減った、絞り込みが変わった）は、範囲の中へ引き戻さない。遠ざかる方向だけを止める。倍率が変わる操作では範囲をそのまま当てる
+  - 表示中の付箋が無いときは制限しない
 - jsdom はレイアウトも transform も計算しない。ズーム中の表示と操作（ドラッグ、リサイズ、ポップアップの位置）を変えたら、実ブラウザでも確認する
 
 ### データの流れ
@@ -291,6 +295,7 @@ interface WemaBoardOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
+  panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）
   minZoom?: number;            // default: 0.25
   maxZoom?: number;            // default: 2
 }

@@ -59,6 +59,8 @@ export class WemaBoard {
   private view: Viewport;
   private wheelPan: boolean;
   private wheelZoom: boolean;
+  /** How much empty space a user gesture may show beyond the notes, in screen pixels (Infinity: no limit) */
+  private panMargin: number;
   private spaceHeld = false;
   private pointerInside = false;
   /** The inline URL input for embeds and the note it belongs to, while it is open */
@@ -119,6 +121,7 @@ export class WemaBoard {
     this.onImageUpload = options.onImageUpload;
     this.wheelPan = options.wheelPan ?? true;
     this.wheelZoom = options.wheelZoom ?? true;
+    this.panMargin = options.panMargin !== undefined && options.panMargin >= 0 ? options.panMargin : 200;
 
     // Create board element
     this.boardEl = createElement('div', 'wema-board');
@@ -379,7 +382,7 @@ export class WemaBoard {
       const current = this.view.get();
       const clicked = this.view.clientToScreen(e.clientX, e.clientY);
       const center = this.view.screenCenter();
-      this.setViewport({ x: current.x + center.x - clicked.x, y: current.y + center.y - clicked.y });
+      this.panWithinLimit({ x: current.x + center.x - clicked.x, y: current.y + center.y - clicked.y });
     };
     this.boardEl.addEventListener('dblclick', this.handleDblClick);
 
@@ -553,7 +556,7 @@ export class WemaBoard {
       // Moved by the distance since the last event, so that a zoom in the
       // middle of the drag (which also moves the viewport) is not undone
       const current = this.view.get();
-      this.setViewport({ x: current.x + e.clientX - this.pan.lastX, y: current.y + e.clientY - this.pan.lastY });
+      this.panWithinLimit({ x: current.x + e.clientX - this.pan.lastX, y: current.y + e.clientY - this.pan.lastY });
       this.pan.lastX = e.clientX;
       this.pan.lastY = e.clientY;
     };
@@ -608,7 +611,7 @@ export class WemaBoard {
         // One wheel notch is about 100 pixels and a pinch sends many small
         // deltas: cap a single event so that neither jumps
         const delta = Math.max(-WHEEL_ZOOM_MAX_DELTA, Math.min(WHEEL_ZOOM_MAX_DELTA, e.deltaY * unit));
-        this.zoomTo(current.zoom * Math.pow(2, -delta * WHEEL_ZOOM_RATE), e);
+        this.panWithinLimit(this.zoomedAround(current.zoom * Math.pow(2, -delta * WHEEL_ZOOM_RATE), e));
         return;
       }
 
@@ -625,7 +628,7 @@ export class WemaBoard {
         dx = dy;
         dy = 0;
       }
-      this.setViewport({ x: current.x - dx, y: current.y - dy });
+      this.panWithinLimit({ x: current.x - dx, y: current.y - dy });
     };
 
     this.boardEl.addEventListener('pointerdown', this.handlePanDown, true);
@@ -834,14 +837,58 @@ export class WemaBoard {
    * `setViewport()`.
    */
   zoomTo(zoom: number, center?: WemaClientPoint): void {
+    this.setViewport(this.zoomedAround(zoom, center));
+  }
+
+  /** The viewport at `zoom` that keeps the board point under `center` (default: the middle of the board) in place */
+  private zoomedAround(zoom: number, center?: WemaClientPoint): WemaViewport {
     const current = this.view.get();
     const next = this.view.clampZoom(zoom);
     const fixed = center ? this.view.clientToScreen(center.clientX, center.clientY) : this.view.screenCenter();
     const ratio = next / current.zoom;
-    this.setViewport({
+    return {
       x: fixed.x - (fixed.x - current.x) * ratio,
       y: fixed.y - (fixed.y - current.y) * ratio,
       zoom: next,
+    };
+  }
+
+  /**
+   * Move the viewport as a user gesture (wheel, drag, double click) asks,
+   * but not further than `panMargin` away from the shown notes, so that the
+   * user does not get lost in an empty part of the board. Along each axis the
+   * empty space beyond the notes is at most `panMargin` screen pixels; notes
+   * that fit in the board may be put anywhere inside it. Not applied to the
+   * API (`setViewport()` and the others move exactly where they are told).
+   */
+  private panWithinLimit(target: { x: number; y: number; zoom?: number }): void {
+    // Without a limit there is no need to walk the notes for their bounds
+    const bounds = Number.isFinite(this.panMargin) ? this.visibleBounds() : null;
+    if (!bounds) {
+      this.setViewport(target);
+      return;
+    }
+    const current = this.view.get();
+    const zoom = target.zoom ?? current.zoom;
+    const margin = this.panMargin;
+    // A viewport that is already outside (the notes changed, or the API put
+    // it there) does not jump back: it just cannot move further away. A
+    // change of zoom moves everything anyway, so there the limit is applied as is.
+    const lenient = zoom === current.zoom;
+    const limit = (wanted: number, held: number, start: number, end: number, size: number): number => {
+      let min = Math.min(size - margin - end * zoom, -start * zoom);
+      let max = Math.max(margin - start * zoom, size - end * zoom);
+      if (lenient) {
+        min = Math.min(min, held);
+        max = Math.max(max, held);
+      }
+      // "+ 0" turns a -0 from the arithmetic above into 0
+      return Math.min(Math.max(wanted, min), max) + 0;
+    };
+    this.setViewport({
+      x: limit(target.x, current.x, bounds.left, bounds.right, this.boardEl.clientWidth),
+      y: limit(target.y, current.y, bounds.top, bounds.bottom, this.boardEl.clientHeight),
+      zoom,
     });
   }
 

@@ -140,6 +140,15 @@ export interface WemaBoardOptions {
    * (default: true). When false, the browser zooms the page as usual.
    */
   wheelZoom?: boolean;
+  /**
+   * How far the user can pan away from the notes: the empty space shown
+   * beyond the outermost shown notes, in screen pixels (default: 200). Notes
+   * that fit in the board can be put anywhere inside it. Pass `Infinity` to
+   * pan without a limit. Applies to the user's gestures (wheel, drag, double
+   * click), not to `setViewport()` and the other methods; an empty board has
+   * no limit.
+   */
+  panMargin?: number;
   /** Smallest zoom (default: 0.25) */
   minZoom?: number;
   /** Largest zoom (default: 2) */
