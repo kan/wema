@@ -1,4 +1,4 @@
-import type { NoteId, EdgeId, WemaEdge, WemaEventMap, EdgeStyle, LineStyle, ArrowHead } from './types.js';
+import type { NoteId, EdgeId, WemaEdge, WemaEventMap, EdgeStyle, LineStyle, ArrowHead, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
 import { generateId } from './utils/id.js';
@@ -62,31 +62,40 @@ export class EdgeManager {
 
     this.edges.set(edge.id, edge);
     this.renderEdge(edge);
-    this.emitter.emit('edge:create', { edge: { ...edge } });
+    this.emitter.emit('edge:create', { edge: { ...edge }, origin: 'local' });
     return { ...edge };
   }
 
-  /** Add an edge with a specific ID (used for undo restore) */
-  addEdgeWithId(edge: WemaEdge): void {
+  /**
+   * Add an edge with a specific ID (undo restore, remote changes).
+   * Does nothing if the ID exists or either endpoint note is missing.
+   */
+  addEdgeWithId(edge: WemaEdge, origin: ChangeOrigin = 'local'): void {
+    if (this.edges.has(edge.id)) return;
+    if (!this.noteManager.getNote(edge.from) || !this.noteManager.getNote(edge.to)) return;
     const copy = { ...edge };
     this.edges.set(copy.id, copy);
     this.renderEdge(copy);
-    this.emitter.emit('edge:create', { edge: { ...copy } });
+    this.emitter.emit('edge:create', { edge: { ...copy }, origin });
   }
 
   /** Delete an edge */
-  deleteEdge(id: EdgeId): void {
+  deleteEdge(id: EdgeId, origin: ChangeOrigin = 'local'): void {
     const edge = this.edges.get(id);
     if (!edge) return;
 
     this.removeEdgeElements(id);
     this.edges.delete(id);
     if (this.selectedEdge === id) this.selectedEdge = null;
-    this.emitter.emit('edge:delete', { edge: { ...edge } });
+    this.emitter.emit('edge:delete', { edge: { ...edge }, origin });
   }
 
   /** Update an existing edge's properties */
-  updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void {
+  updateEdge(
+    id: EdgeId,
+    params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>,
+    origin: ChangeOrigin = 'local',
+  ): void {
     const edge = this.edges.get(id);
     if (!edge) return;
 
@@ -100,7 +109,7 @@ export class EdgeManager {
     }
     this.updateEdgePath(id);
 
-    this.emitter.emit('edge:update', { edge: { ...edge }, prev });
+    this.emitter.emit('edge:update', { edge: { ...edge }, prev, origin });
   }
 
   /** Get a single edge by ID */

@@ -1,5 +1,4 @@
-import type { NoteId, WemaEventMap } from './types.js';
-import { EventEmitter } from './events.js';
+import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
 
 const DRAG_THRESHOLD = 4;
@@ -27,7 +26,6 @@ export class DragManager {
   private ctx: DragContext | null = null;
   private boardEl: HTMLElement;
   private noteManager: NoteManager;
-  private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
   private getSelection: () => NoteId[];
   private onDragStart?: () => void;
@@ -40,7 +38,6 @@ export class DragManager {
   constructor(options: {
     boardEl: HTMLElement;
     noteManager: NoteManager;
-    emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
     getSelection: () => NoteId[];
     onDragStart?: () => void;
@@ -48,7 +45,6 @@ export class DragManager {
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
-    this.emitter = options.emitter;
     this.getReadOnly = options.getReadOnly;
     this.getSelection = options.getSelection;
     this.onDragStart = options.onDragStart;
@@ -172,7 +168,6 @@ export class DragManager {
     this.ctx = null;
 
     if (wasDragging) {
-      this.emitter.emit('change', { data: undefined as never });
       this.onDragEnd?.(noteId);
     }
   }

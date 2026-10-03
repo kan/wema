@@ -6,7 +6,10 @@ import type {
   WemaEdge,
   WemaBoardData,
   WemaBoardOptions,
+  WemaBatchOptions,
   WemaEventMap,
+  HistoryDelta,
+  ChangeOrigin,
 } from './types.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
@@ -17,8 +20,10 @@ import { AnchorDragManager } from './anchor-drag.js';
 import { ResizeManager } from './resize.js';
 import { EdgeStylePopup } from './edge-popup.js';
 import { NoteStylePopup } from './note-popup.js';
-import { alignNotes, distributeNotes, autoLayout } from './layout.js';
-import { HistoryManager } from './history.js';
+import { computeAlignment, computeDistribution, computeAutoLayout } from './layout.js';
+import type { NotePosition, NoteAlignment, DistributeDirection } from './layout.js';
+import { HistoryManager, replayDeltas } from './history.js';
+import type { ReplayCallbacks } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
 import { createElement, createSvgElement, setStyles } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
@@ -40,13 +45,15 @@ export class WemaBoard {
   private notePopup: NoteStylePopup;
   private richTextToolbar: RichTextToolbar;
   private historyManager: HistoryManager;
+  private visibilitySuspended = false;
+  private onImageUpload?: (file: File) => Promise<string>;
   private changePending = false;
   private container: HTMLElement;
   private readOnly: boolean;
   private viewOnly: boolean;
   private defaultNoteWidth: number;
   private defaultNoteHeight: number;
-  private positionSnapshot: { id: NoteId; x: number; y: number }[] | null = null;
+  private positionSnapshot: Map<NoteId, { x: number; y: number }> | null = null;
   private collapsedEdgeSnapshot: Map<EdgeId, boolean> | null = null;
   private theme: NoteTheme;
   private rubberBandMoved = false;
@@ -66,6 +73,7 @@ export class WemaBoard {
     this.defaultNoteWidth = options.defaultNoteWidth ?? 200;
     this.defaultNoteHeight = options.defaultNoteHeight ?? 150;
     this.theme = options.theme ?? 'default';
+    this.onImageUpload = options.onImageUpload;
 
     // Create board element
     this.boardEl = createElement('div', 'wema-board');
@@ -98,6 +106,7 @@ export class WemaBoard {
       defaultHeight: options.defaultNoteHeight ?? 150,
       defaultColor: options.defaultNoteColor ?? '#FFF9C4',
       readOnly: this.readOnly,
+      requestChange: () => this.scheduleChange(),
     });
 
     this.selectionManager = new SelectionManager({
@@ -119,7 +128,6 @@ export class WemaBoard {
     this.dragManager = new DragManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
-      emitter: this.emitter,
       getReadOnly: isLocked,
       getSelection: () => this.selectionManager.getSelection(),
       onDragStart: () => {
@@ -161,7 +169,6 @@ export class WemaBoard {
     this.resizeManager = new ResizeManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
-      emitter: this.emitter,
       getReadOnly: isRestricted,
       onResizeStart: () => { this.historyManager.beginBatch(); },
       onResizeEnd: () => { this.historyManager.endBatch(); },
@@ -224,7 +231,7 @@ export class WemaBoard {
         this.notePopup.show(noteId);
       },
       onMultiAutoSizeToggle: (noteIds) => {
-        const notes = noteIds.map((id) => this.noteManager.getNote(id)).filter((n) => n != null);
+        const notes = this.getNotesByIds(noteIds);
         const allAutoSize = notes.every((n) => n.autoSize);
         for (const id of noteIds) {
           this.noteManager.updateNote(id, { autoSize: !allAutoSize });
@@ -240,21 +247,30 @@ export class WemaBoard {
     });
 
     // Initialize history manager for undo/redo
-    this.historyManager = new HistoryManager(this.emitter, {
-      addNoteWithId: (note) => { this.noteManager.addNoteWithId(note); },
-      updateNote: (id, params) => { this.noteManager.updateNote(id, params); },
-      deleteNoteOnly: (id) => {
-        this.selectionManager.deselect(id);
-        this.noteManager.deleteNote(id);
-      },
-      addEdgeWithId: (edge) => { this.edgeManager.addEdgeWithId(edge); },
-      updateEdge: (id, params) => { this.edgeManager.updateEdge(id, params); },
-      deleteEdge: (id) => { this.edgeManager.deleteEdge(id); },
-    });
+    this.historyManager = new HistoryManager(this.emitter, this.createReplay('local'));
 
     // Update edges in real-time during note drag
     this.emitter.on('note:update', ({ note }) => {
       this.edgeManager.updateEdgesOf(note.id);
+    });
+
+    // What viewOnly restores on exit must follow the remote state
+    this.emitter.on('note:create', ({ note, origin }) => {
+      if (origin === 'remote') this.positionSnapshot?.set(note.id, { x: note.x, y: note.y });
+    });
+    this.emitter.on('note:update', ({ note, prev, origin }) => {
+      const snap = origin === 'remote' ? this.positionSnapshot?.get(note.id) : undefined;
+      if (!snap) return;
+      if (note.x !== prev.x) snap.x = note.x;
+      if (note.y !== prev.y) snap.y = note.y;
+    });
+    this.emitter.on('edge:create', ({ edge, origin }) => {
+      if (origin === 'remote') this.collapsedEdgeSnapshot?.set(edge.id, !!edge.collapsed);
+    });
+    this.emitter.on('edge:update', ({ edge, prev, origin }) => {
+      if (origin === 'remote' && edge.collapsed !== prev.collapsed) {
+        this.collapsedEdgeSnapshot?.set(edge.id, !!edge.collapsed);
+      }
     });
 
     // Recompute collapse visibility on any structural change
@@ -442,8 +458,7 @@ export class WemaBoard {
 
     // Apply initial viewOnly state
     if (this.viewOnly) {
-      this.boardEl.classList.add('wema-viewonly');
-      this.noteManager.setViewOnly(true);
+      this.enterViewOnly();
     }
   }
 
@@ -486,13 +501,7 @@ export class WemaBoard {
   /** Delete a note from the board, including connected edges */
   deleteNote(id: NoteId): void {
     if (this.readOnly || this.viewOnly) return;
-    // Delete all connected edges first
-    const connectedEdges = this.edgeManager.getEdgesOf(id);
-    for (const edge of connectedEdges) {
-      this.edgeManager.deleteEdge(edge.id);
-    }
-    this.selectionManager.deselect(id);
-    this.noteManager.deleteNote(id);
+    this.removeNote(id);
   }
 
   /** Get a note by ID */
@@ -574,38 +583,104 @@ export class WemaBoard {
   // --- Layout ---
 
   /** Align selected notes */
-  alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void {
+  alignNotes(noteIds: NoteId[], alignment: NoteAlignment): void {
     if (this.readOnly || this.viewOnly) return;
-    alignNotes(this.noteManager, noteIds, alignment);
-    this.updateNotePopup();
+    this.applyPositions(computeAlignment(this.getNotesByIds(noteIds), alignment));
   }
 
   /** Distribute notes evenly */
-  distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical'): void {
+  distributeNotes(noteIds: NoteId[], direction: DistributeDirection): void {
     if (this.readOnly || this.viewOnly) return;
-    distributeNotes(this.noteManager, noteIds, direction);
-    this.updateNotePopup();
+    this.applyPositions(computeDistribution(this.getNotesByIds(noteIds), direction));
   }
 
   /** Auto-layout notes */
   autoLayout(noteIds?: NoteId[]): void {
     if (this.readOnly || this.viewOnly) return;
-    autoLayout(this.noteManager, this.edgeManager.getEdges(), noteIds);
+    this.applyPositions(
+      computeAutoLayout(this.noteManager.getNotes(), this.edgeManager.getEdges(), { noteIds }),
+    );
+  }
+
+  private getNotesByIds(noteIds: NoteId[]): WemaNote[] {
+    return noteIds.map((id) => this.noteManager.getNote(id)).filter((n) => n != null);
+  }
+
+  private applyPositions(positions: NotePosition[]): void {
+    for (const { id, x, y } of positions) {
+      this.noteManager.updateNote(id, { x, y });
+    }
     this.updateNotePopup();
   }
 
   // --- History ---
 
-  /** Undo the last operation */
+  /**
+   * Run `fn` and record every change it makes as one undo step
+   * (one `history:commit`). `fn` must be synchronous.
+   */
+  batch<T>(fn: () => T, options?: WemaBatchOptions): T {
+    this.historyManager.beginBatch(options?.origin);
+    try {
+      return fn();
+    } finally {
+      this.historyManager.endBatch();
+    }
+  }
+
+  /**
+   * Apply changes made elsewhere (another client, a server).
+   * Works in readOnly/viewOnly, is not recorded in the undo history and does
+   * not emit `history:commit`. The resulting note/edge events carry
+   * `origin: 'remote'`. Deltas whose target no longer exists are skipped.
+   */
+  applyRemote(deltas: HistoryDelta[]): void {
+    // Recompute collapse visibility once, not once per delta
+    this.visibilitySuspended = true;
+    try {
+      this.historyManager.withoutRecording(() => replayDeltas(deltas, this.createReplay('remote')));
+    } finally {
+      this.visibilitySuspended = false;
+      this.recomputeVisibility();
+    }
+
+    if (!this.edgeManager.getSelectedEdge()) this.edgePopup.hide();
+    this.updateNotePopup();
+  }
+
+  /** Callbacks that apply deltas to the board, emitting events with the given origin */
+  private createReplay(origin: ChangeOrigin): ReplayCallbacks {
+    return {
+      addNoteWithId: (note) => { this.noteManager.addNoteWithId(note, origin); },
+      updateNote: (id, params) => { this.noteManager.updateNote(id, params, origin); },
+      deleteNote: (id) => { this.removeNote(id, origin); },
+      addEdgeWithId: (edge) => { this.edgeManager.addEdgeWithId(edge, origin); },
+      updateEdge: (id, params) => { this.edgeManager.updateEdge(id, params, origin); },
+      deleteEdge: (id) => { this.edgeManager.deleteEdge(id, origin); },
+    };
+  }
+
+  /** Delete a note together with its connected edges, regardless of mode */
+  private removeNote(id: NoteId, origin: ChangeOrigin = 'local'): void {
+    for (const edge of this.edgeManager.getEdgesOf(id)) {
+      this.edgeManager.deleteEdge(edge.id, origin);
+    }
+    this.selectionManager.deselect(id);
+    this.noteManager.deleteNote(id, origin);
+  }
+
+  /** Undo the last operation (not available in viewOnly, where positions are temporary) */
   undo(): void {
+    if (this.viewOnly) return;
     this.notePopup.hide();
     this.edgePopup.hide();
     this.selectionManager.clear();
     this.historyManager.undo();
   }
 
-  /** Redo the last undone operation */
+  /** Redo the last undone operation (not available in viewOnly, where positions are temporary) */
   redo(): void {
+    if (this.viewOnly) return;
     this.notePopup.hide();
     this.edgePopup.hide();
     this.selectionManager.clear();
@@ -692,19 +767,15 @@ export class WemaBoard {
     this.viewOnly = viewOnly;
     this.richTextToolbar.setViewOnly(viewOnly);
     if (viewOnly) {
-      // Snapshot note positions and edge collapsed states before entering viewOnly
-      this.positionSnapshot = this.noteManager.getNotes().map((n) => ({ id: n.id, x: n.x, y: n.y }));
-      this.collapsedEdgeSnapshot = new Map(this.edgeManager.getEdges().map((e) => [e.id, !!e.collapsed]));
-      this.boardEl.classList.add('wema-viewonly');
       this.selectionManager.clear();
-      this.noteManager.setViewOnly(true);
+      this.enterViewOnly();
       this.notePopup.hide();
       this.edgePopup.hide();
     } else {
       // Restore positions from snapshot
       if (this.positionSnapshot) {
-        for (const snap of this.positionSnapshot) {
-          this.noteManager.updateNote(snap.id, { x: snap.x, y: snap.y });
+        for (const [id, { x, y }] of this.positionSnapshot) {
+          this.noteManager.updateNote(id, { x, y });
         }
         this.positionSnapshot = null;
       }
@@ -715,11 +786,25 @@ export class WemaBoard {
         }
         this.collapsedEdgeSnapshot = null;
       }
+      this.historyManager.setIgnoredKeys([], []);
       this.boardEl.classList.remove('wema-viewonly');
       this.noteManager.setViewOnly(false);
     }
     this.emitter.emit('viewOnly:change', { viewOnly });
     this.recomputeVisibility();
+  }
+
+  /**
+   * Snapshot what viewOnly restores on exit and stop recording those keys:
+   * moves and collapses made in viewOnly are temporary, so neither they nor
+   * the restore may become undo steps or `history:commit` events.
+   */
+  private enterViewOnly(): void {
+    this.positionSnapshot = new Map(this.noteManager.getNotes().map((n) => [n.id, { x: n.x, y: n.y }]));
+    this.collapsedEdgeSnapshot = new Map(this.edgeManager.getEdges().map((e) => [e.id, !!e.collapsed]));
+    this.historyManager.setIgnoredKeys(['x', 'y'], ['collapsed']);
+    this.boardEl.classList.add('wema-viewonly');
+    this.noteManager.setViewOnly(true);
   }
 
   /** Check if the board is in view-only mode */
@@ -746,7 +831,10 @@ export class WemaBoard {
 
   // --- Internal ---
 
-  /** Open a file picker and insert image as data URI into the note */
+  /**
+   * Open a file picker and insert the image into the note: uploaded through
+   * `onImageUpload` when set, embedded as a data URI otherwise.
+   */
   private insertImageIntoNote(noteId: NoteId): void {
     const input = document.createElement('input');
     input.type = 'file';
@@ -754,28 +842,54 @@ export class WemaBoard {
     input.addEventListener('change', () => {
       const file = input.files?.[0];
       if (!file) return;
+      if (this.onImageUpload) {
+        void this.uploadImage(noteId, file, this.onImageUpload);
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
-        const dataUri = reader.result as string;
-        const noteEl = this.noteManager.getElement(noteId);
-        if (!noteEl) return;
-        const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
-        if (!content) return;
-        const img = document.createElement('img');
-        img.src = dataUri;
-        img.alt = file.name;
-        img.style.maxWidth = '100%';
-        content.appendChild(img);
-        content.dispatchEvent(new Event('input', { bubbles: true }));
-        // Immediately sync to note data
-        const note = this.noteManager.getNote(noteId);
-        if (note) {
-          this.noteManager.updateNote(noteId, { text: content.innerHTML });
-        }
+        this.appendImage(noteId, reader.result as string, file.name);
       };
       reader.readAsDataURL(file);
     });
     input.click();
+  }
+
+  /** Upload an image and insert it once the URL is known; emit 'image:error' on failure */
+  private async uploadImage(
+    noteId: NoteId,
+    file: File,
+    upload: (file: File) => Promise<string>,
+  ): Promise<void> {
+    try {
+      const url = await upload(file);
+      if (typeof url !== 'string' || url === '' || !isSafeUrl(url, 'image/')) {
+        throw new Error(`onImageUpload returned an unusable URL: ${String(url)}`);
+      }
+      // The mode may have changed while the upload was running
+      if (this.readOnly || this.viewOnly) {
+        throw new Error('The board became read-only before the upload finished');
+      }
+      this.appendImage(noteId, url, file.name);
+    } catch (error) {
+      this.emitter.emit('image:error', { noteId, file, error });
+    }
+  }
+
+  /** Append an <img> to the note content and sync it to note data */
+  private appendImage(noteId: NoteId, src: string, alt: string): void {
+    const noteEl = this.noteManager.getElement(noteId);
+    if (!noteEl) return;
+    const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+    if (!content) return;
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = alt;
+    img.style.maxWidth = '100%';
+    content.appendChild(img);
+    content.dispatchEvent(new Event('input', { bubbles: true }));
+    // Immediately sync to note data
+    this.noteManager.updateNote(noteId, { text: content.innerHTML });
   }
 
   /** Show an inline URL input for embedding an iframe into the note */
@@ -872,6 +986,7 @@ export class WemaBoard {
    * apply visibility to DOM/SVG elements, then update collapse buttons.
    */
   private recomputeVisibility(): void {
+    if (this.visibilitySuspended) return;
     const edges = this.edgeManager.getEdges();
     const hiddenNotes = new Set<NoteId>();
     const hiddenEdges = new Set<EdgeId>();

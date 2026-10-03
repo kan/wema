@@ -95,6 +95,7 @@ describe('Edges', () => {
       board.addEdge(n1.id, n2.id);
       expect(handler).toHaveBeenCalledWith({
         edge: expect.objectContaining({ from: n1.id, to: n2.id }),
+        origin: 'local',
       });
     });
 
@@ -107,6 +108,7 @@ describe('Edges', () => {
       board.deleteEdge(edge.id);
       expect(handler).toHaveBeenCalledWith({
         edge: expect.objectContaining({ id: edge.id }),
+        origin: 'local',
       });
     });
 
@@ -147,6 +149,7 @@ describe('Edges', () => {
       expect(handler).toHaveBeenCalledWith({
         edge: expect.objectContaining({ id: edge.id, strokeWidth: 4 }),
         prev: expect.objectContaining({ id: edge.id }),
+        origin: 'local',
       });
     });
 

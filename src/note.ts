@@ -1,4 +1,4 @@
-import type { NoteId, WemaNote, WemaEventMap } from './types.js';
+import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import { createElement, setStyles } from './utils/dom.js';
@@ -11,6 +11,8 @@ interface NoteManagerOptions {
   defaultHeight: number;
   defaultColor: string;
   readOnly: boolean;
+  /** Ask the board to emit 'change' for a model change that has no note event */
+  requestChange: () => void;
 }
 
 export class NoteManager {
@@ -24,6 +26,7 @@ export class NoteManager {
   private defaultColor: string;
   private readOnly: boolean;
   private viewOnly = false;
+  private requestChange: () => void;
   private imageOverlay: HTMLElement;
   private activeImage: HTMLImageElement | null = null;
   private activeImageNoteId: NoteId | null = null;
@@ -36,6 +39,7 @@ export class NoteManager {
     this.defaultHeight = options.defaultHeight;
     this.defaultColor = options.defaultColor;
     this.readOnly = options.readOnly;
+    this.requestChange = options.requestChange;
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -75,34 +79,35 @@ export class NoteManager {
 
     this.notes.set(note.id, note);
     this.renderNote(note);
-    this.emitter.emit('note:create', { note: { ...note } });
+    this.emitter.emit('note:create', { note: { ...note }, origin: 'local' });
     return { ...note };
   }
 
-  /** Add a note with a specific ID (used for undo restore) */
-  addNoteWithId(note: WemaNote): void {
+  /** Add a note with a specific ID (undo restore, remote changes). Does nothing if the ID exists. */
+  addNoteWithId(note: WemaNote, origin: ChangeOrigin = 'local'): void {
+    if (this.notes.has(note.id)) return;
     const copy = { ...note };
     if (copy.zIndex >= this.zCounter) {
       this.zCounter = copy.zIndex + 1;
     }
     this.notes.set(copy.id, copy);
     this.renderNote(copy);
-    this.emitter.emit('note:create', { note: { ...copy } });
+    this.emitter.emit('note:create', { note: { ...copy }, origin });
   }
 
   /** Update an existing note's properties */
-  updateNote(id: NoteId, params: Partial<WemaNote>): void {
+  updateNote(id: NoteId, params: Partial<WemaNote>, origin: ChangeOrigin = 'local'): void {
     const note = this.notes.get(id);
     if (!note) return;
 
     const prev = { ...note };
     Object.assign(note, params, { id }); // prevent id overwrite
     this.updateNoteElement(note);
-    this.emitter.emit('note:update', { note: { ...note }, prev });
+    this.emitter.emit('note:update', { note: { ...note }, prev, origin });
   }
 
   /** Delete a note and remove its DOM element */
-  deleteNote(id: NoteId): void {
+  deleteNote(id: NoteId, origin: ChangeOrigin = 'local'): void {
     const note = this.notes.get(id);
     if (!note) return;
 
@@ -112,7 +117,7 @@ export class NoteManager {
       this.elements.delete(id);
     }
     this.notes.delete(id);
-    this.emitter.emit('note:delete', { note: { ...note } });
+    this.emitter.emit('note:delete', { note: { ...note }, origin });
   }
 
   /** Get a note by ID */
@@ -269,8 +274,7 @@ export class NoteManager {
     if (!current) return;
     const prev = { ...current };
     current.text = contentEl.innerHTML;
-    this.emitter.emit('note:update', { note: { ...current }, prev });
-    this.emitter.emit('change', { data: undefined as never });
+    this.emitter.emit('note:update', { note: { ...current }, prev, origin: 'local' });
   }
 
   /** Remove all notes and DOM elements */
@@ -307,7 +311,7 @@ export class NoteManager {
       note.width = w;
       note.height = h;
       // Trigger edge redraw via note:update without going through full updateNote
-      this.emitter.emit('note:update', { note: { ...note }, prev: { ...note, width: note.width, height: note.height } });
+      this.emitter.emit('note:update', { note: { ...note }, prev: { ...note, width: note.width, height: note.height }, origin: 'local' });
     }
   }
 
@@ -357,8 +361,7 @@ export class NoteManager {
       if (Object.keys(params).length > 0) {
         const prev = { ...current };
         Object.assign(current, params);
-        this.emitter.emit('note:update', { note: { ...current }, prev });
-        this.emitter.emit('change', { data: undefined as never }); // board will handle actual data
+        this.emitter.emit('note:update', { note: { ...current }, prev, origin: 'local' });
       }
     });
 
@@ -397,8 +400,7 @@ export class NoteManager {
           if (!current) return;
           const prev = { ...current };
           current.text = content.innerHTML;
-          this.emitter.emit('note:update', { note: { ...current }, prev });
-          this.emitter.emit('change', { data: undefined as never });
+          this.emitter.emit('note:update', { note: { ...current }, prev, origin: 'local' });
         }, 0);
         return;
       }
@@ -514,7 +516,7 @@ export class NoteManager {
         if (w !== current.width || h !== current.height) {
           current.width = w;
           current.height = h;
-          this.emitter.emit('change', { data: undefined as never });
+          this.requestChange();
         }
       });
     }

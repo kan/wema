@@ -1,37 +1,175 @@
-import type { NoteId, EdgeId, WemaNote, WemaEdge, WemaEventMap } from './types.js';
+import type {
+  NoteId,
+  EdgeId,
+  WemaNote,
+  WemaEdge,
+  WemaEventMap,
+  HistoryDelta,
+  HistoryOrigin,
+} from './types.js';
 import { EventEmitter } from './events.js';
 
-/** A single atomic change */
-type Delta =
-  | { type: 'note:create'; note: WemaNote }
-  | { type: 'note:update'; noteId: NoteId; before: Partial<WemaNote>; after: Partial<WemaNote> }
-  | { type: 'note:delete'; note: WemaNote }
-  | { type: 'edge:create'; edge: WemaEdge }
-  | { type: 'edge:update'; edgeId: EdgeId; before: Partial<WemaEdge>; after: Partial<WemaEdge> }
-  | { type: 'edge:delete'; edge: WemaEdge };
-
 interface HistoryEntry {
-  deltas: Delta[];
+  deltas: HistoryDelta[];
 }
 
-/** Callbacks the HistoryManager uses to replay operations during undo/redo */
+/** Callbacks used to apply deltas to the board (undo/redo and remote changes) */
 export interface ReplayCallbacks {
   addNoteWithId(note: WemaNote): void;
   updateNote(id: NoteId, params: Partial<WemaNote>): void;
-  deleteNoteOnly(id: NoteId): void;
+  /** Delete a note together with any edge still connected to it */
+  deleteNote(id: NoteId): void;
   addEdgeWithId(edge: WemaEdge): void;
   updateEdge(id: EdgeId, params: Partial<WemaEdge>): void;
   deleteEdge(id: EdgeId): void;
+}
+
+/** Copy a delta so the receiver cannot mutate the original */
+function cloneDelta(delta: HistoryDelta): HistoryDelta {
+  switch (delta.type) {
+    case 'note:create':
+    case 'note:delete':
+      return { type: delta.type, note: { ...delta.note } };
+    case 'edge:create':
+    case 'edge:delete':
+      return { type: delta.type, edge: { ...delta.edge } };
+    case 'note:update':
+    case 'edge:update':
+      return { ...delta, before: { ...delta.before }, after: { ...delta.after } } as HistoryDelta;
+  }
+}
+
+/** Build the delta that undoes `delta` (create <-> delete, before <-> after) */
+function invertDelta(delta: HistoryDelta): HistoryDelta {
+  const copy = cloneDelta(delta);
+  switch (copy.type) {
+    case 'note:create':
+      return { ...copy, type: 'note:delete' };
+    case 'note:delete':
+      return { ...copy, type: 'note:create' };
+    case 'edge:create':
+      return { ...copy, type: 'edge:delete' };
+    case 'edge:delete':
+      return { ...copy, type: 'edge:create' };
+    case 'note:update':
+    case 'edge:update':
+      return { ...copy, before: copy.after, after: copy.before } as HistoryDelta;
+  }
+}
+
+/** The keys whose value differs between `prev` and `next`, with both values */
+function diffKeys<T extends { id: string }>(
+  prev: T,
+  next: T,
+  ignored: Set<keyof T>,
+): { before: Partial<T>; after: Partial<T> } {
+  const before: Partial<T> = {};
+  const after: Partial<T> = {};
+  for (const key of Object.keys(next) as (keyof T)[]) {
+    if (key === 'id' || ignored.has(key)) continue;
+    if (prev[key] !== next[key]) {
+      before[key] = prev[key];
+      after[key] = next[key];
+    }
+  }
+  return { before, after };
+}
+
+/**
+ * Params that take an object from `before` to `after`.
+ * A key present only in `before` is reset to undefined.
+ */
+function updateParams<T extends object>(before: Partial<T>, after: Partial<T>): Partial<T> {
+  const params: Partial<T> = { ...after };
+  for (const key of Object.keys(before) as (keyof T)[]) {
+    if (!(key in after)) params[key] = undefined;
+  }
+  return params;
+}
+
+/**
+ * Merge updates of the same note/edge into one delta, so that a drag made of
+ * hundreds of moves commits as a single update. Updates are only merged while
+ * no create/delete sits between them. Keys that end where they started are
+ * dropped, and so are updates left without keys.
+ */
+function coalesceDeltas(deltas: HistoryDelta[]): HistoryDelta[] {
+  const result: HistoryDelta[] = [];
+  const lastUpdateIndex = new Map<string, number>();
+
+  for (const delta of deltas) {
+    if (delta.type !== 'note:update' && delta.type !== 'edge:update') {
+      result.push(delta);
+      lastUpdateIndex.clear();
+      continue;
+    }
+    const key = delta.type === 'note:update' ? `note:${delta.noteId}` : `edge:${delta.edgeId}`;
+    const index = lastUpdateIndex.get(key);
+    const first = index === undefined ? undefined : result[index];
+    if (index === undefined || first === undefined || first.type !== delta.type) {
+      lastUpdateIndex.set(key, result.length);
+      result.push(delta);
+      continue;
+    }
+    // Earliest `before` and latest `after` win
+    result[index] = {
+      ...first,
+      before: { ...delta.before, ...first.before },
+      after: { ...first.after, ...delta.after },
+    } as HistoryDelta;
+  }
+
+  return result.filter((delta) => {
+    if (delta.type !== 'note:update' && delta.type !== 'edge:update') return true;
+    const before = delta.before as Record<string, unknown>;
+    const after = delta.after as Record<string, unknown>;
+    for (const key of Object.keys(after)) {
+      if (before[key] === after[key]) {
+        delete before[key];
+        delete after[key];
+      }
+    }
+    return Object.keys(after).length > 0;
+  });
+}
+
+/** Apply deltas in order through the replay callbacks */
+export function replayDeltas(deltas: HistoryDelta[], replay: ReplayCallbacks): void {
+  for (const delta of deltas) {
+    switch (delta.type) {
+      case 'note:create':
+        replay.addNoteWithId(delta.note);
+        break;
+      case 'note:update':
+        replay.updateNote(delta.noteId, updateParams(delta.before, delta.after));
+        break;
+      case 'note:delete':
+        replay.deleteNote(delta.note.id);
+        break;
+      case 'edge:create':
+        replay.addEdgeWithId(delta.edge);
+        break;
+      case 'edge:update':
+        replay.updateEdge(delta.edgeId, updateParams(delta.before, delta.after));
+        break;
+      case 'edge:delete':
+        replay.deleteEdge(delta.edge.id);
+        break;
+    }
+  }
 }
 
 /** Manages undo/redo history by listening to board events */
 export class HistoryManager {
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
-  private pendingDeltas: Delta[] = [];
+  private pendingDeltas: HistoryDelta[] = [];
+  private pendingOrigin: HistoryOrigin = 'user';
   private batchDepth = 0;
   private commitScheduled = false;
   private recording = true;
+  private ignoredNoteKeys = new Set<keyof WemaNote>();
+  private ignoredEdgeKeys = new Set<keyof WemaEdge>();
   private maxHistory: number;
   private emitter: EventEmitter<WemaEventMap>;
   private replay: ReplayCallbacks;
@@ -53,15 +191,7 @@ export class HistoryManager {
     this.handlers = {
       noteCreate: (p) => this.pushDelta({ type: 'note:create', note: { ...p.note } }),
       noteUpdate: (p) => {
-        const before: Partial<WemaNote> = {};
-        const after: Partial<WemaNote> = {};
-        for (const key of Object.keys(p.note) as (keyof WemaNote)[]) {
-          if (key === 'id') continue;
-          if (p.prev[key] !== p.note[key]) {
-            (before as Record<string, unknown>)[key] = p.prev[key];
-            (after as Record<string, unknown>)[key] = p.note[key];
-          }
-        }
+        const { before, after } = diffKeys(p.prev, p.note, this.ignoredNoteKeys);
         if (Object.keys(after).length > 0) {
           this.pushDelta({ type: 'note:update', noteId: p.note.id, before, after });
         }
@@ -69,15 +199,7 @@ export class HistoryManager {
       noteDelete: (p) => this.pushDelta({ type: 'note:delete', note: { ...p.note } }),
       edgeCreate: (p) => this.pushDelta({ type: 'edge:create', edge: { ...p.edge } }),
       edgeUpdate: (p) => {
-        const before: Partial<WemaEdge> = {};
-        const after: Partial<WemaEdge> = {};
-        for (const key of Object.keys(p.edge) as (keyof WemaEdge)[]) {
-          if (key === 'id') continue;
-          if (p.prev[key] !== p.edge[key]) {
-            (before as Record<string, unknown>)[key] = p.prev[key];
-            (after as Record<string, unknown>)[key] = p.edge[key];
-          }
-        }
+        const { before, after } = diffKeys(p.prev, p.edge, this.ignoredEdgeKeys);
         if (Object.keys(after).length > 0) {
           this.pushDelta({ type: 'edge:update', edgeId: p.edge.id, before, after });
         }
@@ -93,8 +215,17 @@ export class HistoryManager {
     this.emitter.on('edge:delete', this.handlers.edgeDelete);
   }
 
-  /** Start a manual batch (e.g. for drag/resize spanning multiple ticks) */
-  beginBatch(): void {
+  /**
+   * Start a manual batch (e.g. for drag/resize spanning multiple ticks).
+   * `origin` is reported by the `history:commit` that ends the batch. It only
+   * applies to an outermost batch, and changes still waiting to be committed
+   * are committed first so they keep their own origin.
+   */
+  beginBatch(origin?: HistoryOrigin): void {
+    if (origin && this.batchDepth === 0) {
+      this.commitPending();
+      this.pendingOrigin = origin;
+    }
     this.batchDepth++;
   }
 
@@ -108,43 +239,27 @@ export class HistoryManager {
     }
   }
 
+  /**
+   * Stop recording changes to the given keys (pass empty arrays to record
+   * everything again). Used while those keys only hold temporary values.
+   */
+  setIgnoredKeys(noteKeys: (keyof WemaNote)[], edgeKeys: (keyof WemaEdge)[]): void {
+    this.ignoredNoteKeys = new Set(noteKeys);
+    this.ignoredEdgeKeys = new Set(edgeKeys);
+  }
+
   /** Undo the last history entry */
   undo(): void {
     const entry = this.undoStack.pop();
     if (!entry) return;
 
-    this.recording = false;
-    try {
-      // Replay deltas in reverse order
-      for (let i = entry.deltas.length - 1; i >= 0; i--) {
-        const delta = entry.deltas[i];
-        switch (delta.type) {
-          case 'note:create':
-            this.replay.deleteNoteOnly(delta.note.id);
-            break;
-          case 'note:update':
-            this.replay.updateNote(delta.noteId, delta.before);
-            break;
-          case 'note:delete':
-            this.replay.addNoteWithId(delta.note);
-            break;
-          case 'edge:create':
-            this.replay.deleteEdge(delta.edge.id);
-            break;
-          case 'edge:update':
-            this.replay.updateEdge(delta.edgeId, delta.before);
-            break;
-          case 'edge:delete':
-            this.replay.addEdgeWithId(delta.edge);
-            break;
-        }
-      }
-    } finally {
-      this.recording = true;
-    }
+    // Inverse deltas in reverse order
+    const inverse = entry.deltas.map(invertDelta).reverse();
+    this.withoutRecording(() => replayDeltas(inverse, this.replay));
 
     this.redoStack.push(entry);
     this.emitHistoryChange();
+    this.emitter.emit('history:commit', { deltas: inverse, origin: 'undo' });
   }
 
   /** Redo the last undone entry */
@@ -152,37 +267,11 @@ export class HistoryManager {
     const entry = this.redoStack.pop();
     if (!entry) return;
 
-    this.recording = false;
-    try {
-      // Replay deltas in forward order
-      for (const delta of entry.deltas) {
-        switch (delta.type) {
-          case 'note:create':
-            this.replay.addNoteWithId(delta.note);
-            break;
-          case 'note:update':
-            this.replay.updateNote(delta.noteId, delta.after);
-            break;
-          case 'note:delete':
-            this.replay.deleteNoteOnly(delta.note.id);
-            break;
-          case 'edge:create':
-            this.replay.addEdgeWithId(delta.edge);
-            break;
-          case 'edge:update':
-            this.replay.updateEdge(delta.edgeId, delta.after);
-            break;
-          case 'edge:delete':
-            this.replay.deleteEdge(delta.edge.id);
-            break;
-        }
-      }
-    } finally {
-      this.recording = true;
-    }
+    this.withoutRecording(() => replayDeltas(entry.deltas, this.replay));
 
     this.undoStack.push(entry);
     this.emitHistoryChange();
+    this.emitter.emit('history:commit', { deltas: entry.deltas.map(cloneDelta), origin: 'redo' });
   }
 
   /** Whether there are entries to undo */
@@ -200,6 +289,7 @@ export class HistoryManager {
     this.undoStack.length = 0;
     this.redoStack.length = 0;
     this.pendingDeltas.length = 0;
+    this.pendingOrigin = 'user';
     this.batchDepth = 0;
     this.commitScheduled = false;
     this.emitHistoryChange();
@@ -215,7 +305,20 @@ export class HistoryManager {
     this.emitter.off('edge:delete', this.handlers.edgeDelete);
   }
 
-  private pushDelta(delta: Delta): void {
+  /**
+   * Run `fn` without recording the changes it makes: used to replay history
+   * and to apply remote changes, neither of which is a new user operation.
+   */
+  withoutRecording(fn: () => void): void {
+    this.recording = false;
+    try {
+      fn();
+    } finally {
+      this.recording = true;
+    }
+  }
+
+  private pushDelta(delta: HistoryDelta): void {
     if (!this.recording) return;
 
     this.pendingDeltas.push(delta);
@@ -238,9 +341,12 @@ export class HistoryManager {
   }
 
   private commitPending(): void {
-    if (this.pendingDeltas.length === 0) return;
+    const origin = this.pendingOrigin;
+    this.pendingOrigin = 'user';
+    const deltas = coalesceDeltas(this.pendingDeltas.splice(0));
+    if (deltas.length === 0) return;
 
-    const entry: HistoryEntry = { deltas: this.pendingDeltas.splice(0) };
+    const entry: HistoryEntry = { deltas };
     this.undoStack.push(entry);
 
     // Enforce max history limit
@@ -249,6 +355,7 @@ export class HistoryManager {
     }
 
     this.emitHistoryChange();
+    this.emitter.emit('history:commit', { deltas: entry.deltas.map(cloneDelta), origin });
   }
 
   private emitHistoryChange(): void {

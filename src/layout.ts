@@ -1,115 +1,106 @@
-import type { NoteId, WemaEdge } from './types.js';
-import { NoteManager } from './note.js';
+import type { NoteId, WemaNote, WemaEdge } from './types.js';
+
+/** The part of a note the layout functions read */
+export type LayoutNote = Pick<WemaNote, 'id' | 'x' | 'y' | 'width' | 'height'>;
+
+/** The part of an edge the layout functions read */
+export type LayoutEdge = Pick<WemaEdge, 'from' | 'to'>;
+
+/** A new position for a note, as computed by a layout function */
+export interface NotePosition {
+  id: NoteId;
+  x: number;
+  y: number;
+}
+
+/** Axis and side used by `computeAlignment` */
+export type NoteAlignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
+
+/** Axis used by `computeDistribution` */
+export type DistributeDirection = 'horizontal' | 'vertical';
+
+/** Options for `computeAutoLayout` */
+export interface AutoLayoutOptions {
+  /** Lay out only these notes (default: all notes) */
+  noteIds?: NoteId[];
+}
 
 /**
- * Align notes along a specified axis.
- * Requires at least 2 notes; does nothing otherwise.
+ * Compute positions that align notes along a specified axis.
+ * Pure function: does not touch the DOM. Returns a position for every note,
+ * or an empty array when fewer than 2 notes are given.
  */
-export function alignNotes(
-  noteManager: NoteManager,
-  noteIds: NoteId[],
-  alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom',
-): void {
-  if (noteIds.length < 2) return;
-
-  const notes = noteIds
-    .map((id) => noteManager.getNote(id))
-    .filter((n) => n != null);
-  if (notes.length < 2) return;
+export function computeAlignment(notes: LayoutNote[], alignment: NoteAlignment): NotePosition[] {
+  if (notes.length < 2) return [];
 
   switch (alignment) {
     case 'left': {
       const minX = Math.min(...notes.map((n) => n.x));
-      for (const n of notes) {
-        noteManager.updateNote(n.id, { x: minX });
-      }
-      break;
+      return notes.map((n) => ({ id: n.id, x: minX, y: n.y }));
     }
     case 'center': {
       const avgCenterX =
         notes.reduce((sum, n) => sum + n.x + n.width / 2, 0) / notes.length;
-      for (const n of notes) {
-        noteManager.updateNote(n.id, { x: avgCenterX - n.width / 2 });
-      }
-      break;
+      return notes.map((n) => ({ id: n.id, x: avgCenterX - n.width / 2, y: n.y }));
     }
     case 'right': {
       const maxRight = Math.max(...notes.map((n) => n.x + n.width));
-      for (const n of notes) {
-        noteManager.updateNote(n.id, { x: maxRight - n.width });
-      }
-      break;
+      return notes.map((n) => ({ id: n.id, x: maxRight - n.width, y: n.y }));
     }
     case 'top': {
       const minY = Math.min(...notes.map((n) => n.y));
-      for (const n of notes) {
-        noteManager.updateNote(n.id, { y: minY });
-      }
-      break;
+      return notes.map((n) => ({ id: n.id, x: n.x, y: minY }));
     }
     case 'middle': {
       const avgCenterY =
         notes.reduce((sum, n) => sum + n.y + n.height / 2, 0) / notes.length;
-      for (const n of notes) {
-        noteManager.updateNote(n.id, { y: avgCenterY - n.height / 2 });
-      }
-      break;
+      return notes.map((n) => ({ id: n.id, x: n.x, y: avgCenterY - n.height / 2 }));
     }
     case 'bottom': {
       const maxBottom = Math.max(...notes.map((n) => n.y + n.height));
-      for (const n of notes) {
-        noteManager.updateNote(n.id, { y: maxBottom - n.height });
-      }
-      break;
+      return notes.map((n) => ({ id: n.id, x: n.x, y: maxBottom - n.height }));
     }
   }
 }
 
 /**
- * Distribute notes evenly along an axis.
- * Requires at least 3 notes; does nothing otherwise.
+ * Compute positions that distribute notes evenly along an axis.
+ * Pure function: does not touch the DOM. The first and last notes stay in
+ * place, so only the notes in between are returned. Returns an empty array
+ * when fewer than 3 notes are given.
  */
-export function distributeNotes(
-  noteManager: NoteManager,
-  noteIds: NoteId[],
-  direction: 'horizontal' | 'vertical',
-): void {
-  if (noteIds.length < 3) return;
+export function computeDistribution(notes: LayoutNote[], direction: DistributeDirection): NotePosition[] {
+  if (notes.length < 3) return [];
 
-  const notes = noteIds
-    .map((id) => noteManager.getNote(id))
-    .filter((n) => n != null);
-  if (notes.length < 3) return;
-
+  const positions: NotePosition[] = [];
   if (direction === 'horizontal') {
-    // Sort by x position
-    notes.sort((a, b) => a.x - b.x);
-    const first = notes[0];
-    const last = notes[notes.length - 1];
+    const sorted = [...notes].sort((a, b) => a.x - b.x);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
     const totalSpan = last.x + last.width - first.x;
-    const totalNoteWidth = notes.reduce((sum, n) => sum + n.width, 0);
-    const gap = (totalSpan - totalNoteWidth) / (notes.length - 1);
+    const totalNoteWidth = sorted.reduce((sum, n) => sum + n.width, 0);
+    const gap = (totalSpan - totalNoteWidth) / (sorted.length - 1);
 
     let currentX = first.x + first.width + gap;
-    for (let i = 1; i < notes.length - 1; i++) {
-      noteManager.updateNote(notes[i].id, { x: currentX });
-      currentX += notes[i].width + gap;
+    for (let i = 1; i < sorted.length - 1; i++) {
+      positions.push({ id: sorted[i].id, x: currentX, y: sorted[i].y });
+      currentX += sorted[i].width + gap;
     }
   } else {
-    // Sort by y position
-    notes.sort((a, b) => a.y - b.y);
-    const first = notes[0];
-    const last = notes[notes.length - 1];
+    const sorted = [...notes].sort((a, b) => a.y - b.y);
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
     const totalSpan = last.y + last.height - first.y;
-    const totalNoteHeight = notes.reduce((sum, n) => sum + n.height, 0);
-    const gap = (totalSpan - totalNoteHeight) / (notes.length - 1);
+    const totalNoteHeight = sorted.reduce((sum, n) => sum + n.height, 0);
+    const gap = (totalSpan - totalNoteHeight) / (sorted.length - 1);
 
     let currentY = first.y + first.height + gap;
-    for (let i = 1; i < notes.length - 1; i++) {
-      noteManager.updateNote(notes[i].id, { y: currentY });
-      currentY += notes[i].height + gap;
+    for (let i = 1; i < sorted.length - 1; i++) {
+      positions.push({ id: sorted[i].id, x: sorted[i].x, y: currentY });
+      currentY += sorted[i].height + gap;
     }
   }
+  return positions;
 }
 
 const H_GAP = 40;
@@ -117,27 +108,29 @@ const V_GAP = 60;
 const LAYOUT_MARGIN = 40;
 
 /**
- * Auto-layout notes using a BFS-based hierarchical layout.
+ * Compute an automatic layout using a BFS-based hierarchical layout.
  * Connected components form tree-like structures with children centered
  * under their parents. Disconnected notes are placed in a grid below.
+ * Pure function: does not touch the DOM. Returns a position for every
+ * target note.
  */
-export function autoLayout(
-  noteManager: NoteManager,
-  edges: WemaEdge[],
-  noteIds?: NoteId[],
-): void {
-  const allNotes = noteManager.getNotes();
-  const targetIds = new Set(noteIds ?? allNotes.map((n) => n.id));
-  const targetNotes = allNotes.filter((n) => targetIds.has(n.id));
-  if (targetNotes.length === 0) return;
+export function computeAutoLayout(
+  notes: LayoutNote[],
+  edges: LayoutEdge[],
+  options?: AutoLayoutOptions,
+): NotePosition[] {
+  const targetIds = new Set(options?.noteIds ?? notes.map((n) => n.id));
+  const targetNotes = notes.filter((n) => targetIds.has(n.id));
+  if (targetNotes.length === 0) return [];
+
+  const positions: NotePosition[] = [];
+  const noteById = new Map(notes.map((n) => [n.id, n]));
 
   // Build adjacency for target notes only
   const children = new Map<NoteId, NoteId[]>();
-  const parents = new Map<NoteId, NoteId[]>();
   const inDegree = new Map<NoteId, number>();
   for (const id of targetIds) {
     children.set(id, []);
-    parents.set(id, []);
     inDegree.set(id, 0);
   }
 
@@ -146,7 +139,6 @@ export function autoLayout(
   for (const edge of edges) {
     if (targetIds.has(edge.from) && targetIds.has(edge.to)) {
       children.get(edge.from)!.push(edge.to);
-      parents.get(edge.to)!.push(edge.from);
       inDegree.set(edge.to, (inDegree.get(edge.to) ?? 0) + 1);
       connectedNodes.add(edge.from);
       connectedNodes.add(edge.to);
@@ -195,9 +187,9 @@ export function autoLayout(
 
   // --- Tree layout: position children centered under parents ---
 
-  // Note width lookup (uses current/default sizes)
-  const noteWidth = (id: NoteId): number => noteManager.getNote(id)?.width ?? 200;
-  const noteHeight = (id: NoteId): number => noteManager.getNote(id)?.height ?? 150;
+  // Note size lookup (uses current/default sizes)
+  const noteWidth = (id: NoteId): number => noteById.get(id)?.width ?? 200;
+  const noteHeight = (id: NoteId): number => noteById.get(id)?.height ?? 150;
 
   // Phase 1: Compute subtree widths bottom-up
   // subtreeWidth[id] = total horizontal space needed for this node and all descendants
@@ -276,7 +268,7 @@ export function autoLayout(
   for (const level of sortedLevels) {
     const ids = levelGroups.get(level)!;
     for (const id of ids) {
-      noteManager.updateNote(id, { x: xPos.get(id)!, y: yOffset });
+      positions.push({ id, x: xPos.get(id)!, y: yOffset });
     }
     const maxHeight = Math.max(...ids.map((id) => noteHeight(id)));
     yOffset += maxHeight + V_GAP;
@@ -289,7 +281,7 @@ export function autoLayout(
     let rowMaxHeight = 0;
     for (let i = 0; i < disconnected.length; i++) {
       const note = disconnected[i];
-      noteManager.updateNote(note.id, { x: xOffset, y: yOffset });
+      positions.push({ id: note.id, x: xOffset, y: yOffset });
       rowMaxHeight = Math.max(rowMaxHeight, note.height);
       xOffset += note.width + H_GAP;
       if ((i + 1) % cols === 0) {
@@ -299,4 +291,6 @@ export function autoLayout(
       }
     }
   }
+
+  return positions;
 }

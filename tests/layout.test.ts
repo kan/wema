@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WemaBoard } from '../src/board';
+import { computeAlignment, computeDistribution, computeAutoLayout } from '../src/layout';
+import type { LayoutNote } from '../src/layout';
 import type { WemaNote } from '../src/types';
 
 describe('Layout', () => {
@@ -195,6 +197,97 @@ describe('Layout', () => {
       // n3 should NOT have been moved
       expect(r3.x).toBe(300);
       expect(r3.y).toBe(300);
+    });
+  });
+});
+
+describe('Layout functions (no board)', () => {
+  const note = (id: string, x: number, y: number, width = 200, height = 150): LayoutNote =>
+    ({ id, x, y, width, height });
+
+  describe('computeAlignment', () => {
+    it('returns a position for every note', () => {
+      const result = computeAlignment([note('a', 50, 100), note('b', 200, 200)], 'left');
+      expect(result).toEqual([
+        { id: 'a', x: 50, y: 100 },
+        { id: 'b', x: 50, y: 200 },
+      ]);
+    });
+
+    it('aligns bottom edges of notes with different heights', () => {
+      const result = computeAlignment([note('a', 0, 0, 100, 100), note('b', 200, 50, 100, 200)], 'bottom');
+      expect(result).toEqual([
+        { id: 'a', x: 0, y: 150 },
+        { id: 'b', x: 200, y: 50 },
+      ]);
+    });
+
+    it('returns nothing for fewer than 2 notes', () => {
+      expect(computeAlignment([note('a', 0, 0)], 'left')).toEqual([]);
+    });
+  });
+
+  describe('computeDistribution', () => {
+    it('returns only the notes between the first and the last', () => {
+      const result = computeDistribution(
+        [note('c', 600, 0, 100), note('a', 0, 0, 100), note('b', 50, 30, 100)],
+        'horizontal',
+      );
+      expect(result).toEqual([{ id: 'b', x: 300, y: 30 }]);
+    });
+
+    it('does not reorder the input array', () => {
+      const notes = [note('c', 600, 0), note('a', 0, 0), note('b', 50, 0)];
+      computeDistribution(notes, 'horizontal');
+      expect(notes.map((n) => n.id)).toEqual(['c', 'a', 'b']);
+    });
+
+    it('returns nothing for fewer than 3 notes', () => {
+      expect(computeDistribution([note('a', 0, 0), note('b', 300, 0)], 'vertical')).toEqual([]);
+    });
+  });
+
+  describe('computeAutoLayout', () => {
+    it('places a child below its parent and a disconnected note below both', () => {
+      const result = computeAutoLayout(
+        [note('p', 500, 500), note('c', 0, 0), note('x', 900, 900)],
+        [{ from: 'p', to: 'c' }],
+      );
+      const pos = Object.fromEntries(result.map((r) => [r.id, r]));
+
+      expect(result).toHaveLength(3);
+      expect(pos.p.x).toBe(pos.c.x);
+      expect(pos.c.y).toBe(pos.p.y + 150 + 60);
+      expect(pos.x.y).toBeGreaterThan(pos.c.y);
+    });
+
+    it('lays out only the notes in options.noteIds', () => {
+      const result = computeAutoLayout(
+        [note('a', 100, 100), note('b', 200, 200), note('c', 300, 300)],
+        [],
+        { noteIds: ['a', 'b'] },
+      );
+      expect(result.map((r) => r.id).sort()).toEqual(['a', 'b']);
+    });
+
+    it('matches what WemaBoard.autoLayout applies', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const board = new WemaBoard({ container });
+      const n1 = board.addNote({ x: 400, y: 400 });
+      const n2 = board.addNote({ x: 0, y: 0 });
+      const n3 = board.addNote({ x: 50, y: 700 });
+      board.addEdge(n1.id, n2.id);
+      board.addEdge(n1.id, n3.id);
+
+      const expected = computeAutoLayout(board.getNotes(), board.getEdges());
+      board.autoLayout();
+
+      for (const { id, x, y } of expected) {
+        expect(board.getNote(id)).toEqual(expect.objectContaining({ x, y }));
+      }
+      board.destroy();
+      container.remove();
     });
   });
 });

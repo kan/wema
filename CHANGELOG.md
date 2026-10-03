@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **リアルタイム同期のための API** ([#50](https://github.com/kan/wema/issues/50))
+  - `history:commit` イベント — ユーザー操作 1 回分（Undo 1 回分）が確定するたびに `{ deltas, origin }` を発火する。Undo では逆向きの差分、Redo では元の差分が流れる
+  - `HistoryDelta` / `HistoryOrigin` / `ChangeOrigin` 型の export
+  - `applyRemote(deltas)` — 他のクライアントの変更を適用する。readOnly / viewOnly 中でも適用し、Undo 履歴には積まない
+  - `batch(fn, options?)` — 複数の操作を Undo 1 回分・`history:commit` 1 回にまとめる。`origin: 'agent'` を指定できる
+  - `note:*` / `edge:*` イベントのペイロードに `origin`（`'local'` / `'remote'`）を追加
+- `onImageUpload` オプションを追加した。指定すると、画像を data URL で埋め込まず、返された URL で挿入する。失敗時は `image:error` イベントを発火する
+- DOM に依存しないレイアウト関数 `computeAlignment` / `computeDistribution` / `computeAutoLayout` を export した。`WemaBoard` を作れないサーバー側でも使える
+
+### Changed
+
+- **参照モード（viewOnly）中の移動と折り畳み、終了時の復元は Undo 履歴へ積まない。** 従来は通常の操作として履歴に残っていた
+- **参照モード中の `undo()` / `redo()` は何もしない。** 従来はキーボードショートカットだけが無効で、メソッドを直接呼ぶと動いていた
+- **`viewOnly: true` で作成したボードも、参照モードを終えると作成時点の位置と折り畳み状態へ戻る。** 従来、戻るのは `setViewOnly(true)` を呼んで参照モードへ入った場合だけだった
+- **`change` イベントの `data` に常にボードのデータが入るようにした。** 従来はテキスト編集の確定時やドラッグ終了時に、`data` が `undefined` の `change` が余分に発火していた
+
 ## [0.3.3] - 2026-08-23
 
 ### Fixed

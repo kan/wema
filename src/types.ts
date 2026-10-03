@@ -71,19 +71,53 @@ export interface WemaBoardOptions {
   readOnly?: boolean;
   viewOnly?: boolean;
   theme?: NoteTheme;
+  /**
+   * Upload an image picked by the user and resolve to its URL.
+   * When set, the image is inserted with that URL instead of a data URL.
+   */
+  onImageUpload?: (file: File) => Promise<string>;
+}
+
+/**
+ * A single atomic change to the board.
+ * In an update, a key present in `before` but missing from `after` means
+ * "reset to unset" (a key whose value is `undefined` disappears in JSON).
+ */
+export type HistoryDelta =
+  | { type: 'note:create'; note: WemaNote }
+  | { type: 'note:update'; noteId: NoteId; before: Partial<WemaNote>; after: Partial<WemaNote> }
+  | { type: 'note:delete'; note: WemaNote }
+  | { type: 'edge:create'; edge: WemaEdge }
+  | { type: 'edge:update'; edgeId: EdgeId; before: Partial<WemaEdge>; after: Partial<WemaEdge> }
+  | { type: 'edge:delete'; edge: WemaEdge };
+
+/** What produced a committed set of deltas */
+export type HistoryOrigin = 'user' | 'undo' | 'redo' | 'agent';
+
+/** Whether a note/edge event came from this board or from `applyRemote()` */
+export type ChangeOrigin = 'local' | 'remote';
+
+/** Options for `WemaBoard.batch()` */
+export interface WemaBatchOptions {
+  /** Reported as the `origin` of the resulting `history:commit` (default: 'user') */
+  origin?: 'user' | 'agent';
 }
 
 /** Event payloads emitted by WemaBoard */
 export interface WemaEventMap {
-  'note:create': { note: WemaNote };
-  'note:update': { note: WemaNote; prev: WemaNote };
-  'note:delete': { note: WemaNote };
+  'note:create': { note: WemaNote; origin: ChangeOrigin };
+  'note:update': { note: WemaNote; prev: WemaNote; origin: ChangeOrigin };
+  'note:delete': { note: WemaNote; origin: ChangeOrigin };
   'note:select': { noteIds: NoteId[] };
-  'edge:create': { edge: WemaEdge };
-  'edge:update': { edge: WemaEdge; prev: WemaEdge };
-  'edge:delete': { edge: WemaEdge };
+  'edge:create': { edge: WemaEdge; origin: ChangeOrigin };
+  'edge:update': { edge: WemaEdge; prev: WemaEdge; origin: ChangeOrigin };
+  'edge:delete': { edge: WemaEdge; origin: ChangeOrigin };
   'readOnly:change': { readOnly: boolean };
   'viewOnly:change': { viewOnly: boolean };
   'history:change': { canUndo: boolean; canRedo: boolean };
+  /** One user operation (one undo step) was committed, undone or redone */
+  'history:commit': { deltas: HistoryDelta[]; origin: HistoryOrigin };
+  /** `onImageUpload` rejected or returned an unusable URL; no image was inserted */
+  'image:error': { noteId: NoteId; file: File; error: unknown };
   'change': { data: WemaBoardData };
 }

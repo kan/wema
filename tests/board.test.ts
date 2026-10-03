@@ -74,7 +74,7 @@ describe('WemaBoard', () => {
       const handler = vi.fn();
       board.on('note:create', handler);
       const note = board.addNote({ text: 'hi' });
-      expect(handler).toHaveBeenCalledWith({ note: expect.objectContaining({ text: 'hi' }) });
+      expect(handler).toHaveBeenCalledWith({ note: expect.objectContaining({ text: 'hi' }), origin: 'local' });
     });
 
     it('emits note:update on updateNote', () => {
@@ -85,6 +85,7 @@ describe('WemaBoard', () => {
       expect(handler).toHaveBeenCalledWith({
         note: expect.objectContaining({ text: 'after' }),
         prev: expect.objectContaining({ text: 'before' }),
+        origin: 'local',
       });
     });
 
@@ -93,7 +94,7 @@ describe('WemaBoard', () => {
       const note = board.addNote();
       board.on('note:delete', handler);
       board.deleteNote(note.id);
-      expect(handler).toHaveBeenCalledWith({ note: expect.objectContaining({ id: note.id }) });
+      expect(handler).toHaveBeenCalledWith({ note: expect.objectContaining({ id: note.id }), origin: 'local' });
     });
 
     it('emits change event (coalesced via microtask)', async () => {
@@ -294,6 +295,7 @@ describe('WemaBoard', () => {
       expect(handler).toHaveBeenCalledWith({
         note: expect.objectContaining({ autoSize: true }),
         prev: expect.objectContaining({ id: note.id }),
+        origin: 'local',
       });
     });
   });

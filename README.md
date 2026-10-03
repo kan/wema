@@ -77,8 +77,11 @@ const board = new WemaBoard({
   readOnly?: boolean,          // default: false
   viewOnly?: boolean,          // default: false
   theme?: NoteTheme,           // default: 'default' ('default' | 'card')
+  onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
 });
 ```
+
+`onImageUpload` を指定すると、付箋に挿入する画像を data URL で埋め込まず、返された URL の `<img>` として挿入する。アップロードが完了してから挿入し、失敗したときは挿入せずに `image:error` イベントを発火する。未指定のときは従来どおり data URL で埋め込む。
 
 #### 付箋
 
@@ -117,6 +120,20 @@ const board = new WemaBoard({
 | `distributeNotes(noteIds, direction)` | 付箋を均等配置（horizontal/vertical） |
 | `autoLayout(noteIds?)` | 自動レイアウト（BFS階層） |
 
+同じ計算を DOM なしで行う関数も export している。サーバー側など `WemaBoard` を作れない環境で使える。どれも入力を変更せず、付箋の新しい位置 `{ id, x, y }` の配列を返す。
+
+| 関数 | 説明 |
+|------|------|
+| `computeAlignment(notes, alignment)` | 整列後の位置。全付箋の位置を返す |
+| `computeDistribution(notes, direction)` | 均等配置後の位置。両端を除く付箋の位置を返す |
+| `computeAutoLayout(notes, edges, options?)` | 自動レイアウト後の位置。`options.noteIds` で対象を絞れる |
+
+```typescript
+import { computeAutoLayout } from '@kanf/wema';
+
+const positions = computeAutoLayout(data.notes, data.edges);
+```
+
 #### Undo/Redo
 
 | メソッド | 説明 |
@@ -125,6 +142,15 @@ const board = new WemaBoard({
 | `redo()` | やり直す |
 | `canUndo()` | undo可能か |
 | `canRedo()` | redo可能か |
+| `batch(fn, options?)` | `fn` の中の操作を Undo 1 回分にまとめる。`fn` は同期関数。`options.origin`（`'user'` / `'agent'`）は `history:commit` の `origin` になる |
+
+#### 同期
+
+| メソッド | 説明 |
+|---------|------|
+| `applyRemote(deltas)` | 他のクライアントやサーバーで起きた変更（`HistoryDelta[]`）を適用する |
+
+使い方は[リアルタイム同期](#リアルタイム同期)を参照。
 
 #### 状態管理
 
@@ -148,22 +174,80 @@ const board = new WemaBoard({
 
 | イベント | ペイロード |
 |---------|-----------|
-| `note:create` | `{ note }` |
-| `note:update` | `{ note, prev }` |
-| `note:delete` | `{ note }` |
+| `note:create` | `{ note, origin }` |
+| `note:update` | `{ note, prev, origin }` |
+| `note:delete` | `{ note, origin }` |
 | `note:select` | `{ noteIds }` |
-| `edge:create` | `{ edge }` |
-| `edge:update` | `{ edge, prev }` |
-| `edge:delete` | `{ edge }` |
+| `edge:create` | `{ edge, origin }` |
+| `edge:update` | `{ edge, prev, origin }` |
+| `edge:delete` | `{ edge, origin }` |
 | `readOnly:change` | `{ readOnly }` |
 | `viewOnly:change` | `{ viewOnly }` |
 | `history:change` | `{ canUndo, canRedo }` |
+| `history:commit` | `{ deltas, origin }` |
+| `image:error` | `{ noteId, file, error }` |
 | `change` | `{ data }` |
 
 ```typescript
 board.on('change', ({ data }) => { /* ... */ });
 board.off('change', handler);
 ```
+
+- `note:*` / `edge:*` の `origin` は、このボードでの操作なら `'local'`、`applyRemote()` による変更なら `'remote'`
+- `history:commit` は、ユーザー操作 1 回分（Undo 1 回分）が確定するたびに発火する。`origin` は `'user'` / `'undo'` / `'redo'` / `'agent'`
+- `change` の `data` には常に `exportData()` と同じ内容が入る。同じタイミングの変更は 1 回にまとめて発火する
+
+## リアルタイム同期
+
+`history:commit` で確定した変更を送り、受け取った変更を `applyRemote()` で適用する。通信と保存は利用側で実装する（ライブラリは関与しない）。
+
+```typescript
+// 送信: 操作が確定するたびに差分を送る
+board.on('history:commit', ({ deltas }) => {
+  socket.send(JSON.stringify(deltas));
+});
+
+// 受信: 他のクライアントの差分を適用する
+socket.addEventListener('message', (e) => {
+  board.applyRemote(JSON.parse(e.data));
+});
+```
+
+### `HistoryDelta`
+
+```typescript
+type HistoryDelta =
+  | { type: 'note:create'; note: WemaNote }
+  | { type: 'note:update'; noteId: string; before: Partial<WemaNote>; after: Partial<WemaNote> }
+  | { type: 'note:delete'; note: WemaNote }
+  | { type: 'edge:create'; edge: WemaEdge }
+  | { type: 'edge:update'; edgeId: string; before: Partial<WemaEdge>; after: Partial<WemaEdge> }
+  | { type: 'edge:delete'; edge: WemaEdge };
+```
+
+- `update` の `before` / `after` には変わったキーだけが入る
+- `after` にキーがなく `before` にあるものは「未設定に戻す」を表す。値が `undefined` のキーは JSON にすると消えるため、`applyRemote()` はこの規則で復元する（接続線の `collapsed` を解除したときなど）
+
+### `history:commit` が発火するタイミング
+
+- ドラッグとリサイズは、操作の途中では発火せず、終了時に 1 回だけ発火する（途中経過は `note:update` で受け取れる）
+- 1 回の操作の中で同じ付箋や接続線を何度も更新した場合、デルタは 1 件にまとまる（`before` は操作前の値、`after` は操作後の値）。元の値に戻ったキーは含まれず、何も変わらなかった操作では発火しない
+- Undo では元の差分を逆向きにしたもの（逆順、create ↔ delete、before ↔ after の入れ替え）、Redo では元の差分が流れる
+- `applyRemote()` による変更では発火しない。受け取った変更を送り返すことはない
+- 参照モード（viewOnly）中の移動と折り畳み、終了時の復元では発火せず、Undo 履歴にも積まれない。参照モード中でも、`updateNote()` で変えたテキストや色のように終了時に戻らない変更は発火する
+
+### `applyRemote()` の挙動
+
+- readOnly / viewOnly 中でも適用する
+- Undo 履歴には積まない。既存の Undo 履歴は消さない
+- 対象がすでにない更新と削除、すでにある ID の作成、端点の付箋がない接続線の作成は、そのデルタだけを無視する
+- 付箋を削除するとき、その付箋につながる接続線が残っていれば一緒に削除する
+- 編集中（フォーカス中）の付箋は、表示中の内容を上書きしない
+- 参照モード中に届いた付箋と接続線の作成、位置と折り畳みの変更は、モード終了時の復元先にも反映する
+
+### `zIndex` は同期しない
+
+`zIndex` は各クライアントの表示状態として扱う。付箋をクリックして最前面に出したとき、`note:update` と `history:commit` は発火せず、Undo 履歴にも積まれない。同期する側でも `zIndex` は保存や配信の対象から外すことを想定している（`note:create` のデルタには作成時の `zIndex` が含まれる）。
 
 ## モード
 
@@ -195,6 +279,8 @@ board.setViewOnly(false);
 - 付箋のドラッグ移動 — モード終了時に元の位置に戻る
 - 部分木の折り畳み/展開 — モード終了時に元の状態に戻る
 
+この 2 つの操作は Undo 履歴に積まれず、`history:commit` も発火しない。参照モード中、`undo()` と `redo()` は何もしない。`viewOnly: true` で作成したボードは、終了時に作成時点の位置と折り畳み状態へ戻る。
+
 スタンドアロン版では 👁 ボタン（Ctrl+Shift+L）で切替。状態はリロード後も保持される。
 
 ### モード比較
@@ -218,7 +304,7 @@ interface WemaNote {
   width: number; height: number;
   text: string;         // HTML文字列
   color: string;
-  zIndex: number;
+  zIndex: number;       // 重なり順。ローカルな表示状態（同期対象外）
   autoSize?: boolean;   // コンテンツに合わせてサイズ自動調整
 }
 

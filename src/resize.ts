@@ -1,5 +1,4 @@
-import type { NoteId, WemaEventMap } from './types.js';
-import { EventEmitter } from './events.js';
+import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
 
 const MIN_WIDTH = 80;
@@ -17,7 +16,6 @@ interface ResizeContext {
 export class ResizeManager {
   private boardEl: HTMLElement;
   private noteManager: NoteManager;
-  private emitter: EventEmitter<WemaEventMap>;
   private getReadOnly: () => boolean;
   private onResizeStart?: () => void;
   private onResizeEnd?: () => void;
@@ -30,14 +28,12 @@ export class ResizeManager {
   constructor(options: {
     boardEl: HTMLElement;
     noteManager: NoteManager;
-    emitter: EventEmitter<WemaEventMap>;
     getReadOnly: () => boolean;
     onResizeStart?: () => void;
     onResizeEnd?: () => void;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
-    this.emitter = options.emitter;
     this.getReadOnly = options.getReadOnly;
     this.onResizeStart = options.onResizeStart;
     this.onResizeEnd = options.onResizeEnd;
@@ -119,7 +115,6 @@ export class ResizeManager {
     }
 
     this.onResizeEnd?.();
-    this.emitter.emit('change', { data: undefined as never });
     this.ctx = null;
   }
 }
