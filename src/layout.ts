@@ -149,28 +149,34 @@ export function computeAutoLayout(
   const levels = new Map<NoteId, number>();
   const queue: NoteId[] = [];
 
+  const assignLevelsFromQueue = (): void => {
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const currentLevel = levels.get(current)!;
+      for (const child of children.get(current) ?? []) {
+        if (!levels.has(child)) {
+          levels.set(child, currentLevel + 1);
+          queue.push(child);
+        }
+      }
+    }
+  };
+
   for (const id of connectedNodes) {
     if (inDegree.get(id) === 0) {
       levels.set(id, 0);
       queue.push(id);
     }
   }
+  assignLevelsFromQueue();
 
-  // Handle cycles: if all connected nodes have in-degree > 0, pick one as root
-  if (queue.length === 0 && connectedNodes.size > 0) {
-    const first = connectedNodes.values().next().value!;
-    levels.set(first, 0);
-    queue.push(first);
-  }
-
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const currentLevel = levels.get(current)!;
-    for (const child of children.get(current) ?? []) {
-      if (!levels.has(child)) {
-        levels.set(child, currentLevel + 1);
-        queue.push(child);
-      }
+  // Handle cycles: a component no root leads to (every node has in-degree
+  // > 0) gets one of its nodes as a root, one component at a time
+  for (const id of connectedNodes) {
+    if (!levels.has(id)) {
+      levels.set(id, 0);
+      queue.push(id);
+      assignLevelsFromQueue();
     }
   }
 

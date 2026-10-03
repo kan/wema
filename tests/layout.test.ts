@@ -261,6 +261,33 @@ describe('Layout functions (no board)', () => {
       expect(pos.x.y).toBeGreaterThan(pos.c.y);
     });
 
+    it('places a cycle that no root leads to', () => {
+      // a -> b has a root (a); c <-> d is a cycle on its own
+      const result = computeAutoLayout(
+        [note('a', 0, 0), note('b', 0, 0), note('c', 0, 0), note('d', 0, 0)],
+        [{ from: 'a', to: 'b' }, { from: 'c', to: 'd' }, { from: 'd', to: 'c' }],
+      );
+      const pos = Object.fromEntries(result.map((r) => [r.id, r]));
+
+      expect(result.map((r) => r.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+      // The cycle is laid out as its own tree, beside the first one
+      expect(pos.c.y).toBe(pos.a.y);
+      expect(pos.d.y).toBe(pos.b.y);
+      expect(pos.c.x).toBeGreaterThan(pos.a.x);
+      // No two notes overlap
+      const places = result.map((r) => `${r.x},${r.y}`);
+      expect(new Set(places).size).toBe(4);
+    });
+
+    it('places every note of a graph made only of cycles', () => {
+      const result = computeAutoLayout(
+        [note('a', 0, 0), note('b', 0, 0), note('c', 0, 0), note('d', 0, 0)],
+        [{ from: 'a', to: 'b' }, { from: 'b', to: 'a' }, { from: 'c', to: 'd' }, { from: 'd', to: 'c' }],
+      );
+      expect(result.map((r) => r.id).sort()).toEqual(['a', 'b', 'c', 'd']);
+      expect(new Set(result.map((r) => `${r.x},${r.y}`)).size).toBe(4);
+    });
+
     it('lays out only the notes in options.noteIds', () => {
       const result = computeAutoLayout(
         [note('a', 100, 100), note('b', 200, 200), note('c', 300, 300)],
