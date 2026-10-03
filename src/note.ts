@@ -16,6 +16,8 @@ interface NoteManagerOptions {
    * note event (the size is derived from the content, not a user operation).
    */
   onMeasure: (noteId: NoteId) => void;
+  /** Handle a click on a link with a safe URL. Return true to keep it from opening in a new tab. */
+  onLinkClick?: (href: string, event: MouseEvent) => boolean | void;
 }
 
 export class NoteManager {
@@ -30,6 +32,7 @@ export class NoteManager {
   private readOnly: boolean;
   private viewOnly = false;
   private onMeasure: (noteId: NoteId) => void;
+  private onLinkClick?: (href: string, event: MouseEvent) => boolean | void;
   /**
    * For notes whose measured size is not yet reported in a note event: the
    * size they had in the last one. The next note:update uses it as `prev`.
@@ -48,6 +51,7 @@ export class NoteManager {
     this.defaultColor = options.defaultColor;
     this.readOnly = options.readOnly;
     this.onMeasure = options.onMeasure;
+    this.onLinkClick = options.onLinkClick;
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -444,12 +448,12 @@ export class NoteManager {
         return;
       }
 
-      // Link click handler — always open in new tab
+      // Link click handler — open in a new tab unless onLinkClick handles it
       if (target.tagName === 'A' || target.closest('a')) {
         const linkEl = (target.tagName === 'A' ? target : target.closest('a')) as HTMLAnchorElement;
         e.preventDefault();
         const href = linkEl.getAttribute('href');
-        if (href && isSafeUrl(href)) {
+        if (href && isSafeUrl(href) && this.onLinkClick?.(href, e) !== true) {
           window.open(href, '_blank', 'noopener');
         }
         return;

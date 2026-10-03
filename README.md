@@ -78,10 +78,28 @@ const board = new WemaBoard({
   viewOnly?: boolean,          // default: false
   theme?: NoteTheme,           // default: 'default' ('default' | 'card')
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
+  onLinkClick?: (href: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
 });
 ```
 
 `onImageUpload` を指定すると、付箋に挿入する画像を data URL で埋め込まず、返された URL の `<img>` として挿入する。アップロードが完了してから挿入し、失敗したときは挿入せずに `image:error` イベントを発火する。未指定のときは従来どおり data URL で埋め込む。
+
+付箋内のリンクは、クリックすると新しいタブで開く。`onLinkClick` を指定すると、クリックのたびに `href` 属性の値とクリックイベントを渡して呼び出す。`true` を返した場合は新しいタブを開かないので、同じタブでの遷移などを利用側で行える。それ以外を返した場合は、指定しないときと同じく新しいタブで開く。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  onLinkClick: (href) => {
+    if (!href.startsWith('/')) return false;  // サイト外は新しいタブで開く
+    router.push(href);
+    return true;
+  },
+});
+```
+
+- 呼び出されるのは、URL の安全性の検査（`http` / `https` / `mailto` / `tel` と相対 URL）を通ったリンクだけ
+- ブラウザ既定の遷移は wema が止めている（`event.defaultPrevented` は `true`）
+- readOnly / viewOnly でも呼び出される
 
 #### 付箋
 
@@ -111,6 +129,31 @@ const board = new WemaBoard({
 | `select(noteIds)` | 付箋を選択 |
 | `selectAll()` | 全選択 |
 | `getSelection()` | 選択中のIDを取得 |
+
+非表示の付箋（折り畳みや絞り込みで隠れているもの）は選択できない。
+
+#### 絞り込み
+
+| メソッド | 説明 |
+|---------|------|
+| `setNoteFilter(noteIds)` | 指定した付箋だけを表示する。`null` で解除 |
+| `getNoteFilter()` | 表示対象の ID を取得。絞り込んでいなければ `null` |
+
+```typescript
+board.setNoteFilter(matchedIds);  // 一致した付箋だけを残す
+board.setNoteFilter(null);        // 全部表示に戻す
+```
+
+- 表示対象でない付箋と、その付箋につながる接続線を非表示にする
+- データは変えない。`note:*` / `edge:*` / `history:commit` / `change` は発火せず、Undo 履歴にも積まれない。`exportData()` は全部の付箋と接続線を返す
+- 非表示になった付箋と接続線は選択から外れ、付箋は全選択やラバーバンド選択の対象にもならない
+- ID を指定して呼ぶメソッド（`updateNote` / `deleteNote` / `alignNotes` / `autoLayout(noteIds)` など）は、非表示の付箋にも作用する
+- `getNoteFilter()` が返すのは現在の表示対象で、`setNoteFilter()` に渡した配列そのものではない（絞り込み中に作成した付箋が加わり、削除した付箋の ID も残る）
+- 折り畳み（`collapsed`）と両立する。表示対象の付箋どうしをつなぐ接続線が折り畳まれていれば、その先の付箋は表示対象でも隠れる。両端のどちらかが表示対象でない接続線の折り畳みは、絞り込みの間は無視する（展開するボタンを出せないため）
+- readOnly / viewOnly でも使える
+- 絞り込み中にユーザーが作成した付箋は、表示対象に加わる。`applyRemote()` で届いた付箋と、Undo / Redo で復活した付箋は加わらず、もう一度 `setNoteFilter()` を呼ぶまで非表示のまま
+- 絞り込み中に引数なしで `autoLayout()` を呼ぶと、表示対象の付箋だけを配置する
+- `importData()` を呼ぶと絞り込みは解除される
 
 #### レイアウト・整列
 

@@ -76,6 +76,13 @@ export interface WemaBoardOptions {
    * When set, the image is inserted with that URL instead of a data URL.
    */
   onImageUpload?: (file: File) => Promise<string>;
+  /**
+   * Called when a link inside a note is clicked, after the URL passed the
+   * safety check (the browser's own navigation is already prevented).
+   * Return true to handle the click yourself; otherwise the link opens in a
+   * new tab. Also called in readOnly and viewOnly.
+   */
+  onLinkClick?: (href: string, event: MouseEvent) => boolean | void;
 }
 
 /**

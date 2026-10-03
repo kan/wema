@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `setNoteFilter(noteIds)` / `getNoteFilter()` を追加した。指定した付箋だけを表示し、それ以外の付箋と、その付箋につながる接続線を非表示にする。データ、イベント、Undo 履歴には影響しない
+- `onLinkClick` オプションを追加した。付箋内のリンクのクリックを利用側で処理できる。`true` を返すと新しいタブを開かない
+
+### Changed
+
+- 折り畳みで非表示になっている付箋は選択できない。選択中の付箋が折り畳みで隠れたときは、選択から外れる。従来は全選択やラバーバンド選択の対象になり、見えていない付箋を削除や移動できた
+
 ## [0.4.0] - 2026-10-03
 
 ### Security

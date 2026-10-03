@@ -323,6 +323,11 @@ export class HistoryManager {
     this.emitter.off('edge:delete', this.handlers.edgeDelete);
   }
 
+  /** Whether deltas are being replayed right now (undo/redo, or remote changes) rather than new operations made */
+  isReplaying(): boolean {
+    return !this.recording;
+  }
+
   /**
    * Run `fn` without recording the changes it makes: used to replay history
    * and to apply remote changes, neither of which is a new user operation.

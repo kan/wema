@@ -8,6 +8,7 @@ export class SelectionManager {
   private noteManager: NoteManager;
   private emitter: EventEmitter<WemaEventMap>;
   private boardEl: HTMLElement;
+  private isSelectable: (noteId: NoteId) => boolean;
 
   // Rubberband state
   private rubberBandEl: HTMLElement | null = null;
@@ -18,10 +19,17 @@ export class SelectionManager {
     boardEl: HTMLElement;
     noteManager: NoteManager;
     emitter: EventEmitter<WemaEventMap>;
+    /** Whether a note may be selected (a hidden note may not) */
+    isSelectable: (noteId: NoteId) => boolean;
   }) {
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.emitter = options.emitter;
+    this.isSelectable = options.isSelectable;
+  }
+
+  private canSelect(noteId: NoteId): boolean {
+    return this.noteManager.getNote(noteId) !== undefined && this.isSelectable(noteId);
   }
 
   /** Set the selected note IDs */
@@ -34,7 +42,7 @@ export class SelectionManager {
 
     this.selected.clear();
     for (const id of noteIds) {
-      if (this.noteManager.getNote(id)) {
+      if (this.canSelect(id)) {
         this.selected.add(id);
         const el = this.noteManager.getElement(id);
         el?.classList.add('wema-note-selected');
@@ -58,7 +66,7 @@ export class SelectionManager {
   /** Add notes to the existing selection */
   addToSelection(noteIds: NoteId[]): void {
     for (const id of noteIds) {
-      if (this.noteManager.getNote(id) && !this.selected.has(id)) {
+      if (this.canSelect(id) && !this.selected.has(id)) {
         this.selected.add(id);
         const el = this.noteManager.getElement(id);
         el?.classList.add('wema-note-selected');
@@ -73,7 +81,7 @@ export class SelectionManager {
       this.selected.delete(noteId);
       const el = this.noteManager.getElement(noteId);
       el?.classList.remove('wema-note-selected');
-    } else if (this.noteManager.getNote(noteId)) {
+    } else if (this.canSelect(noteId)) {
       this.selected.add(noteId);
       const el = this.noteManager.getElement(noteId);
       el?.classList.add('wema-note-selected');

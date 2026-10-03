@@ -46,6 +46,10 @@ export class WemaBoard {
   private richTextToolbar: RichTextToolbar;
   private historyManager: HistoryManager;
   private visibilitySuspended = false;
+  /** Notes to show, or null to show all (see setNoteFilter) */
+  private noteFilter: Set<NoteId> | null = null;
+  /** Notes currently hidden by a collapsed edge or by the filter */
+  private hiddenNoteIds = new Set<NoteId>();
   private onImageUpload?: (file: File) => Promise<string>;
   private changePending = false;
   private container: HTMLElement;
@@ -111,12 +115,14 @@ export class WemaBoard {
         this.edgeManager.updateEdgesOf(noteId);
         this.scheduleChange();
       },
+      onLinkClick: options.onLinkClick,
     });
 
     this.selectionManager = new SelectionManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
       emitter: this.emitter,
+      isSelectable: (noteId) => !this.hiddenNoteIds.has(noteId),
     });
 
     this.edgeManager = new EdgeManager({
@@ -277,11 +283,17 @@ export class WemaBoard {
       }
     });
 
-    // Recompute collapse visibility on any structural change
+    // Recompute visibility on any structural change
     this.emitter.on('edge:create', () => this.recomputeVisibility());
     this.emitter.on('edge:update', () => this.recomputeVisibility());
     this.emitter.on('edge:delete', () => this.recomputeVisibility());
-    this.emitter.on('note:create', () => this.recomputeVisibility());
+    this.emitter.on('note:create', ({ note }) => {
+      // A newly created note joins the filter, so it does not vanish the
+      // moment it is created. A note that is replayed (a remote change, or
+      // one coming back from undo/redo) does not: the filter stays as set.
+      if (!this.historyManager.isReplaying()) this.noteFilter?.add(note.id);
+      this.recomputeVisibility();
+    });
     this.emitter.on('note:delete', () => this.recomputeVisibility());
 
     // Coalesce change events via microtask
@@ -584,6 +596,27 @@ export class WemaBoard {
     return this.selectionManager.getSelection();
   }
 
+  // --- Filter ---
+
+  /**
+   * Show only the given notes; pass null to show all notes again.
+   * Hidden notes, and the edges connected to them, stay in the data: no
+   * note/edge event is emitted, nothing is recorded in the undo history and
+   * `exportData()` still returns everything. Hidden notes cannot be selected.
+   * Works in readOnly and viewOnly, and combines with collapsed edges.
+   * A note added later by this board joins the filter; a note added by
+   * `applyRemote()` stays hidden until the filter is set again.
+   */
+  setNoteFilter(noteIds: NoteId[] | null): void {
+    this.noteFilter = noteIds ? new Set(noteIds) : null;
+    this.recomputeVisibility();
+  }
+
+  /** Get the IDs of the notes shown by the filter, or null when no filter is set */
+  getNoteFilter(): NoteId[] | null {
+    return this.noteFilter ? Array.from(this.noteFilter) : null;
+  }
+
   // --- Layout ---
 
   /** Align selected notes */
@@ -598,11 +631,12 @@ export class WemaBoard {
     this.applyPositions(computeDistribution(this.getNotesByIds(noteIds), direction));
   }
 
-  /** Auto-layout notes */
+  /** Auto-layout the given notes (default: all notes, or the notes shown by the filter) */
   autoLayout(noteIds?: NoteId[]): void {
     if (this.readOnly || this.viewOnly) return;
+    const targetIds = noteIds ?? this.getNoteFilter() ?? undefined;
     this.applyPositions(
-      computeAutoLayout(this.noteManager.getNotes(), this.edgeManager.getEdges(), { noteIds }),
+      computeAutoLayout(this.noteManager.getNotes(), this.edgeManager.getEdges(), { noteIds: targetIds }),
     );
   }
 
@@ -713,8 +747,9 @@ export class WemaBoard {
     return JSON.parse(JSON.stringify(data));
   }
 
-  /** Import board data, replacing all current content */
+  /** Import board data, replacing all current content (this also clears the note filter) */
   importData(data: WemaBoardData): void {
+    this.noteFilter = null;
     this.selectionManager.clear();
     this.edgeManager.clear();
     this.noteManager.renderAll(data.notes);
@@ -985,25 +1020,54 @@ export class WemaBoard {
   }
 
   /**
-   * Recompute which notes/edges are hidden due to collapsed edges,
-   * apply visibility to DOM/SVG elements, then update collapse buttons.
+   * Recompute which notes/edges are hidden by the note filter and by
+   * collapsed edges, drop what became hidden from the selection, apply
+   * visibility to DOM/SVG elements, then update collapse buttons.
    */
   private recomputeVisibility(): void {
     if (this.visibilitySuspended) return;
+    const notes = this.noteManager.getNotes();
     const edges = this.edgeManager.getEdges();
     const hiddenNotes = new Set<NoteId>();
     const hiddenEdges = new Set<EdgeId>();
 
-    // DFS from each collapsed edge's target
+    // Notes left out by the filter, and every edge connected to one of them
+    const filter = this.noteFilter;
+    const inFilter = (id: NoteId): boolean => !filter || filter.has(id);
+    const shownEdges = edges.filter((edge) => inFilter(edge.from) && inFilter(edge.to));
+    for (const note of notes) {
+      if (!inFilter(note.id)) hiddenNotes.add(note.id);
+    }
     for (const edge of edges) {
+      if (!inFilter(edge.from) || !inFilter(edge.to)) hiddenEdges.add(edge.id);
+    }
+
+    // DFS from each collapsed edge's target. Only edges the filter shows
+    // count: a collapsed edge that is itself hidden has no button to expand
+    // it, so it must not hide notes the filter asked for.
+    for (const edge of shownEdges) {
       if (edge.collapsed) {
         hiddenEdges.add(edge.id);
-        this.dfsHideNotes(edge.to, edges, hiddenNotes, hiddenEdges);
+        this.dfsHideNotes(edge.to, shownEdges, hiddenNotes, hiddenEdges);
       }
+    }
+    this.hiddenNoteIds = hiddenNotes;
+
+    // What is no longer visible must not stay selected (it could be deleted unseen)
+    const selection = this.selectionManager.getSelection();
+    const stillVisible = selection.filter((id) => !hiddenNotes.has(id));
+    if (stillVisible.length !== selection.length) {
+      this.selectionManager.select(stillVisible);
+      this.updateNotePopup();
+    }
+    const selectedEdge = this.edgeManager.getSelectedEdge();
+    if (selectedEdge && hiddenEdges.has(selectedEdge)) {
+      this.edgeManager.deselectEdge();
+      this.edgePopup.hide();
     }
 
     // Apply to note DOM elements
-    for (const note of this.noteManager.getNotes()) {
+    for (const note of notes) {
       const el = this.noteManager.getElement(note.id);
       if (el) el.style.display = hiddenNotes.has(note.id) ? 'none' : '';
     }
@@ -1011,8 +1075,8 @@ export class WemaBoard {
     // Apply to edge SVG elements
     this.edgeManager.applyVisibility(hiddenEdges);
 
-    // Update per-note collapse buttons
-    this.updateNoteCollapseBtns(edges, hiddenNotes);
+    // Update per-note collapse buttons (edges hidden by the filter get none)
+    this.updateNoteCollapseBtns(shownEdges, hiddenNotes);
   }
 
   private dfsHideNotes(

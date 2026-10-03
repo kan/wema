@@ -212,6 +212,10 @@ class WemaBoard {
   selectAll(): void;
   getSelection(): NoteId[];
 
+  // 絞り込み（表示だけを変える。データ・イベント・履歴には影響しない）
+  setNoteFilter(noteIds: NoteId[] | null): void;
+  getNoteFilter(): NoteId[] | null;
+
   // レイアウト
   alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void;
   distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical'): void;
@@ -253,8 +257,20 @@ interface WemaBoardOptions {
   viewOnly?: boolean;          // default: false
   theme?: NoteTheme;           // default: 'default'
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
+  onLinkClick?: (href: string, event: MouseEvent) => boolean | void;  // true を返すと新しいタブを開かない
 }
 ```
+
+### 付箋の非表示（折り畳みと絞り込み）
+
+付箋と接続線の表示・非表示は `WemaBoard.recomputeVisibility()` の 1 か所で決める。
+
+- 非表示の原因は 2 つ。折り畳み（`WemaEdge.collapsed`、データの一部）と、絞り込み（`setNoteFilter`、表示だけの状態で `noteFilter` に持つ）
+- 結果は `hiddenNoteIds` に入る。SelectionManager は `isSelectable` でこれを参照し、非表示の付箋を選択しない
+- 絞り込みはイベントも履歴も出さない。絞り込み中にユーザーが作成した付箋は `noteFilter` に加える。`applyRemote` で届いた付箋と Undo / Redo で復活した付箋は加えない（`historyManager.isReplaying()` で判別する。新規作成は `addNote`、再生は `addNoteWithId` を通る）
+- 折り畳みの探索は、絞り込みで表示される接続線だけを対象にする。絞り込みで隠れた接続線には展開ボタンを出せないので、その折り畳みで表示対象の付箋を隠してはいけない
+- 非表示になった付箋と接続線は `recomputeVisibility()` が選択から外す（見えないものを Delete で消せてしまうのを防ぐ）
+- 非表示の理由を増やすときも `recomputeVisibility()` に足すこと（DOM の `display` を別の場所で書き換えない）
 
 ### レイアウト関数（DOM 非依存）
 
