@@ -5,11 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.5.1] - 2026-10-03
+## [0.6.0] - 2026-10-03
 
 ### Security
 
 - 付箋内のリンクを開くとき、ブラウザが解決した URL を検査し、その URL を `onLinkClick` と新しいタブの両方で使う。従来は `href` 属性の値を検査し、新しいタブへも属性の値をそのまま渡していた。解決後の URL が検査を通らないリンクは、クリックしても何も開かない
+- `file://` で開いたページの相対リンクは、同じホスト（ローカルディスク）を指す場合だけ開く。`//server/share` のように別のホストへ解決されるリンクは開かない
+
+### Added
+
+- **表示位置の移動（パン）** ([#52](https://github.com/kan/wema/issues/52))。ボードからはみ出した付箋へ届くようになった
+  - `getViewport()` / `setViewport()` — 表示位置の取得と設定
+  - `revealNotes(noteIds)` — 指定した付箋が見えるよう、必要な分だけ動かす
+  - `centerContent()` — 付箋全体（絞り込み中は表示対象）がボードの中央に来るよう動かす
+  - `viewport:change` イベント
+  - 操作: ホイール、中ボタンのドラッグ、Space + 左ドラッグ。readOnly / viewOnly では、空いている場所の左ドラッグでもパンし、ダブルクリックでその位置を中央へ動かす
+  - `wheelPan` オプション — `false` でホイールによるパンを無効にする
+  - 表示位置は各クライアントの表示状態として扱う。`note:*` / `edge:*` / `history:commit` / `change` は発火せず、Undo 履歴にも積まれない。`exportData()` にも含めない
+  - ズームは未対応（`zoom` は常に 1）
+
+### Changed
+
+- **ボードの上でホイールを回すと、ページではなくボードが動く。** ボードをスクロールするページに埋め込んでいる場合は、`wheelPan: false` で従来の挙動に戻せる
+- **viewOnly で、空いている場所の左ドラッグがパンになった。** ラバーバンド選択は Shift + 左ドラッグで行う
+- 座標を省略した `addNote()` は、表示中の領域の左上から (100, 100) の位置に付箋を作る。表示位置を動かしていなければ、従来と同じ位置になる
+- 付箋と接続線の SVG を、新しい要素 `.wema-viewport` の中へ移した。`.wema-board > .wema-note` のように直下を前提にしたセレクタは当たらなくなる
+- `WemaBoardData.viewport` は使わないことを明記した。`exportData()` は書き出さず、`importData()` は無視する
+- スタンドアロン版は、ボードを付箋の範囲まで広げてスクロールさせる方式をやめ、パンで移動する方式にした。背景のグリッドは表示位置に合わせて動く
+
+### Fixed
+
+- autoSize の付箋の幅が、ボードの右端に近いほど狭くなる問題を修正した。ボードの幅を超えた位置では最小幅まで縮んでいた。位置によらず、内容に合った幅（最大 600px）になる
+- `computeAutoLayout` / `autoLayout()` が、相互に参照するだけの付箋群（循環）の位置を返さないことがある問題を修正した。起点になる付箋が他にある場合と、循環だけの付箋群が複数ある場合に起きていた
 
 ## [0.5.0] - 2026-10-03
 
