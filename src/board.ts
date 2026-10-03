@@ -106,7 +106,11 @@ export class WemaBoard {
       defaultHeight: options.defaultNoteHeight ?? 150,
       defaultColor: options.defaultNoteColor ?? '#FFF9C4',
       readOnly: this.readOnly,
-      requestChange: () => this.scheduleChange(),
+      // A measured size is not a note event: redraw the edges and report the data
+      onMeasure: (noteId) => {
+        this.edgeManager.updateEdgesOf(noteId);
+        this.scheduleChange();
+      },
     });
 
     this.selectionManager = new SelectionManager({
@@ -652,7 +656,7 @@ export class WemaBoard {
   private createReplay(origin: ChangeOrigin): ReplayCallbacks {
     return {
       addNoteWithId: (note) => { this.noteManager.addNoteWithId(note, origin); },
-      updateNote: (id, params) => { this.noteManager.updateNote(id, params, origin); },
+      updateNote: (id, params) => { this.noteManager.replayUpdate(id, params, origin); },
       deleteNote: (id) => { this.removeNote(id, origin); },
       addEdgeWithId: (edge) => { this.edgeManager.addEdgeWithId(edge, origin); },
       updateEdge: (id, params) => { this.edgeManager.updateEdge(id, params, origin); },
@@ -701,10 +705,9 @@ export class WemaBoard {
 
   /** Export board data as a serializable object */
   exportData(): WemaBoardData {
-    this.noteManager.flushEditing();
     const data: WemaBoardData = {
       version: 1,
-      notes: this.noteManager.getNotes(),
+      notes: this.noteManager.getNotesWithLiveText(),
       edges: this.edgeManager.getEdges(),
     };
     return JSON.parse(JSON.stringify(data));

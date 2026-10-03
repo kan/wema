@@ -576,4 +576,42 @@ describe('WemaBoard', () => {
       expect(bottomBtn?.textContent).toBe('1');
     });
   });
+
+  describe('Editing in progress', () => {
+    const contentOf = (noteId: string): HTMLElement =>
+      container.querySelector(`[data-note-id="${noteId}"] .wema-note-content`) as HTMLElement;
+
+    it('exportData returns the text being edited without committing it', async () => {
+      const note = board.addNote({ text: 'before' });
+      await Promise.resolve();
+      const commits: unknown[] = [];
+      board.on('history:commit', (p) => commits.push(p));
+
+      contentOf(note.id).innerHTML = 'typing';
+      contentOf(note.id).dispatchEvent(new Event('input'));
+
+      expect(board.exportData().notes[0].text).toBe('typing');
+      expect(board.getNote(note.id)!.text).toBe('before');
+
+      // The edit is still committed, and can be undone, on blur
+      contentOf(note.id).dispatchEvent(new Event('blur'));
+      await Promise.resolve();
+      expect(commits).toHaveLength(1);
+      board.undo();
+      expect(board.getNote(note.id)!.text).toBe('before');
+    });
+
+    it('does not render the content again when a note is only moved', () => {
+      // The browser serializes "&" as "&amp;", so the model text never equals innerHTML
+      const note = board.addNote({ text: 'a & b <b>bold</b>' });
+      const child = contentOf(note.id).querySelector('b');
+
+      board.updateNote(note.id, { x: 500 });
+      expect(contentOf(note.id).querySelector('b')).toBe(child);
+
+      board.updateNote(note.id, { text: 'c & d <b>bold</b>' });
+      expect(contentOf(note.id).querySelector('b')).not.toBe(child);
+      expect(contentOf(note.id).textContent).toBe('c & d bold');
+    });
+  });
 });

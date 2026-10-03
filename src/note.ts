@@ -11,8 +11,11 @@ interface NoteManagerOptions {
   defaultHeight: number;
   defaultColor: string;
   readOnly: boolean;
-  /** Ask the board to emit 'change' for a model change that has no note event */
-  requestChange: () => void;
+  /**
+   * An autoSize note was measured and its size changed in the model without a
+   * note event (the size is derived from the content, not a user operation).
+   */
+  onMeasure: (noteId: NoteId) => void;
 }
 
 export class NoteManager {
@@ -26,7 +29,12 @@ export class NoteManager {
   private defaultColor: string;
   private readOnly: boolean;
   private viewOnly = false;
-  private requestChange: () => void;
+  private onMeasure: (noteId: NoteId) => void;
+  /**
+   * For notes whose measured size is not yet reported in a note event: the
+   * size they had in the last one. The next note:update uses it as `prev`.
+   */
+  private unreportedSizeBase = new Map<NoteId, { width: number; height: number }>();
   private imageOverlay: HTMLElement;
   private activeImage: HTMLImageElement | null = null;
   private activeImageNoteId: NoteId | null = null;
@@ -39,7 +47,7 @@ export class NoteManager {
     this.defaultHeight = options.defaultHeight;
     this.defaultColor = options.defaultColor;
     this.readOnly = options.readOnly;
-    this.requestChange = options.requestChange;
+    this.onMeasure = options.onMeasure;
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -96,14 +104,74 @@ export class NoteManager {
   }
 
   /** Update an existing note's properties */
-  updateNote(id: NoteId, params: Partial<WemaNote>, origin: ChangeOrigin = 'local'): void {
+  updateNote(id: NoteId, params: Partial<WemaNote>): void {
+    const change = this.applyParams(id, params);
+    if (change) this.emitUpdate(change.note, change.prev);
+  }
+
+  /**
+   * Update a note while replaying history or applying a remote change.
+   * The history does not record this update, so it must not report a size
+   * measured earlier: that report stays for the next `updateNote`.
+   */
+  replayUpdate(id: NoteId, params: Partial<WemaNote>, origin: ChangeOrigin): void {
+    const change = this.applyParams(id, params);
+    if (change) this.emitter.emit('note:update', { note: { ...change.note }, prev: change.prev, origin });
+  }
+
+  /** Apply params to the model and the DOM. Returns the note and its previous state. */
+  private applyParams(id: NoteId, params: Partial<WemaNote>): { note: WemaNote; prev: WemaNote } | undefined {
     const note = this.notes.get(id);
-    if (!note) return;
+    if (!note) return undefined;
 
     const prev = { ...note };
     Object.assign(note, params, { id }); // prevent id overwrite
-    this.updateNoteElement(note);
-    this.emitter.emit('note:update', { note: { ...note }, prev, origin });
+    this.updateNoteElement(note, 'text' in params);
+    // Measure now when the change can resize an autoSize note, so the event
+    // (and its undo) carries the resulting size
+    if ('autoSize' in params || 'text' in params || 'width' in params || 'height' in params) {
+      this.applyMeasuredSize(note);
+    }
+    return { note, prev };
+  }
+
+  /** Emit a local note:update, reporting any size measured since the last one */
+  private emitUpdate(note: WemaNote, prev: WemaNote): void {
+    const base = this.unreportedSizeBase.get(note.id);
+    this.unreportedSizeBase.delete(note.id);
+    this.emitter.emit('note:update', { note: { ...note }, prev: base ? { ...prev, ...base } : prev, origin: 'local' });
+  }
+
+  /**
+   * Copy the rendered size of an autoSize note to the model.
+   * Returns whether the size changed. A size of 0 means the note is not laid
+   * out (hidden by a collapsed edge, or detached) and is ignored.
+   */
+  private applyMeasuredSize(note: WemaNote): boolean {
+    if (!note.autoSize) return false;
+    const el = this.elements.get(note.id);
+    if (!el) return false;
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
+    if (width === 0 || height === 0) return false;
+    if (width === note.width && height === note.height) return false;
+    note.width = width;
+    note.height = height;
+    return true;
+  }
+
+  /**
+   * Measure an autoSize note outside of a note event (while typing, after
+   * layout). The size change is not an operation of its own: it is reported
+   * through `onMeasure` and becomes part of the next note:update.
+   */
+  private measure(noteId: NoteId): void {
+    const note = this.notes.get(noteId);
+    if (!note) return;
+    const before = { width: note.width, height: note.height };
+    if (!this.applyMeasuredSize(note)) return;
+    if (!this.unreportedSizeBase.has(noteId)) this.unreportedSizeBase.set(noteId, before);
+    this.onMeasure(noteId);
   }
 
   /** Delete a note and remove its DOM element */
@@ -117,6 +185,7 @@ export class NoteManager {
       this.elements.delete(id);
     }
     this.notes.delete(id);
+    this.unreportedSizeBase.delete(id);
     this.emitter.emit('note:delete', { note: { ...note }, origin });
   }
 
@@ -141,7 +210,7 @@ export class NoteManager {
     const note = this.notes.get(id);
     if (!note) return;
     note.zIndex = this.zCounter++;
-    this.updateNoteElement(note);
+    this.updateNoteElement(note, false);
   }
 
   /** Toggle readOnly on all existing notes */
@@ -186,16 +255,16 @@ export class NoteManager {
     }
   }
 
-  /** Flush any in-progress contenteditable edits to internal state */
-  flushEditing(): void {
-    for (const [id, el] of this.elements) {
-      const contentEl = el.querySelector('.wema-note-content') as HTMLElement | null;
-      if (!contentEl) continue;
-      const note = this.notes.get(id);
-      if (note && note.text !== contentEl.innerHTML) {
-        note.text = contentEl.innerHTML;
-      }
-    }
+  /**
+   * Get all notes with the text currently shown, including edits in progress.
+   * The model is left untouched: an edit only reaches it when it is committed
+   * on blur, so that the commit still sees the text from before the edit.
+   */
+  getNotesWithLiveText(): WemaNote[] {
+    return Array.from(this.notes.values()).map((note) => {
+      const contentEl = this.elements.get(note.id)?.querySelector('.wema-note-content');
+      return { ...note, text: contentEl ? contentEl.innerHTML : note.text };
+    });
   }
 
   /** Clean up board-level listeners */
@@ -264,7 +333,11 @@ export class NoteManager {
     this.activeImageNoteId = null;
   }
 
-  /** Sync a note's content element innerHTML back to note data */
+  /**
+   * Commit an edit made in the DOM (typing, checkbox, image) to note data.
+   * One note:update carries the text and the size it resulted in, including
+   * what was measured while typing. Nothing is emitted when nothing changed.
+   */
   private syncNoteContent(noteId: NoteId): void {
     const el = this.elements.get(noteId);
     if (!el) return;
@@ -274,7 +347,10 @@ export class NoteManager {
     if (!current) return;
     const prev = { ...current };
     current.text = contentEl.innerHTML;
-    this.emitter.emit('note:update', { note: { ...current }, prev, origin: 'local' });
+    const resized = this.applyMeasuredSize(current);
+    if (current.text !== prev.text || resized || this.unreportedSizeBase.has(noteId)) {
+      this.emitUpdate(current, prev);
+    }
   }
 
   /** Remove all notes and DOM elements */
@@ -284,6 +360,7 @@ export class NoteManager {
     }
     this.elements.clear();
     this.notes.clear();
+    this.unreportedSizeBase.clear();
     this.zCounter = 1;
   }
 
@@ -296,22 +373,6 @@ export class NoteManager {
         this.zCounter = note.zIndex + 1;
       }
       this.renderNote(this.notes.get(note.id)!);
-    }
-  }
-
-  /** Sync autoSize note dimensions from CSS layout to model, triggering edge redraw */
-  private syncAutoSize(noteId: NoteId): void {
-    const note = this.notes.get(noteId);
-    if (!note || !note.autoSize) return;
-    const el = this.elements.get(noteId);
-    if (!el) return;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    if (w !== note.width || h !== note.height) {
-      note.width = w;
-      note.height = h;
-      // Trigger edge redraw via note:update without going through full updateNote
-      this.emitter.emit('note:update', { note: { ...note }, prev: { ...note, width: note.width, height: note.height }, origin: 'local' });
     }
   }
 
@@ -337,32 +398,14 @@ export class NoteManager {
     let dirty = false;
     content.addEventListener('input', () => {
       dirty = true;
-      this.syncAutoSize(note.id);
+      this.measure(note.id);
     });
 
     // Handle blur to commit text edits
     content.addEventListener('blur', () => {
       if (!dirty) return;
       dirty = false;
-      const current = this.notes.get(note.id);
-      if (!current) return;
-      const newText = content.innerHTML;
-      const params: Partial<WemaNote> = {};
-      if (newText !== current.text) {
-        params.text = newText;
-      }
-      // Sync autoSize dimensions on blur
-      if (current.autoSize) {
-        const w = el.offsetWidth;
-        const h = el.offsetHeight;
-        if (w !== current.width) params.width = w;
-        if (h !== current.height) params.height = h;
-      }
-      if (Object.keys(params).length > 0) {
-        const prev = { ...current };
-        Object.assign(current, params);
-        this.emitter.emit('note:update', { note: { ...current }, prev, origin: 'local' });
-      }
+      this.syncNoteContent(note.id);
     });
 
     // Paste handler: sanitize pasted HTML
@@ -396,11 +439,7 @@ export class NoteManager {
             li.classList.toggle('wema-checked', input.checked);
           }
           dirty = true;
-          const current = this.notes.get(note.id);
-          if (!current) return;
-          const prev = { ...current };
-          current.text = content.innerHTML;
-          this.emitter.emit('note:update', { note: { ...current }, prev, origin: 'local' });
+          this.syncNoteContent(note.id);
         }, 0);
         return;
       }
@@ -498,27 +537,23 @@ export class NoteManager {
     this.elements.set(note.id, el);
   }
 
-  private updateNoteElement(note: WemaNote): void {
+  /**
+   * Apply a note's state to its element. The content is only rendered again
+   * when `textChanged`: the model text may differ from the element's innerHTML
+   * (which the browser normalizes), and rendering on every move would rebuild
+   * the content, reloading its images and embeds.
+   */
+  private updateNoteElement(note: WemaNote, textChanged: boolean): void {
     const el = this.elements.get(note.id);
     if (!el) return;
     this.applyStyles(el, note);
     const content = el.querySelector('.wema-note-content') as HTMLElement | null;
-    if (content && content.innerHTML !== note.text && document.activeElement !== content) {
+    if (textChanged && content && content.innerHTML !== note.text && document.activeElement !== content) {
       content.innerHTML = isPlainText(note.text) ? escapeHtml(note.text) : sanitizeHtml(note.text);
     }
     // After CSS layout, sync measured size back to model for autoSize notes
     if (note.autoSize) {
-      requestAnimationFrame(() => {
-        const current = this.notes.get(note.id);
-        if (!current || !current.autoSize) return;
-        const w = el.offsetWidth;
-        const h = el.offsetHeight;
-        if (w !== current.width || h !== current.height) {
-          current.width = w;
-          current.height = h;
-          this.requestChange();
-        }
-      });
+      requestAnimationFrame(() => this.measure(note.id));
     }
   }
 

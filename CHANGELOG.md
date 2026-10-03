@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`viewOnly: true` で作成したボードも、参照モードを終えると作成時点の位置と折り畳み状態へ戻る。** 従来、戻るのは `setViewOnly(true)` を呼んで参照モードへ入った場合だけだった
 - **`change` イベントの `data` に常にボードのデータが入るようにした。** 従来はテキスト編集の確定時やドラッグ終了時に、`data` が `undefined` の `change` が余分に発火していた
 
+### Fixed
+
+- **autoSize の付箋で、サイズの変化が Undo 履歴に残らない問題を修正** ([#51](https://github.com/kan/wema/issues/51))
+  - 入力中の計測は `note:update` を発火しなくなった。従来は `prev` と `note` が同じ値の `note:update` を 1 文字ごとに発火していた
+  - 入力によるサイズの変化は、blur 時の `note:update` にテキストと一緒に載る
+  - autoSize をオンにしたときのサイズの変化は、その `note:update` に載る。Undo すると元のサイズへ戻る
+  - 描画後の再計測でサイズが変わったとき、接続線を再描画する
+- **編集中に `exportData()` が呼ばれると、そのテキスト編集が Undo 履歴に残らない問題を修正。** `exportData()` が編集中の内容をモデルへ書き込んでいたため、blur 時に差分が検出されなかった。autoSize の付箋では入力のたびに起きていた
+
 ## [0.3.3] - 2026-08-23
 
 ### Fixed
