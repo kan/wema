@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-10-04
+
+### Fixed
+
+- 付箋の本文に `class="wema-note-custom"` の要素があると、`renderNote` へ渡す描画先としてその要素を取り違えていた。利用側が描いた内容が、隠れている本文の中に入り、付箋が空に見えた。ふつうの付箋でも、その要素の上がドラッグの開始点になっていた。付箋の要素の直下にある描画先だけを使うようにした
+
 ## [0.8.0] - 2026-10-04
 
 ### Added
