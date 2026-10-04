@@ -24,6 +24,7 @@ wema-kake の「子ページの付箋」のために足した 2 つの口（issu
 ## `renderNote` オプションと `refreshNote()`
 
 - 付箋の要素には、本文の `.wema-note-content` と、利用側が描く `.wema-note-custom` の両方が常にある。利用側が描いた付箋は、要素に `wema-note-host-drawn` クラスが付き、CSS で本文を隠して `.wema-note-custom` を出す。本文の要素を消さないのは、多くの処理が `.wema-note-content` を前提にしているため
+- **`.wema-note-custom` をクラス名だけで探さない。** 本文のサニタイズは `class` 属性を残すので、本文の中に同じクラス名の要素を書ける。本文の要素のほうが DOM で先にあるため、`querySelector('.wema-note-custom')` は本文の中の要素を返す。描画先は付箋の要素の直下（`:scope > .wema-note-custom`）から取り、ドラッグの開始判定では、親がこのボードの付箋の要素であることを確かめる（`src/drag.ts`）
 - 「利用側が描いた付箋かどうか」の状態は、このクラスだけが持つ（`isHostDrawn()` はクラスを見る）。同じ情報を別の変数に持たない
 - 利用側の関数を呼ぶ場所は `NoteManager.drawByHost()` の 1 か所。呼ぶのは、要素を作ったとき、`text` または `meta` を変える更新のとき、`refresh()` のとき。**移動やリサイズのたびに呼ばないこと**（ドラッグ中は pointermove ごとに更新が来る）
 - 利用側の関数が例外を投げても、付箋の作成や更新を途中で止めない（`drawByHost()` が捕まえて `console.error` に出し、ふつうの付箋として扱う）。止めると、付箋がモデルに入ったのに `note:create` が出ない、`importData()` が途中で終わる、といった不整合になる

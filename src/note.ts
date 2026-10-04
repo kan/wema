@@ -174,7 +174,9 @@ export class NoteManager {
   private drawByHost(note: WemaNote): boolean {
     if (!this.hostRender) return false;
     const el = this.elements.get(note.id);
-    const container = el?.querySelector('.wema-note-custom') as HTMLElement | null;
+    // Only the note's own container: the text of a note may carry any class
+    // name (the sanitizer keeps `class`), and it comes first in the element
+    const container = el?.querySelector(':scope > .wema-note-custom') as HTMLElement | null;
     if (!el || !container) return false;
     container.replaceChildren();
     let drawn = false;

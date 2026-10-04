@@ -378,6 +378,18 @@ describe('Note extensions for the embedding application', () => {
       expect(board.getNote(note.id)!.x).toBe(500);
     });
 
+    it('draws into its own container even when the note text carries the same class name', () => {
+      const note = board.addNote({
+        text: '<div class="wema-note-custom">from the text</div>',
+        meta: { page: 'child-1' },
+      });
+      const own = noteEl(note.id).querySelector(':scope > .wema-note-custom')!;
+
+      expect(own.querySelector('.label')!.textContent).toBe('child-1');
+      expect(contentOf(note.id).querySelector('.label')).toBeNull();
+      expect(contentOf(note.id).textContent).toBe('from the text');
+    });
+
     it('keeps the note as an ordinary one when renderNote throws', async () => {
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
       createBoard({
@@ -438,6 +450,13 @@ describe('Note extensions for the embedding application', () => {
         const label = customOf(note.id).querySelector('.label')!;
         label.setAttribute('data-wema-no-drag', '');
         dragFrom(label);
+
+        expect(board.getNote(note.id)).toEqual(expect.objectContaining({ x: 50, y: 50 }));
+      });
+
+      it('does not move an ordinary note dragged by text that carries the container class name', () => {
+        const note = board.addNote({ x: 50, y: 50, text: '<div class="wema-note-custom">from the text</div>' });
+        dragFrom(contentOf(note.id).querySelector('.wema-note-custom')!);
 
         expect(board.getNote(note.id)).toEqual(expect.objectContaining({ x: 50, y: 50 }));
       });

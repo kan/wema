@@ -98,8 +98,15 @@ export class DragManager {
     // drew (`renderNote` option) except its links and controls
     const target = e.target as HTMLElement;
     const custom = target.closest('.wema-note-custom') as HTMLElement | null;
+    // The container must be the one the board made, directly inside a note of
+    // this board: note text may carry the same class name
+    const owner = custom?.parentElement;
+    const isHostContainer = !!owner && this.noteManager.getElement(owner.dataset.noteId ?? '') === owner;
     const onHostDrawn =
-      custom !== null && target.closest(NO_DRAG_SELECTOR) === null && !(target === custom && onScrollbar(custom, e));
+      custom !== null &&
+      isHostContainer &&
+      target.closest(NO_DRAG_SELECTOR) === null &&
+      !(target === custom && onScrollbar(custom, e));
     if (!target.closest('.wema-move-handle') && !onHostDrawn) return;
 
     const noteEl = target.closest('.wema-note') as HTMLElement | null;
