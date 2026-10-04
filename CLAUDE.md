@@ -25,7 +25,7 @@ wemaは、Web上に付箋を絵馬のように貼って並べるフレームワ�
 
 ```bash
 npm install          # 依存インストール
-npm run dev          # 開発サーバー起動 (standalone/template.html を Vite で serve)
+npm run dev          # 開発サーバー起動 (ルートの index.html を Vite で serve)
 npm run build        # ライブラリビルド + スタンドアロンHTMLビルド
 npm run build:lib    # ライブラリのみビルド
 npm run build:standalone  # スタンドアロンHTMLのみビルド
@@ -39,7 +39,9 @@ npm run lint         # リント (tsc --noEmit)
 ```
 wema/
 ├── CLAUDE.md
+├── .claude/rules/            # 領域ごとの実装ルール (対象のファイルを読んだときに読み込まれる)
 ├── README.md
+├── index.html                # 開発用ページ (npm run dev が serve する)
 ├── CHANGELOG.md              # Keep a Changelog 形式
 ├── LICENSE                   # MIT
 ├── SECURITY.md               # 脆弱性報告ポリシー
@@ -79,16 +81,20 @@ wema/
 │   ├── wema.js               # ESM
 │   ├── wema.umd.js           # UMD (グローバル名: Wema)
 │   ├── wema.d.ts             # 型定義
-│   ├── style.css             # CSS
+│   ├── wema.css              # CSS (公開パスは @kanf/wema/style.css)
 │   └── wema.html             # スタンドアロン版
 ├── tests/
+│   ├── autosize.test.ts
 │   ├── board.test.ts
 │   ├── edge.test.ts
 │   ├── events.test.ts
+│   ├── filter.test.ts
 │   ├── geometry.test.ts
 │   ├── layout.test.ts
 │   ├── sanitize.test.ts
-│   └── history.test.ts
+│   ├── history.test.ts
+│   ├── sync.test.ts
+│   └── viewport.test.ts
 └── .github/
     ├── dependabot.yml        # 依存の自動更新 (npm + GitHub Actions)
     └── workflows/
@@ -127,28 +133,20 @@ wema/
 └──────────────────────────────────────────────────────┘
 ```
 
-### 表示位置（パンとズーム）と座標
+### 領域ごとのルール（`.claude/rules/`）
 
-- ボード座標で描くもの（付箋、接続線、ラバーバンド）は `.wema-viewport` の中に置く。ポップアップ類は `.wema-board` の直下に置き、画面座標で位置を決める。ズームしてもポップアップ類の大きさは変えない
-- `.wema-viewport` は大きさ 0 なので、空いている場所のイベントの `target` は `.wema-board` 自身になる。`svg.wema-edges` は 1px の箱からはみ出して描く（`overflow: visible`）
-- 表示位置と倍率の状態、`.wema-viewport` の transform、座標変換は `Viewport` クラス（`src/viewport.ts`）の 1 か所にある。座標系は 3 つ: client（`clientX` / `clientY`）、screen（`.wema-board` の中のピクセル。ポップアップ類の位置）、board（付箋の座標）
-- **ポインタの座標（`clientX` / `clientY`）をボード座標にするときは、必ず `clientToBoard()` を通す。** ポップアップをボード座標の位置へ出すときは `boardToScreen()` を通す。`clientX - rect.left` を直接書くと、パンした分と倍率の分だけずれる
-- **ドラッグやリサイズの移動量は、ポインタの位置を `clientToBoard()` でボード座標にしてから差を取る。** `clientX` の差をそのまま付箋の座標に足すと、倍率の分だけずれる。逆に「ドラッグを始めるか」の判定（`DRAG_THRESHOLD`）と、パンの移動量（`viewport.x` / `y`）は画面のピクセルで扱う
-- 表示位置と倍率は表示だけの状態（`zIndex` や絞り込みと同じ扱い）。`setViewport()` が発火するのは `viewport:change` だけで、`note:*` / `edge:*` / `history:commit` / `change` は出さず、`exportData()` にも含めない
-- 表示位置と倍率を変える経路は `setViewport()` の 1 つだけ（`zoomTo` / `revealNotes` / `centerContent` / `fitToContent`、ホイール、ドラッグはすべてここを通る）。倍率の範囲（`minZoom` / `maxZoom`）と値の検査は `Viewport.set()` が行う
-- 表示位置や倍率が変わったら、ポップアップ類も付いていかせる（`setViewport()` が各オーバーレイの `updatePosition` を呼ぶ。各オーバーレイは、対象のボード座標または対象の要素の位置から、自分の位置を計算し直す。画面座標を保存しておいて差分で動かす方式にはしない）。閉じてはいけない。埋め込み URL の入力中にトラックパッドが少し動いただけで、入力内容が消えるため。対象との間隔（付箋の下 8px など）は画面のピクセルで、倍率を掛けない
-- ポップアップ類のセレクタは `board.ts` の `OVERLAY_SELECTOR` の 1 か所で管理する。オーバーレイを増やしたら、ここと `setViewport()` に足す
-- Ctrl / Cmd + ホイール（トラックパッドのピンチも同じイベントで届く）は、ポインタの位置を中心にズームする。1 回のイベントで変える量には上限を設けている（マウスのホイール 1 ノッチで倍率が飛ばないようにするため）
-- autoSize の計測（`offsetWidth` / `offsetHeight`）は transform の影響を受けないので、倍率で割らない。`getBoundingClientRect()` は倍率の掛かった値を返すので、計測には使わない
-- Space + ドラッグの Space は、フォーカスではなく「ポインタがボードの上にあるか」で受け付ける（`document` の keydown / keyup と、ボードの pointerenter / pointerleave）。`window` の blur で解除する
-- 座標を省略した `addNote()` は、ボード座標の固定位置ではなく、表示中の領域の左上を基準にする
-- パンの開始は `wantsPan()` で決める。中ボタン、Space + 左ドラッグ、readOnly / viewOnly の空いている場所の左ドラッグ（viewOnly の Shift + ドラッグはラバーバンド選択）。`pointerdown` をキャプチャ段階で受けるので、付箋の上から始めたパンは付箋のドラッグより優先される
-- ダブルクリックは、付箋を作成できるとき（通常モードで `createOnDblClick` が有効）は作成、できないときはその位置を中央へパンする
-- 利用者の操作（ホイール、ドラッグ、ダブルクリック、Ctrl + ホイール）による移動は `panWithinLimit()` を通し、付箋のある範囲から `panMargin` より遠くへ行かせない。操作を増やすときも `setViewport()` を直接呼ばず、ここを通す。メソッド（`setViewport` / `zoomTo` / `revealNotes` / `centerContent` / `fitToContent`）は制限しない
-  - 軸ごとの規則: 付箋全体がボードより大きいときは、付箋の外側の余白を `panMargin` まで見せる。ボードに収まるときは、付箋がボードからはみ出さない範囲で動かせる（小さい付箋群を画面の外へ追い出せないようにするため）
-  - すでに範囲の外にあるとき（メソッドで動かした、付箋が減った、絞り込みが変わった）は、範囲の中へ引き戻さない。遠ざかる方向だけを止める。倍率が変わる操作では範囲をそのまま当てる
-  - 表示中の付箋が無いときは制限しない
-- jsdom はレイアウトも transform も計算しない。ズーム中の表示と操作（ドラッグ、リサイズ、ポップアップの位置）を変えたら、実ブラウザでも確認する
+実装の細かい規則は領域ごとに分けてあり、対象のファイルを読んだときに読み込まれる。対象外のファイルから同じ領域に触れるときは、先に該当のルールを読むこと。
+
+| ルール | 内容 | 主な対象 |
+|---|---|---|
+| `viewport.md` | 表示位置（パンとズーム）と座標変換、ポップアップ類の追従、パンの範囲の制限 | `src/viewport.ts`、`src/board.ts`、ドラッグ・リサイズ・ポップアップ |
+| `visibility.md` | 付箋の非表示（折り畳みと絞り込み） | `src/board.ts`、`src/selection.ts` |
+| `sync.md` | `history:commit` / `applyRemote`、履歴の再生、参照モード | `src/history.ts`、`src/board.ts` |
+| `autosize.md` | autoSize の計測と `note:update` | `src/note.ts` |
+| `pointer-and-popup.md` | ドラッグ直後の `click`、ポップアップの DOM 再構築 | `src/drag.ts`、`src/selection.ts`、`src/*-popup.ts` |
+| `edge-path.md` | 接続線のパス計算 | `src/edge.ts`、`src/utils/geometry.ts` |
+| `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
+| `standalone.md` | スタンドアロン版の責務とビルド | `standalone/`、`scripts/build-standalone.ts` |
 
 ### データの流れ
 
@@ -186,7 +184,6 @@ interface WemaNote {
   color: string;
   zIndex: number;
   autoSize?: boolean;
-  collapsed?: boolean;
 }
 
 interface WemaEdge {
@@ -202,6 +199,7 @@ interface WemaEdge {
   arrowHead?: ArrowHead;    // default: 'end'
   arrowSize?: number;       // default: 12
   routing?: EdgeRouting;    // default: 'curve'
+  collapsed?: boolean;
 }
 
 interface WemaBoardData {
@@ -301,28 +299,6 @@ interface WemaBoardOptions {
 }
 ```
 
-### 付箋の非表示（折り畳みと絞り込み）
-
-付箋と接続線の表示・非表示は `WemaBoard.recomputeVisibility()` の 1 か所で決める。
-
-- 非表示の原因は 2 つ。折り畳み（`WemaEdge.collapsed`、データの一部）と、絞り込み（`setNoteFilter`、表示だけの状態で `noteFilter` に持つ）
-- 結果は `hiddenNoteIds` に入る。SelectionManager は `isSelectable` でこれを参照し、非表示の付箋を選択しない
-- 絞り込みはイベントも履歴も出さない。絞り込み中にユーザーが作成した付箋は `noteFilter` に加える。`applyRemote` で届いた付箋と Undo / Redo で復活した付箋は加えない（`historyManager.isReplaying()` で判別する。新規作成は `addNote`、再生は `addNoteWithId` を通る）
-- 折り畳みの探索は、絞り込みで表示される接続線だけを対象にする。絞り込みで隠れた接続線には展開ボタンを出せないので、その折り畳みで表示対象の付箋を隠してはいけない
-- 非表示になった付箋と接続線は `recomputeVisibility()` が選択から外す（見えないものを Delete で消せてしまうのを防ぐ）
-- 非表示の理由を増やすときも `recomputeVisibility()` に足すこと（DOM の `display` を別の場所で書き換えない）
-
-### レイアウト関数（DOM 非依存）
-
-`WemaBoard` のレイアウト系メソッドは、次の純粋関数の結果を `updateNote` で反映するだけの薄いラッパー。
-関数は `src/layout.ts` にあり、`src/index.ts` から export している（サーバー側で使うため DOM に触れないこと）。
-
-```typescript
-computeAlignment(notes: LayoutNote[], alignment: NoteAlignment): NotePosition[];
-computeDistribution(notes: LayoutNote[], direction: DistributeDirection): NotePosition[];
-computeAutoLayout(notes: LayoutNote[], edges: LayoutEdge[], options?: { noteIds?: NoteId[] }): NotePosition[];
-```
-
 ### イベント
 
 ```typescript
@@ -347,54 +323,7 @@ interface WemaEventMap {
 }
 ```
 
-### 同期（`history:commit` / `applyRemote`）
-
-- `HistoryDelta`（`src/types.ts`）は HistoryManager が作る差分で、Undo 1 回分 = `history:commit` 1 回
-- `update` の `after` にキーがなく `before` にあるものは「未設定に戻す」。JSON で `undefined` のキーが消えるための規則で、`replayDeltas`（`src/history.ts`）が復元する
-- Undo / Redo の再生と `applyRemote` は同じ `replayDeltas` を通り、どちらも `historyManager.withoutRecording()` の中で実行するので履歴に積まれない。`origin` は `createReplay(origin)` が NoteManager / EdgeManager のメソッドへ引数で渡す（可変の状態として持たない）
-- `commitPending()` は確定時に `coalesceDeltas` で同じ付箋・接続線への更新を 1 件にまとめる（ドラッグ中の pointermove ごとの差分をそのまま `history:commit` に載せないため）。間に作成・削除を挟む更新はまとめない
-- 参照モード（viewOnly）中は `historyManager.setIgnoredKeys(['x', 'y'], ['collapsed'])` で、終了時に復元するキーだけ記録を止める（text など復元しないキーは記録する）。終了時の復元も記録しない。`undo()` / `redo()` は何もしない
-- `applyRemote` は参照モードの復元用スナップショット（`positionSnapshot` / `collapsedEdgeSnapshot`）も更新する。更新しないと、終了時の復元でリモートの変更を巻き戻してしまう。参照モード中の `importData()` も、同じ理由でスナップショットを取り直す（`snapshotForViewOnly()`）
-- `zIndex` はローカルな表示状態。`bringToFront` はイベントも履歴も出さない
-- `change` は必ず `scheduleChange()` 経由で発火し、`data` に `exportData()` の結果を入れる
-- `exportData()` は編集中の DOM の内容を返すが、モデルの `text` は書き換えない（`getNotesWithLiveText()`）。書き換えると blur 時に差分が出ず、編集が履歴にも `history:commit` にも載らなくなる
-
-### autoSize の計測
-
-autoSize の付箋の `width` / `height` は、内容と CSS から決まる派生値で、ユーザーの操作ではない。
-
-- 入力中と描画後（`requestAnimationFrame`）の計測は `note:update` を出さない。モデルを更新し、`onMeasure` で接続線の再描画と `change` だけを行う（`NoteManager.measure`）
-- 計測によるサイズの変化は、次の `note:update` の `prev` に計測前の値を入れて報告する（`unreportedSizeBase` / `emitUpdate`）。入力なら blur 時にテキストと同じ 1 件になる
-- `updateNote` が `autoSize` / `text` / `width` / `height` を変えるときは、その場で計測してから `note:update` を出す。autoSize の切り替えとその結果のサイズが 1 件になり、Undo で元のサイズへ戻る
-- Undo / Redo の再生と `applyRemote` は `NoteManager.replayUpdate` を使う。履歴に記録されない更新なので、未報告の計測前サイズを消費しない（消費すると、そのサイズの変化がどの `history:commit` にも載らなくなる）
-- DOM 上の編集（入力の blur、チェックボックス、画像の操作）の確定は `syncNoteContent` の 1 か所で行う。確定経路を増やすときもここを通すこと
-- 計測値が 0 のとき（折り畳みで非表示、DOM から外れている）は無視する
-- `updateNoteElement` が表示内容を描き直すのは text を変える更新のときだけ。モデルの text とブラウザが正規化した innerHTML は一致しないことがあり、移動のたびに描き直すと画像や埋め込みが再読み込みされる
-- **`prev` と `note` が同値の `note:update` を出さないこと。** 1 文字ごとに履歴が積まれる、または差分が履歴に残らない原因になる（#51）
-
-## 実装上の注意点
-
-### ポインタイベントとクリックの干渉
-
-ドラッグ (`pointerdown` → `pointermove` → `pointerup`) の後に `click` イベントが発火する。
-ドラッグ操作で選択状態が壊れないよう、`noteDragged` / `rubberBandMoved` フラグで
-ドラッグ直後の `click` をスキップするパターンを使用している。
-
-### ポップアップの DOM 再構築
-
-ポップアップ内のボタンクリックで `this.show()` を呼ぶと `innerHTML` が再構築され、
-クリックされたボタンが DOM から切り離される。`stopPropagation()` をポップアップ要素に
-設定してボードの `handleBoardClick` への伝播を防止している。
-
-### 接続線のパス計算
-
-- `fromAnchor` / `toAnchor` が `'auto'` の場合:
-  1. 2つの付箋の中心座標を結ぶ方向を算出
-  2. 出発側/到着側それぞれ、最適なアンカーを選択
-  3. `routing: 'curve'` → 3次ベジェ曲線、`'polyline'` → 直角折れ線
-  4. ベジェの制御点はアンカーの法線方向にオフセット (距離に比例、40px〜150px)
-
-### CSS カスタマイズ
+## CSS カスタマイズ
 
 ```css
 .wema-board {
@@ -408,66 +337,20 @@ autoSize の付箋の `width` / `height` は、内容と CSS から決まる派�
 }
 ```
 
-## スタンドアロン版 (`standalone/template.html`)
-
-ライブラリとは独立したアプリケーションコード。
-ビルド時に `scripts/build-standalone.ts` が CSS と UMD バンドルをインライン注入して
-`dist/wema.html` を生成する。
-
-### template.html の責務
-
-- ツールバーUI (付箋追加、色変更、整列・均等配置・autoLayoutボタン等)
-- IndexedDB によるデータ自動保存 (`change` イベント + 300ms debounce)
-- JSON ファイルのエクスポート/インポート
-- キーボードショートカット (Delete で削除、Ctrl+A で全選択 等)
-- viewOnly / readOnly トグル
-
-### ビルドスクリプトの仕組み
-
-`standalone/template.html` 内のプレースホルダコメント:
-- `<!-- __WEMA_CSS__ -->` → `<style>dist/style.css の中身</style>` に置換
-- `<!-- __WEMA_JS__ -->` → `<script>dist/wema.umd.js の中身</script>` に置換
-
-テンプレート内のアプリコードは `window.Wema` (UMDグローバル) を参照する。
-
 ## 実装フェーズ
 
-### Phase 1〜5 [完了 → v0.1.0]
+Phase 1〜6（MVP、接続線、レイアウトと整列、リッチテキスト、Undo / Redo、パンとズーム）は実装済み。リリースごとの変更は `CHANGELOG.md` にある。
 
-1. **MVP** — 付箋 CRUD、ドラッグ、exportData/importData、スタンドアロン版、CI
-2. **接続線** — アンカーポイント、SVG パス描画、Edge スタイル編集
-3. **レイアウト・整列** — 複数選択、グループドラッグ、align/distribute/autoLayout
-4. **リッチテキスト** — 太字、色、リスト、チェックボックス、リンク、画像、Embed
-5. **Undo/Redo** — デルタベース履歴、マイクロタスクバッチング
+### Phase 7 — 入れ子ボード（wema-kake へ引き継ぎ）
 
-### v0.2.0 追加機能
-
-- **autoSize** — 付箋サイズをコンテンツに自動フィット (`autoSize?: boolean`)
-- **折り畳み (Collapse)** — ムーブハンドル左端のシェブロンで付箋を折り畳み/展開 (`collapsed?: boolean`)
-- **GitHub Pages デモ** — https://kan.github.io/wema/
-
----
-
-**v0.2.0 リリース済み** — npm (`@kanf/wema`) + GitHub Release + GitHub Pages
-
----
-
-### Phase 6 — パン & ズーム
-
-設計と進め方は issue #52。パンとズーム（`.wema-viewport`、`setViewport` / `zoomTo` / `revealNotes` / `centerContent` / `fitToContent`、ホイールやドラッグの操作、スタンドアロン版のボタンと表示位置の保存）は実装済みで、仕様は「表示位置（パンとズーム）と座標」の節にある。残りは次のとおり。
-
-- タッチ操作（1 本指のパン、2 本指のピンチ）。Phase 8 で扱う
-- `pointerdown` で始まる操作（パン、リサイズ、アンカー、付箋のドラッグ、ラバーバンド）の開始判定を 1 か所にまとめる。現在は、パンがキャプチャ段階で先に受け取り、伝播を止めている。タッチ操作を足すときに一緒に行う
-- 表示位置と倍率は `exportData()` / `importData()` に含めない（各クライアントの表示状態として扱う、と決定済み）
-
-### Phase 7 — 入れ子ボード
-
-付箋を子ボードに見立てた階層構造 (`children?: WemaBoardData`)。
-Phase 6 のパン&ズームを活かし、子ボードへの「ズームイン」体験を提供する。
+付箋を子ボードに見立てた階層構造は、wema では実装しない。wema を使った Wiki である wema-kake（`../wema-kake`、github.com/kan/wema-kake）へ引き継ぐ。wema に `children?: WemaBoardData` のようなデータ構造は足さない。
 
 ### Phase 8 — モバイル対応
 
 スマホ Web での動作を正式サポート。タッチ操作の最適化、レスポンシブ UI。
+
+- タッチ操作（1 本指のパン、2 本指のピンチ）
+- `pointerdown` で始まる操作（パン、リサイズ、アンカー、付箋のドラッグ、ラバーバンド）の開始判定を 1 か所にまとめる。現在は、パンがキャプチャ段階で先に受け取り、伝播を止めている。タッチ操作を足すときに一緒に行う
 
 ### 将来
 
