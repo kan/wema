@@ -30,12 +30,24 @@ export function getAnchorPoint(note: WemaNote, anchor: Anchor): Point {
   }
 }
 
+/** Vertical gap between two notes from which an edge has room to run between them */
+const AUTO_ANCHOR_ROOM = 40;
+
 /**
  * Resolve 'auto' anchor to the best concrete anchor.
- * Picks the anchor whose outward direction is closest to the line
+ *
+ * A note that is clearly above or below the other one (at least
+ * `AUTO_ANCHOR_ROOM` apart) connects through its bottom or top, however far
+ * the two are apart sideways. The edge then runs in the gap between the two
+ * rows, instead of entering the note from the side, behind its neighbors.
+ *
+ * Otherwise picks the anchor whose outward direction is closest to the line
  * from this note's center to the other note's center.
  */
 export function resolveAutoAnchor(note: WemaNote, other: WemaNote): 'top' | 'right' | 'bottom' | 'left' {
+  if (other.y - (note.y + note.height) >= AUTO_ANCHOR_ROOM) return 'bottom';
+  if (note.y - (other.y + other.height) >= AUTO_ANCHOR_ROOM) return 'top';
+
   const cx = note.x + note.width / 2;
   const cy = note.y + note.height / 2;
   const ox = other.x + other.width / 2;

@@ -225,7 +225,7 @@ board.zoomTo(1);               // 等倍に戻す
 |---------|------|
 | `alignNotes(noteIds, alignment)` | 付箋を整列（left/center/right/top/middle/bottom） |
 | `distributeNotes(noteIds, direction)` | 付箋を均等配置（horizontal/vertical） |
-| `autoLayout(noteIds?)` | 自動レイアウト（BFS階層） |
+| `autoLayout(noteIds?)` | 自動レイアウト（接続線から階層を作る。今の位置の左上を保つ） |
 
 同じ計算を DOM なしで行う関数も export している。サーバー側など `WemaBoard` を作れない環境で使える。どれも入力を変更せず、付箋の新しい位置 `{ id, x, y }` の配列を返す。
 

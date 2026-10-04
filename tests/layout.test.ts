@@ -297,6 +297,144 @@ describe('Layout functions (no board)', () => {
       expect(result.map((r) => r.id).sort()).toEqual(['a', 'b']);
     });
 
+    const edge = (from: string, to: string) => ({ from, to });
+    const layout = (notes: LayoutNote[], edges: { from: string; to: string }[]) =>
+      Object.fromEntries(computeAutoLayout(notes, edges).map((r) => [r.id, r]));
+
+    it('keeps the top-left corner of the area the notes occupy', () => {
+      const result = computeAutoLayout(
+        [note('a', 2000, 1500), note('b', 2300, 1500), note('c', 2600, 1700), note('z', 40, 40)],
+        [edge('a', 'b'), edge('a', 'c')],
+        { noteIds: ['a', 'b', 'c'] },
+      );
+      expect(Math.min(...result.map((r) => r.x))).toBe(2000);
+      expect(Math.min(...result.map((r) => r.y))).toBe(1500);
+    });
+
+    it('keeps the top-left corner whatever the edges are', () => {
+      // Deterministic pseudo-random graphs: edges that skip levels reserve
+      // room beside the notes, which must not shift the result
+      let seed = 1;
+      const random = (n: number): number => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed % n;
+      };
+      for (let round = 0; round < 300; round++) {
+        const count = 3 + random(10);
+        const notes = Array.from({ length: count }, (_, i) => note(`n${i}`, 500 + random(900), 300 + random(600)));
+        const edges = Array.from({ length: count + random(count) }, () =>
+          edge(`n${random(count)}`, `n${random(count)}`));
+        const result = computeAutoLayout(notes, edges);
+        expect(Math.min(...result.map((r) => r.x)), `round ${round}`).toBe(Math.min(...notes.map((n) => n.x)));
+        expect(Math.min(...result.map((r) => r.y)), `round ${round}`).toBe(Math.min(...notes.map((n) => n.y)));
+      }
+    });
+
+    it('orders siblings by their current position, not by edge order', () => {
+      const pos = layout(
+        [note('a', 300, 0), note('b', 600, 300), note('c', 0, 300)],
+        [edge('a', 'b'), edge('a', 'c')],
+      );
+      expect(pos.c.x).toBeLessThan(pos.b.x);
+      // The parent is above the middle of its children
+      expect(pos.a.x).toBe((pos.b.x + pos.c.x) / 2);
+    });
+
+    it('points every edge downward and keeps a shortcut edge clear of the notes it passes', () => {
+      const pos = layout(
+        [note('a', 0, 0), note('b', 0, 0), note('c', 0, 0)],
+        [edge('a', 'b'), edge('a', 'c'), edge('b', 'c')],
+      );
+      expect(pos.a.y).toBeLessThan(pos.b.y);
+      expect(pos.b.y).toBeLessThan(pos.c.y);
+      // a -> c is a straight vertical line, to the right of b
+      expect(pos.c.x).toBe(pos.a.x);
+      expect(pos.a.x + 100).toBeGreaterThan(pos.b.x + 200);
+    });
+
+    it('centers a note below its parents', () => {
+      const pos = layout(
+        [note('a', 0, 0), note('b', 500, 0), note('c', 0, 0), note('d', 0, 0)],
+        [edge('a', 'c'), edge('b', 'c'), edge('c', 'd')],
+      );
+      expect(pos.a.y).toBe(pos.b.y);
+      expect(pos.c.x).toBe((pos.a.x + pos.b.x) / 2);
+      expect(pos.d.x).toBe(pos.c.x);
+    });
+
+    it('puts a root right above its child when another branch is longer', () => {
+      const pos = layout(
+        [note('r', 0, 0), note('x', 0, 0), note('c', 0, 0), note('b', 500, 0)],
+        [edge('r', 'x'), edge('x', 'c'), edge('b', 'c')],
+      );
+      expect(pos.b.y).toBe(pos.x.y);
+    });
+
+    it('wraps many childless children into rows', () => {
+      const leaves = Array.from({ length: 20 }, (_, i) => note(`c${i}`, i * 10, 0));
+      const result = computeAutoLayout(
+        [note('r', 0, 0), ...leaves],
+        leaves.map((leaf) => edge('r', leaf.id)),
+      );
+      const leafPlaces = result.filter((r) => r.id !== 'r');
+      expect(new Set(leafPlaces.map((r) => r.y)).size).toBe(4);
+      expect(new Set(leafPlaces.map((r) => r.x)).size).toBe(5);
+      expect(new Set(leafPlaces.map((r) => `${r.x},${r.y}`)).size).toBe(20);
+    });
+
+    it('leaves a taller gap below a note whose edges fan out wide', () => {
+      const gapBelowParent = (count: number): number => {
+        const leaves = Array.from({ length: count }, (_, i) => note(`c${i}`, i * 10, 0));
+        const pos = layout([note('r', 0, 0), ...leaves], leaves.map((leaf) => edge('r', leaf.id)));
+        return pos.c0.y - (pos.r.y + 150);
+      };
+      expect(gapBelowParent(1)).toBe(60);
+      expect(gapBelowParent(3)).toBeGreaterThan(60);
+      expect(gapBelowParent(5)).toBeGreaterThan(gapBelowParent(3));
+      // The gap stops growing once the curve of an edge has all the room it uses
+      expect(gapBelowParent(12)).toBe(150);
+    });
+
+    it('keeps a moderate number of childless children in one row', () => {
+      const leaves = Array.from({ length: 12 }, (_, i) => note(`c${i}`, i * 10, 0));
+      const result = computeAutoLayout(
+        [note('r', 0, 0), ...leaves],
+        leaves.map((leaf) => edge('r', leaf.id)),
+      );
+      expect(new Set(result.filter((r) => r.id !== 'r').map((r) => r.y)).size).toBe(1);
+    });
+
+    it('wraps groups that share no edge into rows', () => {
+      const notes = Array.from({ length: 12 }, (_, i) => note(`t${i}`, i * 10, 0));
+      const edges = Array.from({ length: 6 }, (_, i) => edge(`t${i * 2}`, `t${i * 2 + 1}`));
+      const result = computeAutoLayout(notes, edges);
+      const rootRows = new Set(result.filter((r) => Number(r.id.slice(1)) % 2 === 0).map((r) => r.y));
+      expect(rootRows.size).toBeGreaterThan(1);
+      expect(Math.max(...result.map((r) => r.x + 200))).toBeLessThan(1600);
+    });
+
+    it('never overlaps notes of different sizes', () => {
+      const notes = [
+        note('a', 0, 0, 300, 100), note('b', 0, 0, 120, 240), note('c', 0, 0), note('d', 0, 0, 400, 80),
+        note('e', 0, 0), note('f', 0, 0, 150, 150), note('g', 0, 0), note('h', 0, 0, 260, 200),
+      ];
+      const edges = [
+        edge('a', 'b'), edge('a', 'c'), edge('b', 'd'), edge('c', 'd'), edge('a', 'd'),
+        edge('d', 'a'), edge('e', 'f'), edge('f', 'e'), edge('e', 'e'), edge('a', 'b'),
+      ];
+      const pos = layout(notes, edges);
+      expect(Object.keys(pos)).toHaveLength(notes.length);
+      const boxes = notes.map((n) => ({ ...n, ...pos[n.id] }));
+      for (const p of boxes) {
+        for (const q of boxes) {
+          if (p.id >= q.id) continue;
+          const apart =
+            p.x + p.width <= q.x || q.x + q.width <= p.x || p.y + p.height <= q.y || q.y + q.height <= p.y;
+          expect(apart, `${p.id} and ${q.id}`).toBe(true);
+        }
+      }
+    });
+
     it('matches what WemaBoard.autoLayout applies', () => {
       const container = document.createElement('div');
       document.body.appendChild(container);

@@ -59,6 +59,20 @@ describe('geometry', () => {
       const other = makeNote(200, -200);
       expect(resolveAutoAnchor(center, other)).toBe('top');
     });
+
+    it('connects a note in the row below through bottom and top, however far sideways', () => {
+      // 60px below, 1000px to the right
+      const other = makeNote(1200, 410);
+      expect(resolveAutoAnchor(center, other)).toBe('bottom');
+      expect(resolveAutoAnchor(other, center)).toBe('top');
+    });
+
+    it('uses the sides when the vertical gap leaves no room for the edge', () => {
+      // 20px below, 1000px to the right
+      const other = makeNote(1200, 370);
+      expect(resolveAutoAnchor(center, other)).toBe('right');
+      expect(resolveAutoAnchor(other, center)).toBe('left');
+    });
   });
 
   describe('computeEdgePath', () => {
