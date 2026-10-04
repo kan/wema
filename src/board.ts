@@ -1141,6 +1141,8 @@ export class WemaBoard {
       this.edgeManager.renderAll(data.edges);
     }
     this.historyManager.clear();
+    // What viewOnly restores on exit is now the imported data, not what it replaced
+    if (this.viewOnly) this.snapshotForViewOnly();
     this.recomputeVisibility();
   }
 
@@ -1222,11 +1224,16 @@ export class WemaBoard {
    * the restore may become undo steps or `history:commit` events.
    */
   private enterViewOnly(): void {
-    this.positionSnapshot = new Map(this.noteManager.getNotes().map((n) => [n.id, { x: n.x, y: n.y }]));
-    this.collapsedEdgeSnapshot = new Map(this.edgeManager.getEdges().map((e) => [e.id, !!e.collapsed]));
+    this.snapshotForViewOnly();
     this.historyManager.setIgnoredKeys(['x', 'y'], ['collapsed']);
     this.boardEl.classList.add('wema-viewonly');
     this.noteManager.setViewOnly(true);
+  }
+
+  /** Remember the positions and collapsed states that leaving viewOnly restores */
+  private snapshotForViewOnly(): void {
+    this.positionSnapshot = new Map(this.noteManager.getNotes().map((n) => [n.id, { x: n.x, y: n.y }]));
+    this.collapsedEdgeSnapshot = new Map(this.edgeManager.getEdges().map((e) => [e.id, !!e.collapsed]));
   }
 
   /** Check if the board is in view-only mode */

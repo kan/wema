@@ -483,6 +483,24 @@ describe('Sync API', () => {
       expect(board.getEdges()[0].collapsed).toBe(true);
     });
 
+    it('restores to the data imported during viewOnly, not to what was there before', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      const data = board.exportData();
+
+      board.setViewOnly(true);
+      // A reconnect reloads the board: the same notes, moved by another client meanwhile
+      data.notes[0].x = 120;
+      data.edges[0].collapsed = true;
+      board.importData(data);
+      board.updateNote(n1.id, { x: 500 });
+      board.setViewOnly(false);
+
+      expect(board.getNote(n1.id)!.x).toBe(120);
+      expect(board.getEdges().find((e) => e.id === edge.id)!.collapsed).toBe(true);
+    });
+
     it('restores positions when the board was created in viewOnly', () => {
       const data = board.exportData();
       data.notes.push({ ...remoteNote });

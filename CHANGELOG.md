@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- 参照モード（viewOnly）の間に `importData()` を呼ぶと、参照モードを終えたときに、読み込む前の付箋の位置と折り畳みへ戻していた。同じ ID の付箋が、読み込んだデータではなく古い位置に表示された。読み込んだデータの状態へ戻すようにした
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
