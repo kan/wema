@@ -74,6 +74,7 @@ wema/
 │       ├── id.ts             # ID生成 (crypto.randomUUID)
 │       ├── dom.ts            # DOM/SVG操作ヘルパー
 │       ├── sanitize.ts       # HTML サニタイズ
+│       ├── meta.ts           # 付箋の meta の検査と比較
 │       └── oembed.ts         # oEmbed URL → iframe 変換
 ├── standalone/
 │   └── template.html         # スタンドアロン版テンプレート
@@ -91,6 +92,7 @@ wema/
 │   ├── filter.test.ts
 │   ├── geometry.test.ts
 │   ├── layout.test.ts
+│   ├── note-extension.test.ts
 │   ├── sanitize.test.ts
 │   ├── history.test.ts
 │   ├── sync.test.ts
@@ -143,6 +145,7 @@ wema/
 | `visibility.md` | 付箋の非表示（折り畳みと絞り込み） | `src/board.ts`、`src/selection.ts` |
 | `sync.md` | `history:commit` / `applyRemote`、履歴の再生、参照モード | `src/history.ts`、`src/board.ts` |
 | `autosize.md` | autoSize の計測と `note:update` | `src/note.ts` |
+| `note-extension.md` | 利用側のデータ（`meta`）と、付箋の中身を利用側が描く口（`renderNote`） | `src/note.ts`、`src/utils/meta.ts`、`src/history.ts` |
 | `pointer-and-popup.md` | ドラッグ直後の `click`、ポップアップの DOM 再構築 | `src/drag.ts`、`src/selection.ts`、`src/*-popup.ts` |
 | `edge-path.md` | 接続線のパス計算 | `src/edge.ts`、`src/utils/geometry.ts` |
 | `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
@@ -184,6 +187,7 @@ interface WemaNote {
   color: string;
   zIndex: number;
   autoSize?: boolean;
+  meta?: Readonly<Record<string, string>>;  // 利用側のデータ。wema は中身を読まない
 }
 
 interface WemaEdge {
@@ -223,6 +227,7 @@ class WemaBoard {
   deleteNote(id: NoteId): void;
   getNote(id: NoteId): WemaNote | undefined;
   getNotes(): WemaNote[];
+  refreshNote(id: NoteId): void;  // renderNote で描いた付箋を描き直す（データは変えない）
 
   // 接続線
   addEdge(from: NoteId, to: NoteId, params?: ...): WemaEdge;
@@ -291,6 +296,7 @@ interface WemaBoardOptions {
   theme?: NoteTheme;           // default: 'default'
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
+  renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
   panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）

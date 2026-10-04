@@ -31,7 +31,7 @@ import { HistoryManager, replayDeltas } from './history.js';
 import type { ReplayCallbacks } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
 import { Viewport } from './viewport.js';
-import { createElement, createSvgElement, setStyles } from './utils/dom.js';
+import { createElement, createSvgElement, setStyles, TYPING_SELECTOR } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
 import { isSafeUrl } from './utils/sanitize.js';
 import { resolveAutoAnchor } from './utils/geometry.js';
@@ -173,6 +173,7 @@ export class WemaBoard {
         this.scheduleChange();
       },
       onLinkClick: options.onLinkClick,
+      hostRender: options.renderNote,
     });
 
     this.selectionManager = new SelectionManager({
@@ -390,7 +391,7 @@ export class WemaBoard {
     this.handleKeyDown = (e: KeyboardEvent) => {
       // Undo/Redo shortcuts (work even in readOnly/viewOnly is debatable, but only when not editing text)
       if ((e.ctrlKey || e.metaKey) && !this.readOnly && !this.viewOnly) {
-        const inEditable = (e.target as HTMLElement).closest('[contenteditable="true"]');
+        const inEditable = (e.target as HTMLElement).closest(TYPING_SELECTOR);
         if (!inEditable) {
           if (e.key === 'z' && !e.shiftKey) {
             e.preventDefault();
@@ -408,7 +409,7 @@ export class WemaBoard {
       if (this.readOnly || this.viewOnly) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't delete notes when editing text
-        if ((e.target as HTMLElement).closest('[contenteditable="true"]')) return;
+        if ((e.target as HTMLElement).closest(TYPING_SELECTOR)) return;
 
         // Delete selected edge first
         const selectedEdge = this.edgeManager.getSelectedEdge();
@@ -483,7 +484,7 @@ export class WemaBoard {
       }
       // Ensure board has focus for keyboard shortcuts (Delete key etc.)
       const active = document.activeElement;
-      if (!active || !active.closest('[contenteditable="true"]')) {
+      if (!active || !active.closest(TYPING_SELECTOR)) {
         this.boardEl.focus();
       }
     };
@@ -588,7 +589,7 @@ export class WemaBoard {
       if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey) return;
       if (!this.pointerInside) return;
       // Space belongs to whatever is being typed in or activated
-      if (document.activeElement?.closest('[contenteditable="true"], input, textarea, select, button')) return;
+      if (document.activeElement?.closest(`${TYPING_SELECTOR}, button`)) return;
       e.preventDefault();
       this.setSpaceHeld(true);
     };
@@ -618,7 +619,7 @@ export class WemaBoard {
       if (!this.wheelPan) return;
       if (target.closest(OVERLAY_SELECTOR)) return;
       // A note whose content scrolls keeps the wheel for itself
-      const content = target.closest('.wema-note-content');
+      const content = target.closest('.wema-note-content, .wema-note-custom');
       if (content && content.scrollHeight > content.clientHeight) return;
 
       e.preventDefault();
@@ -708,6 +709,19 @@ export class WemaBoard {
   /** Get a note by ID */
   getNote(id: NoteId): WemaNote | undefined {
     return this.noteManager.getNote(id);
+  }
+
+  /**
+   * Call the `renderNote` option for a note again. Use it when what you draw
+   * in the note depends on something outside the note's data and that changed.
+   * (A change of the note's `text` or `meta` draws it again by itself.)
+   * Changes nothing in the data: no event, no history. Also works in
+   * readOnly and viewOnly.
+   */
+  refreshNote(id: NoteId): void {
+    // The popup offers text formatting only for notes that show their text.
+    // It is not rebuilt otherwise: that would drop what the user is typing in it.
+    if (this.noteManager.refresh(id)) this.updateNotePopup();
   }
 
   /** Get all notes */
@@ -1307,9 +1321,7 @@ export class WemaBoard {
 
   /** Append an <img> to the note content and sync it to note data */
   private appendImage(noteId: NoteId, src: string, alt: string): void {
-    const noteEl = this.noteManager.getElement(noteId);
-    if (!noteEl) return;
-    const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+    const content = this.noteManager.getTextElement(noteId);
     if (!content) return;
     const img = document.createElement('img');
     img.src = src;
@@ -1387,9 +1399,7 @@ export class WemaBoard {
   /** Convert URL to embed URL and insert iframe/img/video into a note */
   private async embedUrl(noteId: NoteId, rawUrl: string): Promise<void> {
     if (!isSafeUrl(rawUrl)) return;
-    const noteEl = this.noteManager.getElement(noteId);
-    if (!noteEl) return;
-    const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+    const content = this.noteManager.getTextElement(noteId);
     if (!content) return;
 
     if (WemaBoard.IMAGE_URL_RE.test(rawUrl)) {

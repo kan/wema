@@ -3,6 +3,7 @@ import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import { createElement, setStyles } from './utils/dom.js';
 import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUrl } from './utils/sanitize.js';
+import { normalizeMeta } from './utils/meta.js';
 
 interface NoteManagerOptions {
   boardEl: HTMLElement;
@@ -20,7 +21,15 @@ interface NoteManagerOptions {
   onMeasure: (noteId: NoteId) => void;
   /** Handle a click on a link, given its resolved absolute URL. Return true to keep it from opening in a new tab. */
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
+  /** Let the host draw a note into `container`. Return true when it did (the `renderNote` option). */
+  hostRender?: (note: WemaNote, container: HTMLElement) => boolean | void;
 }
+
+/**
+ * On the element of a note the host draws (`renderNote` option): it shows
+ * `.wema-note-custom` instead of its text, and the text cannot be edited
+ */
+const HOST_DRAWN_CLASS = 'wema-note-host-drawn';
 
 export class NoteManager {
   private notes = new Map<NoteId, WemaNote>();
@@ -36,6 +45,7 @@ export class NoteManager {
   private viewOnly = false;
   private onMeasure: (noteId: NoteId) => void;
   private onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
+  private hostRender?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
    * For notes whose measured size is not yet reported in a note event: the
    * size they had in the last one. The next note:update uses it as `prev`.
@@ -56,6 +66,7 @@ export class NoteManager {
     this.readOnly = options.readOnly;
     this.onMeasure = options.onMeasure;
     this.onLinkClick = options.onLinkClick;
+    this.hostRender = options.hostRender;
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -77,6 +88,7 @@ export class NoteManager {
 
   /** Create a new note and render it */
   addNote(params?: Partial<Omit<WemaNote, 'id'>>): WemaNote {
+    const meta = normalizeMeta(params?.meta);
     const note: WemaNote = {
       id: generateId(),
       x: params?.x ?? 100,
@@ -87,6 +99,7 @@ export class NoteManager {
       color: params?.color ?? this.defaultColor,
       zIndex: params?.zIndex ?? this.zCounter++,
       ...(params?.autoSize ? { autoSize: true } : {}),
+      ...(meta ? { meta } : {}),
     };
 
     if (note.zIndex >= this.zCounter) {
@@ -102,7 +115,7 @@ export class NoteManager {
   /** Add a note with a specific ID (undo restore, remote changes). Does nothing if the ID exists. */
   addNoteWithId(note: WemaNote, origin: ChangeOrigin = 'local'): void {
     if (this.notes.has(note.id)) return;
-    const copy = { ...note };
+    const copy = this.stored(note);
     if (copy.zIndex >= this.zCounter) {
       this.zCounter = copy.zIndex + 1;
     }
@@ -134,13 +147,94 @@ export class NoteManager {
 
     const prev = { ...note };
     Object.assign(note, params, { id }); // prevent id overwrite
+    if ('meta' in params) note.meta = normalizeMeta(params.meta);
     this.updateNoteElement(note, 'text' in params);
+    // What the host draws depends on the text and the meta, not on the position
+    if ('text' in params || 'meta' in params) this.drawByHost(note);
     // Measure now when the change can resize an autoSize note, so the event
     // (and its undo) carries the resulting size
-    if ('autoSize' in params || 'text' in params || 'width' in params || 'height' in params) {
+    if ('autoSize' in params || 'text' in params || 'meta' in params || 'width' in params || 'height' in params) {
       this.applyMeasuredSize(note);
     }
     return { note, prev };
+  }
+
+  /** A copy of a note from outside (import, undo, remote change), as it is kept in the model */
+  private stored(note: WemaNote): WemaNote {
+    const { meta: given, ...rest } = note;
+    const meta = normalizeMeta(given);
+    return meta ? { ...rest, meta } : rest;
+  }
+
+  /**
+   * Offer the note to the host (`renderNote` option). When the host draws it,
+   * its text is hidden and cannot be edited; otherwise it is an ordinary note.
+   * Returns whether the note switched between the two.
+   */
+  private drawByHost(note: WemaNote): boolean {
+    if (!this.hostRender) return false;
+    const el = this.elements.get(note.id);
+    const container = el?.querySelector('.wema-note-custom') as HTMLElement | null;
+    if (!el || !container) return false;
+    container.replaceChildren();
+    let drawn = false;
+    try {
+      drawn = this.hostRender({ ...note }, container) === true;
+    } catch (error) {
+      // Called while a note is created or updated: an error here must not
+      // leave that half done. The note stays an ordinary one.
+      console.error(`Error in renderNote for note "${note.id}":`, error);
+    }
+    const wasDrawn = el.classList.contains(HOST_DRAWN_CLASS);
+    // Commit a text edit in progress while the note still counts as text:
+    // once the host draws it, its content is no longer read back
+    if (drawn && !wasDrawn) this.getTextElement(note.id)?.blur();
+    // Drop what a host that did not return true (or threw) left behind
+    if (!drawn) container.replaceChildren();
+    el.classList.toggle(HOST_DRAWN_CLASS, drawn);
+    this.applyEditable(note.id);
+    return drawn !== wasDrawn;
+  }
+
+  /**
+   * Draw a note again through the host (`refreshNote`): what it shows changed
+   * outside the note's data. Returns whether the note switched between
+   * host-drawn and ordinary.
+   */
+  refresh(id: NoteId): boolean {
+    const note = this.notes.get(id);
+    if (!note) return false;
+    const switched = this.drawByHost(note);
+    if (note.autoSize) this.measure(id);
+    return switched;
+  }
+
+  /** Whether the host draws this note (its text is hidden and not editable) */
+  isHostDrawn(id: NoteId): boolean {
+    return this.elements.get(id)?.classList.contains(HOST_DRAWN_CLASS) ?? false;
+  }
+
+  /**
+   * The element holding a note's text, for reading it back or writing to it.
+   * A note the host draws has none: its text is hidden, and the DOM of a
+   * hidden text is not its source of truth (the model is).
+   */
+  getTextElement(id: NoteId): HTMLElement | null {
+    if (this.isHostDrawn(id)) return null;
+    return this.contentElement(id);
+  }
+
+  private contentElement(id: NoteId): HTMLElement | null {
+    return (this.elements.get(id)?.querySelector('.wema-note-content') as HTMLElement | undefined) ?? null;
+  }
+
+  /** Make the text of a note editable or not, from the board's mode and who draws the note */
+  private applyEditable(id: NoteId): void {
+    const content = this.contentElement(id);
+    if (!content) return;
+    const editable = !this.readOnly && !this.viewOnly && !this.isHostDrawn(id);
+    content.contentEditable = editable ? 'true' : 'false';
+    if (!editable) content.blur();
   }
 
   /** Emit a local note:update, reporting any size measured since the last one */
@@ -224,12 +318,8 @@ export class NoteManager {
   /** Toggle readOnly on all existing notes */
   setReadOnly(readOnly: boolean): void {
     this.readOnly = readOnly;
-    for (const el of this.elements.values()) {
-      const content = el.querySelector('.wema-note-content') as HTMLElement | null;
-      if (content) {
-        content.contentEditable = readOnly ? 'false' : 'true';
-        if (readOnly) content.blur();
-      }
+    for (const [id, el] of this.elements) {
+      this.applyEditable(id);
       const resizeHandle = el.querySelector('.wema-resize-handle') as HTMLElement | null;
       if (resizeHandle) {
         resizeHandle.style.display = readOnly ? 'none' : '';
@@ -244,13 +334,8 @@ export class NoteManager {
   /** Toggle viewOnly on all existing notes */
   setViewOnly(viewOnly: boolean): void {
     this.viewOnly = viewOnly;
-    for (const el of this.elements.values()) {
-      const content = el.querySelector('.wema-note-content') as HTMLElement | null;
-      if (content) {
-        // viewOnly or readOnly → no editing
-        content.contentEditable = (viewOnly || this.readOnly) ? 'false' : 'true';
-        if (viewOnly) content.blur();
-      }
+    for (const [id, el] of this.elements) {
+      this.applyEditable(id);
       const resizeHandle = el.querySelector('.wema-resize-handle') as HTMLElement | null;
       if (resizeHandle) {
         resizeHandle.style.display = (viewOnly || this.readOnly) ? 'none' : '';
@@ -270,7 +355,7 @@ export class NoteManager {
    */
   getNotesWithLiveText(): WemaNote[] {
     return Array.from(this.notes.values()).map((note) => {
-      const contentEl = this.elements.get(note.id)?.querySelector('.wema-note-content');
+      const contentEl = this.getTextElement(note.id);
       return { ...note, text: contentEl ? contentEl.innerHTML : note.text };
     });
   }
@@ -352,9 +437,7 @@ export class NoteManager {
    * what was measured while typing. Nothing is emitted when nothing changed.
    */
   private syncNoteContent(noteId: NoteId): void {
-    const el = this.elements.get(noteId);
-    if (!el) return;
-    const contentEl = el.querySelector('.wema-note-content') as HTMLElement | null;
+    const contentEl = this.getTextElement(noteId);
     if (!contentEl) return;
     const current = this.notes.get(noteId);
     if (!current) return;
@@ -381,7 +464,7 @@ export class NoteManager {
   renderAll(notes: WemaNote[]): void {
     this.clear();
     for (const note of notes) {
-      this.notes.set(note.id, { ...note });
+      this.notes.set(note.id, this.stored(note));
       if (note.zIndex >= this.zCounter) {
         this.zCounter = note.zIndex + 1;
       }
@@ -402,9 +485,6 @@ export class NoteManager {
     }
 
     const content = createElement('div', 'wema-note-content');
-    if (!this.readOnly && !this.viewOnly) {
-      content.contentEditable = 'true';
-    }
     content.innerHTML = isPlainText(note.text) ? escapeHtml(note.text) : sanitizeHtml(note.text);
 
     // Track if content was actually edited (prevents false diffs from browser innerHTML normalization)
@@ -546,12 +626,16 @@ export class NoteManager {
 
     el.appendChild(moveHandle);
     el.appendChild(content);
+    // Where the host draws the note (`renderNote` option); shown instead of the content
+    el.appendChild(createElement('div', 'wema-note-custom'));
     el.appendChild(anchors);
     el.appendChild(resizeHandle);
 
     this.applyStyles(el, note);
     this.layerEl.appendChild(el);
     this.elements.set(note.id, el);
+    this.applyEditable(note.id);
+    this.drawByHost(note);
   }
 
   /**

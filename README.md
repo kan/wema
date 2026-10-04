@@ -79,6 +79,7 @@ const board = new WemaBoard({
   theme?: NoteTheme,           // default: 'default' ('default' | 'card')
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
+  renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean,         // default: true（Ctrl / Cmd + ホイールで拡大・縮小する）
   panMargin?: number,          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白のピクセル数）
@@ -118,6 +119,61 @@ const board = new WemaBoard({
 | `deleteNote(id)` | 付箋を削除 |
 | `getNote(id)` | IDで取得 |
 | `getNotes()` | 全付箋を取得 |
+| `refreshNote(id)` | `renderNote` オプションで描いた付箋を描き直す |
+
+#### 付箋に利用側のデータを持たせる（`meta`）
+
+付箋の `meta` は、利用側が自由に使える項目。wema は中身を読まず、保存してそのまま返す。本文（`text`）とは別なので、本文を編集しても変わらない。
+
+```typescript
+const note = board.addNote({ text: '子ページ', meta: { page: 'child-1' } });
+board.getNote(note.id)?.meta;                        // { page: 'child-1' }
+board.updateNote(note.id, { meta: { page: 'child-2' } });  // 全体を置き換える
+board.updateNote(note.id, { meta: undefined });      // 取り除く
+```
+
+- 値は文字列だけ（`Record<string, string>`）。文字列以外の値は保存時に落とす。入れ子のデータを持たせたいときは、利用側で JSON の文字列にする
+- 返される `meta` は凍結されている（書き換えると例外になる）。変えるときは、新しいオブジェクトを `updateNote()` に渡す。`updateNote()` は `meta` の全体を置き換える（キーごとのマージはしない）
+- `getNote()` / `getNotes()` / `exportData()` / `importData()`、付箋のイベント、`history:commit` のデルタ、`applyRemote()`、Undo / Redo を通して値が保たれる
+- 中身が同じ `meta` を渡した更新は、変更として扱わない（履歴にも `history:commit` にも載らない）
+- **付箋を複製しても `meta` は引き継がない。** 複製した付箋は、本文、色、大きさだけを引き継ぐ
+- 大きさと形の上限は設けていない。同期する場合は、受け取る側（サーバー）で検証すること
+
+#### 付箋の中身を利用側が描く（`renderNote`）
+
+`renderNote` を指定すると、付箋ごとに呼び出す。`container` に DOM を作って `true` を返すと、その付箋は本文の代わりに `container` の中身を表示する。それ以外を返した付箋は、ふつうの付箋のまま本文を表示する。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  renderNote: (note, el) => {
+    const slug = note.meta?.page;
+    if (!slug) return false;              // ふつうの付箋
+    const title = document.createElement('strong');
+    title.textContent = pages.get(slug)?.title ?? slug;
+    const open = document.createElement('button');
+    open.textContent = '開く';
+    open.addEventListener('click', () => router.push(`/p/${slug}`));
+    el.append(title, open);
+    return true;
+  },
+});
+
+// 付箋のデータ以外（ページの表示名など）が変わったら、描き直しを頼む
+board.refreshNote(noteId);
+```
+
+- 呼び出すのは、付箋を作ったとき（`importData()`、`applyRemote()`、Undo での復活を含む）、付箋の `text` または `meta` が変わったとき、`refreshNote(id)` を呼んだとき。移動、リサイズ、色の変更では呼ばない
+- `container` は、呼び出しのたびに空にしてから渡す。前回付けたイベントリスナーは要素ごと消える
+- 利用側が描いた付箋は、本文を編集できない。ポップアップにも、本文の書式（リスト、画像、埋め込み）のボタンを出さない。本文（`text`）はデータに残り、`exportData()` はそのまま返す
+- それ以外はふつうの付箋と同じ。移動、リサイズ、選択、削除、接続線、整列、自動レイアウト、絞り込み、折り畳みの対象になる
+- `container` の中をドラッグすると、付箋が動く。リンク、ボタン、入力欄（`a` / `button` / `input` / `select` / `textarea` / `label` / `summary`）と、`data-wema-no-drag` 属性を付けた要素の上では、ドラッグを始めない
+- `container` の中のクリックは、付箋の選択にもなる（ポップアップが出る）。出したくないときは、利用側のハンドラで `event.stopPropagation()` を呼ぶ
+- **`container` の中身は、wema のサニタイズを通さない。** 他人が書いた文字列（`meta` や本文を含む）を出すときは、`innerHTML` ではなく `textContent` を使うこと
+- readOnly / viewOnly でも呼び出し、中のボタンやリンクは押せる
+- `container` の中の入力欄（`input` / `textarea` / `select`、`contenteditable` の要素）にフォーカスがあるあいだ、ボードのキーボードショートカット（Delete、Undo / Redo、Space）は働かない
+- `renderNote` が例外を投げたときは、コンソールにエラーを出し、その付箋をふつうの付箋として表示する。付箋の作成や `importData()` は止まらない
+- `refreshNote()` はデータを変えない。イベントも履歴も出さない
 
 #### 接続線（Edge）
 
@@ -417,6 +473,7 @@ interface WemaNote {
   color: string;
   zIndex: number;       // 重なり順。ローカルな表示状態（同期対象外）
   autoSize?: boolean;   // コンテンツに合わせてサイズ自動調整
+  meta?: Readonly<Record<string, string>>;  // 利用側のデータ。wema は中身を読まない
 }
 
 interface WemaEdge {

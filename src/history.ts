@@ -8,6 +8,7 @@ import type {
   HistoryOrigin,
 } from './types.js';
 import { EventEmitter } from './events.js';
+import { sameFieldValue } from './utils/meta.js';
 
 interface HistoryEntry {
   deltas: HistoryDelta[];
@@ -67,7 +68,7 @@ function diffKeys<T extends { id: string }>(
   const after: Partial<T> = {};
   for (const key of Object.keys(next) as (keyof T)[]) {
     if (key === 'id' || ignored.has(key)) continue;
-    if (prev[key] !== next[key]) {
+    if (!sameFieldValue(prev[key], next[key])) {
       before[key] = prev[key];
       after[key] = next[key];
     }
@@ -82,6 +83,7 @@ function diffKeys<T extends { id: string }>(
  */
 const NOTE_UPDATE_KEYS = Object.keys({
   x: true, y: true, width: true, height: true, text: true, color: true, zIndex: true, autoSize: true,
+  meta: true,
 } satisfies Record<Exclude<keyof WemaNote, 'id'>, true>) as (keyof WemaNote)[];
 
 /** The edge fields an update delta may change (same rule as NOTE_UPDATE_KEYS) */
@@ -142,7 +144,7 @@ function coalesceDeltas(deltas: HistoryDelta[]): HistoryDelta[] {
     const before = delta.before as Record<string, unknown>;
     const after = delta.after as Record<string, unknown>;
     for (const key of Object.keys(after)) {
-      if (before[key] === after[key]) {
+      if (sameFieldValue(before[key], after[key])) {
         delete before[key];
         delete after[key];
       }

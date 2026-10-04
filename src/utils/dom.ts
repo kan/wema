@@ -18,6 +18,13 @@ export function createSvgElement<K extends keyof SVGElementTagNameMap>(
   return el;
 }
 
+/**
+ * Elements that take typing: the text of a note, and form fields (a host may
+ * put them in a note it draws). While one of them has the focus, the board
+ * leaves the keyboard and the focus to it.
+ */
+export const TYPING_SELECTOR = '[contenteditable]:not([contenteditable="false"]), input, textarea, select';
+
 /** Set multiple inline styles on an element */
 export function setStyles(el: HTMLElement | SVGElement, styles: Partial<CSSStyleDeclaration>): void {
   Object.assign(el.style, styles);

@@ -94,6 +94,22 @@
   user-select: text;
 }
 
+/* Where the host draws a note (renderNote option); shown instead of the content */
+.wema-note-custom {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.wema-note-host-drawn > .wema-note-content {
+  display: none;
+}
+
+.wema-note-host-drawn > .wema-note-custom {
+  display: block;
+}
+
 /* Rich text content styles */
 .wema-note-content ul,
 .wema-note-content ol {

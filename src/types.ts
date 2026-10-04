@@ -33,6 +33,15 @@ export interface WemaNote {
   color: string;
   zIndex: number;
   autoSize?: boolean;
+  /**
+   * Data of the embedding application, kept with the note. The board does not
+   * read it: it stores it and hands it back (in `getNote()`, `exportData()`,
+   * the note events and the history deltas, through undo and `applyRemote()`).
+   * Only string values are kept. The object is frozen: to change it, pass a
+   * new object to `updateNote()`, which replaces the whole of it
+   * (`meta: undefined` removes it). Duplicating a note does not copy it.
+   */
+  meta?: Readonly<Record<string, string>>;
 }
 
 /** A connection line between two notes */
@@ -130,6 +139,22 @@ export interface WemaBoardOptions {
    * new tab. Also called in readOnly and viewOnly.
    */
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
+  /**
+   * Draw the inside of a note yourself. Called for every note when it is
+   * created, when its `text` or `meta` changes (also by undo and
+   * `applyRemote()`), and when `refreshNote()` is called. `container` is an
+   * empty element inside the note: fill it and return true. Return anything
+   * else to leave the note as an ordinary one, showing its `text`.
+   *
+   * A note drawn this way cannot be edited as text. Everything else works as
+   * for any note: moving (by dragging the handle or anywhere in `container`),
+   * resizing, selecting, deleting, edges, layout, filter. What you put in
+   * `container` is not sanitized. Links, buttons and form controls in it
+   * receive their clicks and do not start a drag; mark any other element
+   * that should not start one with the attribute `data-wema-no-drag`.
+   * Also called in readOnly and viewOnly.
+   */
+  renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
    * Pan the board with the mouse wheel / trackpad scroll (default: true).
    * Set to false when the board sits in a page that should scroll instead.

@@ -1,9 +1,26 @@
 import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
 import type { ToBoardPoint } from './utils/geometry.js';
+import { TYPING_SELECTOR } from './utils/dom.js';
 
 /** How far the pointer must move, in screen pixels, before a press becomes a drag rather than a click */
 export const DRAG_THRESHOLD = 4;
+
+/** Elements inside a host-drawn note that keep their own pointer behavior instead of dragging the note */
+const NO_DRAG_SELECTOR =
+  `${TYPING_SELECTOR}, a, button, label, summary, video[controls], audio[controls], [data-wema-no-drag]`;
+
+/** Whether a press on `el` landed on its scrollbar (outside the area its content is laid out in) */
+function onScrollbar(el: HTMLElement, e: PointerEvent): boolean {
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || el.offsetWidth === 0) return false;
+  // The rect is scaled by the board's zoom; client sizes are not
+  const scale = rect.width / el.offsetWidth;
+  return (
+    e.clientX - rect.left > (el.clientLeft + el.clientWidth) * scale ||
+    e.clientY - rect.top > (el.clientTop + el.clientHeight) * scale
+  );
+}
 
 type DragState = 'IDLE' | 'PENDING' | 'DRAGGING';
 
@@ -77,10 +94,15 @@ export class DragManager {
     if (e.button !== 0) return; // left click only
     if (this.getReadOnly()) return;
 
-    // Only start drag from the move handle
-    if (!(e.target as HTMLElement).closest('.wema-move-handle')) return;
+    // A drag starts from the move handle, or from anywhere in what the host
+    // drew (`renderNote` option) except its links and controls
+    const target = e.target as HTMLElement;
+    const custom = target.closest('.wema-note-custom') as HTMLElement | null;
+    const onHostDrawn =
+      custom !== null && target.closest(NO_DRAG_SELECTOR) === null && !(target === custom && onScrollbar(custom, e));
+    if (!target.closest('.wema-move-handle') && !onHostDrawn) return;
 
-    const noteEl = (e.target as HTMLElement).closest('.wema-note') as HTMLElement | null;
+    const noteEl = target.closest('.wema-note') as HTMLElement | null;
     if (!noteEl) return;
 
     e.preventDefault();

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **付箋に、利用側のデータを持たせる項目 `meta` を追加した** ([#53](https://github.com/kan/wema/issues/53))
+  - `WemaNote.meta?: Readonly<Record<string, string>>`。wema は中身を読まず、保存してそのまま返す。文字列以外の値は保存時に落とす
+  - `addNote()` / `updateNote()` / `getNote()` / `getNotes()`、`exportData()` / `importData()`、付箋のイベント、`history:commit` のデルタ、`applyRemote()`、Undo / Redo を通して値が保たれる
+  - `updateNote()` は `meta` の全体を置き換える。`meta: undefined` で取り除く。中身が同じ `meta` を渡した更新は、変更として扱わない
+  - 返される `meta` は凍結されている
+  - 付箋を複製しても `meta` は引き継がない
+- **付箋の中身を利用側が描くオプション `renderNote` と、描き直しを頼む `refreshNote(id)` を追加した** ([#53](https://github.com/kan/wema/issues/53))
+  - `renderNote(note, container)` が `true` を返した付箋は、本文の代わりに `container` の中身を表示する。本文は編集できない。移動、リサイズ、選択、削除、接続線、整列、絞り込みは、ふつうの付箋と同じ
+  - 付箋を作ったとき、`text` または `meta` が変わったとき、`refreshNote(id)` を呼んだときに呼び出す
+  - `container` の中をドラッグすると付箋が動く。リンク、ボタン、入力欄と、`data-wema-no-drag` 属性を付けた要素の上ではドラッグを始めない
+  - `container` の中身は wema のサニタイズを通さない
+  - readOnly / viewOnly でも呼び出す
+
 ### Changed
 
 - **自動レイアウト（`autoLayout()` / `computeAutoLayout()`）の配置を見直した。** 引数と戻り値の形は変わらないが、同じ入力に対する座標は変わる

@@ -210,7 +210,8 @@ export class NoteStylePopup {
     }
 
     this.popupEl.appendChild(actions);
-    this.popupEl.appendChild(richActions);
+    // A note the host draws (`renderNote` option) has no text to format
+    if (!this.noteManager.isHostDrawn(noteId)) this.popupEl.appendChild(richActions);
     this.popupEl.appendChild(colorGrid);
 
     // Position below the note, centered horizontally
@@ -324,9 +325,7 @@ export class NoteStylePopup {
    *  Only affects the list at the caret position. If caret is outside a list,
    *  inserts a new list at the end. */
   private toggleList(noteId: NoteId, listType: 'ul' | 'ol' | 'checklist'): void {
-    const noteEl = this.noteManager.getElement(noteId);
-    if (!noteEl) return;
-    const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+    const content = this.noteManager.getTextElement(noteId);
     if (!content) return;
 
     // Try to find the list at the current caret position
@@ -418,9 +417,7 @@ export class NoteStylePopup {
 
   /** Insert block HTML content at the end of a note's content */
   private insertBlockContent(noteId: NoteId, html: string): void {
-    const noteEl = this.noteManager.getElement(noteId);
-    if (!noteEl) return;
-    const content = noteEl.querySelector('.wema-note-content') as HTMLElement | null;
+    const content = this.noteManager.getTextElement(noteId);
     if (!content) return;
 
     content.focus();
