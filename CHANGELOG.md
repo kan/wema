@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- チェックリストでチェックを付けた項目のうち、文字に色の指定が入っているものは、取り消し線だけがグレーになり、文字は元の色のままだった。文字もグレーにした。色の指定は、ツールバーで色を付けたときのほか、本文を貼り付けたときにブラウザが自動で書き込む（貼り付け元の文字色がそのまま入る）
+
 ## [0.9.0] - 2026-10-05
 
 ### Added

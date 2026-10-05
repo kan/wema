@@ -149,6 +149,14 @@
   color: #aaa;
 }
 
+/* Text with a color of its own turns gray too. Besides the color the user
+   gives a text, the browser writes one into pasted text by itself (a `style`
+   with the color the text had where it was copied). */
+.wema-note-content .wema-checklist li.wema-checked > :not(ul, ol),
+.wema-note-content .wema-checklist li.wema-checked > :not(ul, ol) * {
+  color: #aaa !important;
+}
+
 /* Sub-items of a checked item keep their own state. A line-through cannot be
    turned off by a descendant; it does not reach into an inline-block. */
 .wema-note-content .wema-checklist li.wema-checked > ul,
