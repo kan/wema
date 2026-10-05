@@ -8,6 +8,15 @@ export function createElement<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+/**
+ * Describe a control that shows an icon instead of a text: the tooltip, and
+ * the same text for screen readers
+ */
+export function setLabel(el: HTMLElement, label: string): void {
+  el.title = label;
+  el.setAttribute('aria-label', label);
+}
+
 /** Create an SVG element with optional class name */
 export function createSvgElement<K extends keyof SVGElementTagNameMap>(
   tag: K,

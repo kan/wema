@@ -1,18 +1,19 @@
 import type { NoteId, WemaNote } from './types.js';
 import { NoteManager } from './note.js';
-import { createElement } from './utils/dom.js';
+import type { TextLabelKey, WemaLabels } from './labels.js';
+import { createElement, setLabel } from './utils/dom.js';
 import type { Point } from './utils/geometry.js';
 import { type ListType, toggleList, appendListItem, indentListItems, outdentListItems } from './utils/list.js';
 
-const NOTE_COLORS: { hex: string; name: string }[] = [
-  { hex: '#FFF9C4', name: 'Butter' },
-  { hex: '#FFCDD2', name: 'Rose' },
-  { hex: '#FFE0B2', name: 'Peach' },
-  { hex: '#E1BEE7', name: 'Lavender' },
-  { hex: '#BBDEFB', name: 'Sky' },
-  { hex: '#B2DFDB', name: 'Mint' },
-  { hex: '#C8E6C9', name: 'Sage' },
-  { hex: '#F5F5F5', name: 'Gray' },
+const NOTE_COLORS: { hex: string; label: TextLabelKey }[] = [
+  { hex: '#FFF9C4', label: 'colorButter' },
+  { hex: '#FFCDD2', label: 'colorRose' },
+  { hex: '#FFE0B2', label: 'colorPeach' },
+  { hex: '#E1BEE7', label: 'colorLavender' },
+  { hex: '#BBDEFB', label: 'colorSky' },
+  { hex: '#B2DFDB', label: 'colorMint' },
+  { hex: '#C8E6C9', label: 'colorSage' },
+  { hex: '#F5F5F5', label: 'colorGray' },
 ];
 
 const DUPLICATE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -49,6 +50,7 @@ export class NoteStylePopup {
   private popupEl: HTMLElement;
   private boardEl: HTMLElement;
   private noteManager: NoteManager;
+  private labels: WemaLabels;
   private onColorChange: (noteId: NoteId, color: string) => void;
   private onMultiColorChange: (noteIds: NoteId[], color: string) => void;
   private onDuplicate: (noteId: NoteId) => void;
@@ -68,6 +70,8 @@ export class NoteStylePopup {
   constructor(options: {
     boardEl: HTMLElement;
     noteManager: NoteManager;
+    /** Texts of the buttons */
+    labels: WemaLabels;
     onColorChange: (noteId: NoteId, color: string) => void;
     onMultiColorChange: (noteIds: NoteId[], color: string) => void;
     onDuplicate: (noteId: NoteId) => void;
@@ -85,6 +89,7 @@ export class NoteStylePopup {
     this.toScreen = options.toScreen;
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
+    this.labels = options.labels;
     this.onColorChange = options.onColorChange;
     this.onMultiColorChange = options.onMultiColorChange;
     this.onDuplicate = options.onDuplicate;
@@ -115,7 +120,7 @@ export class NoteStylePopup {
     // Color swatch button
     const colorBtn = createElement('button', 'wema-popup-btn wema-note-popup-color-btn') as HTMLButtonElement;
     colorBtn.style.backgroundColor = note.color;
-    colorBtn.title = 'Color';
+    setLabel(colorBtn, this.labels.color);
     colorBtn.addEventListener('click', () => {
       const isVisible = colorGrid.style.display !== 'none';
       colorGrid.style.display = isVisible ? 'none' : '';
@@ -124,7 +129,7 @@ export class NoteStylePopup {
     // Duplicate button
     const dupBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     dupBtn.innerHTML = DUPLICATE_ICON;
-    dupBtn.title = 'Duplicate';
+    setLabel(dupBtn, this.labels.duplicate);
     dupBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       const id = this.currentNoteId;
@@ -135,7 +140,7 @@ export class NoteStylePopup {
     // Delete button
     const delBtn = createElement('button', 'wema-popup-btn wema-popup-btn-delete') as HTMLButtonElement;
     delBtn.innerHTML = TRASH_ICON;
-    delBtn.title = 'Delete';
+    setLabel(delBtn, this.labels.delete);
     delBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       const id = this.currentNoteId;
@@ -146,7 +151,7 @@ export class NoteStylePopup {
     // Auto-size toggle button
     const autoSizeBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     autoSizeBtn.innerHTML = AUTO_SIZE_ICON;
-    autoSizeBtn.title = 'Auto Size';
+    setLabel(autoSizeBtn, this.labels.autoSize);
     if (note.autoSize) autoSizeBtn.classList.add('active');
     autoSizeBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
@@ -165,7 +170,7 @@ export class NoteStylePopup {
 
     const ulBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     ulBtn.innerHTML = LIST_UL_ICON;
-    ulBtn.title = 'Bulleted List';
+    setLabel(ulBtn, this.labels.bulletedList);
     ulBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.toggleList(this.currentNoteId, 'ul');
@@ -173,7 +178,7 @@ export class NoteStylePopup {
 
     const olBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     olBtn.innerHTML = LIST_OL_ICON;
-    olBtn.title = 'Numbered List';
+    setLabel(olBtn, this.labels.numberedList);
     olBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.toggleList(this.currentNoteId, 'ol');
@@ -181,7 +186,7 @@ export class NoteStylePopup {
 
     const cbBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     cbBtn.innerHTML = CHECKBOX_ICON;
-    cbBtn.title = 'Checklist';
+    setLabel(cbBtn, this.labels.checklist);
     cbBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.toggleList(this.currentNoteId, 'checklist');
@@ -189,7 +194,7 @@ export class NoteStylePopup {
 
     const outdentBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     outdentBtn.innerHTML = OUTDENT_ICON;
-    outdentBtn.title = 'Outdent (Shift+Tab)';
+    setLabel(outdentBtn, this.labels.outdent);
     outdentBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.noteManager.editContent(this.currentNoteId, (content, range) => range && outdentListItems(content, range));
@@ -197,7 +202,7 @@ export class NoteStylePopup {
 
     const indentBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     indentBtn.innerHTML = INDENT_ICON;
-    indentBtn.title = 'Indent (Tab)';
+    setLabel(indentBtn, this.labels.indent);
     indentBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.noteManager.editContent(this.currentNoteId, (content, range) => range && indentListItems(content, range));
@@ -210,7 +215,7 @@ export class NoteStylePopup {
 
     const imgBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     imgBtn.innerHTML = IMAGE_ICON;
-    imgBtn.title = 'Image';
+    setLabel(imgBtn, this.labels.image);
     imgBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.onInsertImage?.(this.currentNoteId);
@@ -218,7 +223,7 @@ export class NoteStylePopup {
 
     const embedBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     embedBtn.innerHTML = EMBED_ICON;
-    embedBtn.title = 'Embed';
+    setLabel(embedBtn, this.labels.embed);
     embedBtn.addEventListener('click', () => {
       if (!this.currentNoteId) return;
       this.onInsertEmbed?.(this.currentNoteId);
@@ -238,7 +243,7 @@ export class NoteStylePopup {
     for (const color of NOTE_COLORS) {
       const swatch = createElement('button', 'wema-color-swatch') as HTMLButtonElement;
       swatch.style.backgroundColor = color.hex;
-      swatch.title = color.name;
+      setLabel(swatch, this.labels[color.label]);
       if (note.color.toUpperCase() === color.hex) {
         swatch.classList.add('active');
       }
@@ -281,7 +286,7 @@ export class NoteStylePopup {
     const colorBtn = createElement('button', 'wema-popup-btn wema-note-popup-color-btn') as HTMLButtonElement;
     const allSameColor = notes.every((n) => n.color === notes[0].color);
     colorBtn.style.backgroundColor = allSameColor ? notes[0].color : '#ccc';
-    colorBtn.title = 'Color';
+    setLabel(colorBtn, this.labels.color);
     colorBtn.addEventListener('click', () => {
       const isVisible = colorGrid.style.display !== 'none';
       colorGrid.style.display = isVisible ? 'none' : '';
@@ -291,7 +296,7 @@ export class NoteStylePopup {
     const allAutoSize = notes.every((n) => n.autoSize);
     const autoSizeBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     autoSizeBtn.innerHTML = AUTO_SIZE_ICON;
-    autoSizeBtn.title = 'Auto Size';
+    setLabel(autoSizeBtn, this.labels.autoSize);
     if (allAutoSize) autoSizeBtn.classList.add('active');
     autoSizeBtn.addEventListener('click', () => {
       if (!this.currentNoteIds) return;
@@ -301,7 +306,7 @@ export class NoteStylePopup {
     // Delete button
     const delBtn = createElement('button', 'wema-popup-btn wema-popup-btn-delete') as HTMLButtonElement;
     delBtn.innerHTML = TRASH_ICON;
-    delBtn.title = `Delete ${notes.length} notes`;
+    setLabel(delBtn, this.labels.deleteNotes(notes.length));
     delBtn.addEventListener('click', () => {
       if (!this.currentNoteIds) return;
       const ids = this.currentNoteIds.slice();
@@ -320,7 +325,7 @@ export class NoteStylePopup {
     for (const color of NOTE_COLORS) {
       const swatch = createElement('button', 'wema-color-swatch') as HTMLButtonElement;
       swatch.style.backgroundColor = color.hex;
-      swatch.title = color.name;
+      setLabel(swatch, this.labels[color.label]);
       if (allSameColor && notes[0].color.toUpperCase() === color.hex) {
         swatch.classList.add('active');
       }
@@ -346,7 +351,7 @@ export class NoteStylePopup {
   private foldableButton(notes: WemaNote[]): HTMLButtonElement {
     const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     btn.innerHTML = FOLD_ICON;
-    btn.title = 'Fold Long Text';
+    setLabel(btn, this.labels.foldLongText);
     btn.classList.toggle('active', notes.every((n) => n.foldable));
     const ids = notes.map((n) => n.id);
     btn.addEventListener('click', () => this.onFoldableToggle?.(ids));

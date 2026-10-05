@@ -1,3 +1,5 @@
+import type { WemaLabels } from './labels.js';
+
 /** Unique identifier for a note */
 export type NoteId = string;
 
@@ -172,8 +174,16 @@ export interface WemaBoardOptions {
    */
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
+   * Texts of the board's own UI (tooltips, headings of the edge popup, the
+   * link under a foldable note). A key left out keeps its English text.
+   * Pass `jaLabels` for Japanese. Read once, when the board is created.
+   */
+  labels?: Partial<WemaLabels>;
+  /**
    * Texts of the link under a `foldable` note: `more` opens the note
    * (default: "Read more"), `less` closes it (default: "Show less").
+   * The same texts as `readMore` / `showLess` of `labels`; these win when
+   * both are given.
    */
   foldLabels?: { more?: string; less?: string };
   /**

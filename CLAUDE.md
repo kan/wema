@@ -20,6 +20,10 @@ wemaは、Web上に付箋を絵馬のように貼って並べるフレームワ�
 - 全ての public API に JSDoc コメントをつける
 - テストは Vitest で、少なくともデータモデル操作 (CRUD) とイベント発火をカバーする
 - 全セレクタは `.wema-` プレフィックス付き (衝突回避)
+- **画面に出す文言（`title`、見出し、ボタンの文字）をソースへ直接書かない。** `src/labels.ts` の `WemaLabels` にキーを足し、`enLabels` と `jaLabels` の両方へ文言を入れて、`labels` 経由で読む（利用側が `labels` オプションで差し替える。issue #58）
+  - アイコンだけのボタンの説明は `setLabel()`（`src/utils/dom.ts`）で入れる。`title` と `aria-label` の両方に同じ文言が入る
+  - 文言を `innerHTML` に入れない（利用側が渡す文字列なので、HTML として解釈させない）
+  - 言語に依らない表示（`S` / `M` / `L` / `100%`、`✕`、`https://...`）は対象外
 
 ## コマンド
 
@@ -71,6 +75,7 @@ wema/
 ├── src/                      # ライブラリ本体
 │   ├── index.ts              # public API re-export
 │   ├── types.ts              # 型定義
+│   ├── labels.ts             # 画面の文言 (WemaLabels 型、enLabels / jaLabels)
 │   ├── board.ts              # WemaBoard クラス (メインAPI)
 │   ├── note.ts               # 付箋の管理・描画
 │   ├── edge.ts               # 接続線の管理・描画
@@ -110,6 +115,7 @@ wema/
 │   ├── filter.test.ts
 │   ├── fold.test.ts
 │   ├── geometry.test.ts
+│   ├── labels.test.ts
 │   ├── layout.test.ts
 │   ├── list.test.ts
 │   ├── note-extension.test.ts
@@ -321,7 +327,8 @@ interface WemaBoardOptions {
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
-  foldLabels?: { more?: string; less?: string };  // foldable の付箋を開閉するリンクの文言（default: 'Read more' / 'Show less'）
+  labels?: Partial<WemaLabels>;  // 画面の文言。省略したキーは英語（enLabels）。日本語は jaLabels を渡す。読むのは作成時の 1 回
+  foldLabels?: { more?: string; less?: string };  // labels の readMore / showLess と同じ文言。両方あればこちらが優先（default: 'Read more' / 'Show less'）
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
   panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）

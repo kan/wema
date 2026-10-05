@@ -2,6 +2,8 @@ import './style.css';
 
 export { WemaBoard } from './board.js';
 export { computeAlignment, computeDistribution, computeAutoLayout } from './layout.js';
+export { enLabels, jaLabels } from './labels.js';
+export type { WemaLabels } from './labels.js';
 export type {
   LayoutNote,
   LayoutEdge,

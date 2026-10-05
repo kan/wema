@@ -55,7 +55,7 @@
   <input type="file" id="file-input" accept=".json" style="display:none">
 
   <script type="module">
-    import { WemaBoard } from './src/index.ts';
+    import { WemaBoard, jaLabels } from './src/index.ts';
 
     // Keep the board over a reload of this page (the dev server reloads it on
     // every change of the source)
@@ -80,7 +80,8 @@
     const board = new WemaBoard({
       container,
       data: loadSaved(),
-      foldLabels: { more: '続きを読む', less: '折り畳む' },
+      // Japanese by default; open with ?lang=en to see the English labels
+      labels: new URLSearchParams(location.search).get('lang') === 'en' ? undefined : jaLabels,
     });
 
     board.on('change', ({ data }) => save(data));

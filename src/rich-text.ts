@@ -1,4 +1,5 @@
-import { createElement } from './utils/dom.js';
+import type { WemaLabels } from './labels.js';
+import { createElement, setLabel } from './utils/dom.js';
 import { isSafeUrl } from './utils/sanitize.js';
 
 const TEXT_COLORS = [
@@ -19,6 +20,7 @@ const STRIKE_TAGS = ['s'];
 export class RichTextToolbar {
   private boardEl: HTMLElement;
   private toolbarEl: HTMLElement;
+  private labels: WemaLabels;
   private readOnly: boolean;
   private viewOnly: boolean;
   private rafId = 0;
@@ -28,8 +30,9 @@ export class RichTextToolbar {
   private savedRange: Range | null = null;
   private subPanelOpen = false;
 
-  constructor(options: { boardEl: HTMLElement; readOnly: boolean; viewOnly: boolean }) {
+  constructor(options: { boardEl: HTMLElement; labels: WemaLabels; readOnly: boolean; viewOnly: boolean }) {
     this.boardEl = options.boardEl;
+    this.labels = options.labels;
     this.readOnly = options.readOnly;
     this.viewOnly = options.viewOnly;
 
@@ -135,7 +138,7 @@ export class RichTextToolbar {
     const formatButton = (label: string, title: string, tags: string[], active: boolean): HTMLButtonElement => {
       const btn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
       btn.innerHTML = label;
-      btn.title = title;
+      setLabel(btn, title);
       btn.classList.toggle('active', active);
       btn.addEventListener('click', (e) => {
         e.preventDefault();
@@ -145,16 +148,16 @@ export class RichTextToolbar {
       return btn;
     };
 
-    const boldBtn = formatButton('<b>B</b>', 'Bold', BOLD_TAGS, this.isFormatActive('bold'));
+    const boldBtn = formatButton('<b>B</b>', this.labels.bold, BOLD_TAGS, this.isFormatActive('bold'));
     // Not queryCommandState for the strikethrough: it is also true for the
     // line-through that the style sheet puts on a checked checklist item
-    const strikeBtn = formatButton('<s>S</s>', 'Strikethrough', STRIKE_TAGS,
+    const strikeBtn = formatButton('<s>S</s>', this.labels.strikethrough, STRIKE_TAGS,
       this.findSelectionAncestor(STRIKE_TAGS) !== null);
 
     // Text color button
     const colorBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
     colorBtn.innerHTML = '<span style="border-bottom: 2px solid currentColor;">A</span>';
-    colorBtn.title = 'Text Color';
+    setLabel(colorBtn, this.labels.textColor);
     const colorPalette = this.buildColorPalette();
     colorPalette.style.display = 'none';
     colorBtn.addEventListener('click', (e) => {
@@ -169,7 +172,7 @@ export class RichTextToolbar {
     // Link button
     const linkBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
     linkBtn.innerHTML = '🔗';
-    linkBtn.title = 'Link';
+    setLabel(linkBtn, this.labels.link);
     const linkInput = this.buildLinkInput();
     linkInput.style.display = 'none';
     linkBtn.addEventListener('click', (e) => {
@@ -231,7 +234,7 @@ export class RichTextToolbar {
     input.addEventListener('click', (e) => e.stopPropagation());
 
     const applyBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
-    applyBtn.textContent = 'OK';
+    applyBtn.textContent = this.labels.ok;
     applyBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -245,7 +248,7 @@ export class RichTextToolbar {
 
     const removeBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
     removeBtn.textContent = '✕';
-    removeBtn.title = 'Remove link';
+    setLabel(removeBtn, this.labels.removeLink);
     removeBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();

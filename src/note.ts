@@ -1,7 +1,8 @@
 import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
-import { createElement, setStyles, getSelectionRange, setSelectionRange } from './utils/dom.js';
+import type { WemaLabels } from './labels.js';
+import { createElement, setLabel, setStyles, getSelectionRange, setSelectionRange } from './utils/dom.js';
 import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUrl } from './utils/sanitize.js';
 import { normalizeMeta } from './utils/meta.js';
 import { isInListItem, indentListItems, outdentListItems, getListType, createListItem } from './utils/list.js';
@@ -65,8 +66,8 @@ interface NoteManagerOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   /** Let the host draw a note into `container`. Return true when it did (the `renderNote` option). */
   hostRender?: (note: WemaNote, container: HTMLElement) => boolean | void;
-  /** Texts of the link that opens and closes a foldable note (the `foldLabels` option) */
-  foldLabels?: { more?: string; less?: string };
+  /** Texts of the UI on a note: the link under a foldable one, the button on a selected image */
+  labels: WemaLabels;
 }
 
 /**
@@ -95,7 +96,7 @@ export class NoteManager {
    * size they had in the last one. The next note:update uses it as `prev`.
    */
   private unreportedSizeBase = new Map<NoteId, { width: number; height: number }>();
-  private foldLabels: { more: string; less: string };
+  private labels: WemaLabels;
   /**
    * The foldable notes the user opened. A state of the display only: not in
    * the data, no event, no history. A note not in here is closed.
@@ -119,10 +120,7 @@ export class NoteManager {
     this.onMeasure = options.onMeasure;
     this.onLinkClick = options.onLinkClick;
     this.hostRender = options.hostRender;
-    this.foldLabels = {
-      more: options.foldLabels?.more ?? 'Read more',
-      less: options.foldLabels?.less ?? 'Show less',
-    };
+    this.labels = options.labels;
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -366,7 +364,7 @@ export class NoteManager {
 
     el.classList.toggle(FOLD_LONG_CLASS, long);
     el.classList.toggle(FOLDED_CLASS, closed);
-    const label = closed ? this.foldLabels.more : this.foldLabels.less;
+    const label = closed ? this.labels.readMore : this.labels.showLess;
     if (toggle.textContent !== label) toggle.textContent = label;
     // The text may have been scrolled while it was edited
     if (closed) content.scrollTop = 0;
@@ -603,7 +601,7 @@ export class NoteManager {
     // Delete button
     const delBtn = createElement('button', 'wema-image-overlay-btn wema-image-overlay-delete') as HTMLButtonElement;
     delBtn.textContent = '✕';
-    delBtn.title = 'Delete image';
+    setLabel(delBtn, this.labels.deleteImage);
     delBtn.addEventListener('click', () => {
       img.remove();
       this.hideImageOverlay();

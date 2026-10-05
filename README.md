@@ -83,7 +83,8 @@ const board = new WemaBoard({
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
-  foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言（デフォルト: 'Read more' / 'Show less'）
+  labels?: Partial<WemaLabels>,  // 画面の文言（ボタンの説明、接続線のポップアップの見出しなど）。省略したキーは英語
+  foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言。labels の readMore / showLess と同じもの
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean,         // default: true（Ctrl / Cmd + ホイールで拡大・縮小する）
   panMargin?: number,          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白のピクセル数）
@@ -114,6 +115,37 @@ const board = new WemaBoard({
 - ブラウザ既定の遷移は wema が止めている（`event.defaultPrevented` は `true`）
 - readOnly / viewOnly でも呼び出される
 
+#### 画面の文言（`labels`）
+
+wema が描く UI の文言は、何も指定しなければ英語で出る。対象は、付箋のポップアップ、接続線のポップアップ、文字のツールバー、画像の上のボタン、畳んだ付箋の開閉のリンク。`labels` オプションで差し替えられる。日本語の文言は `jaLabels` として同梱している。
+
+```typescript
+import { WemaBoard, jaLabels } from '@kanf/wema';
+
+const board = new WemaBoard({ container, labels: jaLabels });
+```
+
+一部だけを変えるときは、変えるキーだけを渡す。渡さなかったキーは英語のまま出る。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  labels: {
+    ...jaLabels,
+    duplicate: 'コピーを作る',
+    deleteNotes: (count) => `選んだ ${count} 枚を削除`,  // 数の入る文言は関数で渡す
+  },
+});
+```
+
+- キーの一覧は、型 `WemaLabels` にある。英語の文言は `enLabels` として取り出せる。自分で訳を持つときは、`const labels: WemaLabels = { ... }` と型を付けておくと、wema が文言を足したときに、訳していないキーが型エラーになる
+- アイコンだけのボタンには、同じ文言を `title`（ポインタを乗せたときの説明）と `aria-label`（読み上げ）の両方に入れる
+- 文言は HTML として解釈しない
+- 読むのは、ボードを作るときの 1 回だけ。作ったあとで言語を切り替えるには、ボードを作り直す
+- どの言語にするかは、利用側が決めて渡す。wema は、ブラウザの言語設定を見ない
+- 畳んだ付箋のリンクの文言（`readMore` / `showLess`）は、`foldLabels` オプションでも指定できる。両方を渡したときは `foldLabels` が使われる
+- UMD 版では `Wema.jaLabels` / `Wema.enLabels`
+
 #### 付箋
 
 | メソッド | 説明 |
@@ -133,7 +165,7 @@ const board = new WemaBoard({
 ```typescript
 const board = new WemaBoard({
   container,
-  foldLabels: { more: '続きを読む', less: '折り畳む' },  // リンクの文言
+  labels: { readMore: '続きを読む', showLess: '折り畳む' },  // リンクの文言（jaLabels にも入っている）
 });
 
 board.addNote({ text: '長い本文…', foldable: true });

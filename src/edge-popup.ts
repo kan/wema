@@ -1,123 +1,124 @@
 import type { Anchor, EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.js';
 import { EdgeManager } from './edge.js';
 import { NoteManager } from './note.js';
-import { createElement } from './utils/dom.js';
+import type { TextLabelKey, WemaLabels } from './labels.js';
+import { createElement, setLabel } from './utils/dom.js';
 import type { Point } from './utils/geometry.js';
 import type { Viewport } from './viewport.js';
 
 // SVG icon helpers (24x16 viewBox)
-const LINE_ICONS: Record<LineStyle, { svg: string; title: string }> = {
+const LINE_ICONS: Record<LineStyle, { svg: string; label: TextLabelKey }> = {
   solid: {
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2"/></svg>',
-    title: 'Solid',
+    label: 'lineSolid',
   },
   dashed: {
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/></svg>',
-    title: 'Dashed',
+    label: 'lineDashed',
   },
   dotted: {
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2" stroke-dasharray="2 2"/></svg>',
-    title: 'Dotted',
+    label: 'lineDotted',
   },
 };
 
-const ARROW_ICONS: { value: ArrowHead; svg: string; title: string }[] = [
+const ARROW_ICONS: { value: ArrowHead; svg: string; label: TextLabelKey }[] = [
   {
     value: 'none',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2"/></svg>',
-    title: 'No arrow',
+    label: 'arrowNone',
   },
   {
     value: 'start',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="8" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2"/><polygon points="8,8 14,5 14,11" fill="currentColor"/></svg>',
-    title: 'Arrow at start',
+    label: 'arrowStart',
   },
   {
     value: 'end',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="2"/><polygon points="16,5 22,8 16,11" fill="currentColor"/></svg>',
-    title: 'Arrow at end',
+    label: 'arrowEnd',
   },
   {
     value: 'both',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="8" y1="8" x2="16" y2="8" stroke="currentColor" stroke-width="2"/><polygon points="8,8 14,5 14,11" fill="currentColor"/><polygon points="16,5 22,8 16,11" fill="currentColor"/></svg>',
-    title: 'Arrow at both ends',
+    label: 'arrowBoth',
   },
 ];
 
-const ARROW_SIZE_ICONS: { value: number; svg: string; title: string }[] = [
+const ARROW_SIZE_ICONS: { value: number; svg: string; label: TextLabelKey }[] = [
   {
     value: 8,
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="2"/><polygon points="14,5.5 19,8 14,10.5" fill="currentColor"/></svg>',
-    title: 'Small',
+    label: 'sizeSmall',
   },
   {
     value: 12,
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="13" y2="8" stroke="currentColor" stroke-width="2"/><polygon points="13,4 21,8 13,12" fill="currentColor"/></svg>',
-    title: 'Medium',
+    label: 'sizeMedium',
   },
   {
     value: 18,
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="2"/><polygon points="11,2 23,8 11,14" fill="currentColor"/></svg>',
-    title: 'Large',
+    label: 'sizeLarge',
   },
 ];
 
-const WIDTH_ICONS: { value: number; svg: string; title: string }[] = [
+const WIDTH_ICONS: { value: number; svg: string; label: TextLabelKey }[] = [
   {
     value: 1,
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="1"/></svg>',
-    title: 'Thin',
+    label: 'widthThin',
   },
   {
     value: 2,
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2"/></svg>',
-    title: 'Normal',
+    label: 'widthNormal',
   },
   {
     value: 4,
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="4"/></svg>',
-    title: 'Thick',
+    label: 'widthThick',
   },
 ];
 
-const ROUTING_ICONS: { value: EdgeRouting; svg: string; title: string }[] = [
+const ROUTING_ICONS: { value: EdgeRouting; svg: string; label: TextLabelKey }[] = [
   {
     value: 'curve',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><path d="M2 14 C8 14, 16 2, 22 2" stroke="currentColor" stroke-width="2" fill="none"/></svg>',
-    title: 'Curve',
+    label: 'routeCurve',
   },
   {
     value: 'polyline',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><polyline points="2,14 2,2 22,2" stroke="currentColor" stroke-width="2" fill="none"/></svg>',
-    title: 'Polyline',
+    label: 'routePolyline',
   },
 ];
 
-const ANCHOR_ICONS: { value: Anchor; svg: string; title: string }[] = [
+const ANCHOR_ICONS: { value: Anchor; svg: string; label: TextLabelKey }[] = [
   {
     value: 'auto',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="8" r="1.5" fill="currentColor"/></svg>',
-    title: 'Auto',
+    label: 'anchorAuto',
   },
   {
     value: 'top',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="6" y="4" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="4" r="2" fill="currentColor"/></svg>',
-    title: 'Top',
+    label: 'anchorTop',
   },
   {
     value: 'right',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="4" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="16" cy="8" r="2" fill="currentColor"/></svg>',
-    title: 'Right',
+    label: 'anchorRight',
   },
   {
     value: 'bottom',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="6" y="2" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>',
-    title: 'Bottom',
+    label: 'anchorBottom',
   },
   {
     value: 'left',
     svg: '<svg width="24" height="16" viewBox="0 0 24 16"><rect x="8" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>',
-    title: 'Left',
+    label: 'anchorLeft',
   },
 ];
 
@@ -130,6 +131,7 @@ export class EdgeStylePopup {
   private boardEl: HTMLElement;
   private edgeManager: EdgeManager;
   private noteManager: NoteManager;
+  private labels: WemaLabels;
   private onDelete: (edgeId: EdgeId) => void;
   private currentEdgeId: EdgeId | null = null;
   /** The clicked point of the edge, in board coordinates */
@@ -142,12 +144,15 @@ export class EdgeStylePopup {
     view: Viewport;
     edgeManager: EdgeManager;
     noteManager: NoteManager;
+    /** Texts of the headings and the buttons */
+    labels: WemaLabels;
     onDelete: (edgeId: EdgeId) => void;
   }) {
     this.boardEl = options.boardEl;
     this.view = options.view;
     this.edgeManager = options.edgeManager;
     this.noteManager = options.noteManager;
+    this.labels = options.labels;
     this.onDelete = options.onDelete;
 
     this.popupEl = createElement('div', 'wema-edge-popup');
@@ -175,7 +180,8 @@ export class EdgeStylePopup {
     // --- Collapsible details section (Route / From / To) ---
     const detailsWrapper = createElement('div', 'wema-popup-details');
     const detailsToggle = createElement('button', 'wema-popup-details-toggle') as HTMLButtonElement;
-    detailsToggle.innerHTML = `${CHEVRON_ICON} Details`;
+    detailsToggle.innerHTML = CHEVRON_ICON;
+    detailsToggle.append(` ${this.labels.details}`);
     const detailsContent = createElement('div', 'wema-popup-details-content');
 
     if (this.detailsOpen) {
@@ -193,13 +199,13 @@ export class EdgeStylePopup {
     // Route section
     const routeSection = createElement('div', 'wema-popup-section');
     const routeLabel = createElement('div', 'wema-popup-label');
-    routeLabel.textContent = 'Route';
+    routeLabel.textContent = this.labels.route;
     routeSection.appendChild(routeLabel);
     const routeGroup = createElement('div', 'wema-popup-group');
     for (const item of ROUTING_ICONS) {
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = item.svg;
-      btn.title = item.title;
+      setLabel(btn, this.labels[item.label]);
       if (item.value === routing) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -213,13 +219,13 @@ export class EdgeStylePopup {
     // From anchor section
     const fromAnchorSection = createElement('div', 'wema-popup-section');
     const fromAnchorLabel = createElement('div', 'wema-popup-label');
-    fromAnchorLabel.textContent = 'From';
+    fromAnchorLabel.textContent = this.labels.from;
     fromAnchorSection.appendChild(fromAnchorLabel);
     const fromAnchorGroup = createElement('div', 'wema-popup-group');
     for (const item of ANCHOR_ICONS) {
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = item.svg;
-      btn.title = item.title;
+      setLabel(btn, this.labels[item.label]);
       if (item.value === edge.fromAnchor) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -233,13 +239,13 @@ export class EdgeStylePopup {
     // To anchor section
     const toAnchorSection = createElement('div', 'wema-popup-section');
     const toAnchorLabel = createElement('div', 'wema-popup-label');
-    toAnchorLabel.textContent = 'To';
+    toAnchorLabel.textContent = this.labels.to;
     toAnchorSection.appendChild(toAnchorLabel);
     const toAnchorGroup = createElement('div', 'wema-popup-group');
     for (const item of ANCHOR_ICONS) {
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = item.svg;
-      btn.title = item.title;
+      setLabel(btn, this.labels[item.label]);
       if (item.value === edge.toAnchor) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -259,14 +265,14 @@ export class EdgeStylePopup {
     // Line style section
     const lineSection = createElement('div', 'wema-popup-section');
     const lineLabel = createElement('div', 'wema-popup-label');
-    lineLabel.textContent = 'Line';
+    lineLabel.textContent = this.labels.line;
     lineSection.appendChild(lineLabel);
     const lineGroup = createElement('div', 'wema-popup-group');
     for (const ls of ['solid', 'dashed', 'dotted'] as LineStyle[]) {
       const icon = LINE_ICONS[ls];
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = icon.svg;
-      btn.title = icon.title;
+      setLabel(btn, this.labels[icon.label]);
       if (ls === lineStyle) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -280,13 +286,13 @@ export class EdgeStylePopup {
     // Arrow section
     const arrowSection = createElement('div', 'wema-popup-section');
     const arrowLabel = createElement('div', 'wema-popup-label');
-    arrowLabel.textContent = 'Arrow';
+    arrowLabel.textContent = this.labels.arrow;
     arrowSection.appendChild(arrowLabel);
     const arrowGroup = createElement('div', 'wema-popup-group');
     for (const item of ARROW_ICONS) {
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = item.svg;
-      btn.title = item.title;
+      setLabel(btn, this.labels[item.label]);
       if (item.value === arrowHead) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -300,13 +306,13 @@ export class EdgeStylePopup {
     // Arrow size section
     const arrowSizeSection = createElement('div', 'wema-popup-section');
     const arrowSizeLabel = createElement('div', 'wema-popup-label');
-    arrowSizeLabel.textContent = 'Size';
+    arrowSizeLabel.textContent = this.labels.size;
     arrowSizeSection.appendChild(arrowSizeLabel);
     const arrowSizeGroup = createElement('div', 'wema-popup-group');
     for (const item of ARROW_SIZE_ICONS) {
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = item.svg;
-      btn.title = item.title;
+      setLabel(btn, this.labels[item.label]);
       if (item.value === arrowSize) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -320,13 +326,13 @@ export class EdgeStylePopup {
     // Width section
     const widthSection = createElement('div', 'wema-popup-section');
     const widthLabel = createElement('div', 'wema-popup-label');
-    widthLabel.textContent = 'Width';
+    widthLabel.textContent = this.labels.width;
     widthSection.appendChild(widthLabel);
     const widthGroup = createElement('div', 'wema-popup-group');
     for (const item of WIDTH_ICONS) {
       const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
       btn.innerHTML = item.svg;
-      btn.title = item.title;
+      setLabel(btn, this.labels[item.label]);
       if (item.value === strokeWidth) btn.classList.add('active');
       btn.addEventListener('click', () => {
         if (!this.currentEdgeId) return;
@@ -341,7 +347,7 @@ export class EdgeStylePopup {
     const deleteSection = createElement('div', 'wema-popup-section wema-popup-delete-section');
     const deleteBtn = createElement('button', 'wema-popup-btn wema-popup-btn-delete') as HTMLButtonElement;
     deleteBtn.innerHTML = TRASH_ICON;
-    deleteBtn.title = 'Delete';
+    setLabel(deleteBtn, this.labels.delete);
     deleteBtn.addEventListener('click', () => {
       if (!this.currentEdgeId) return;
       const id = this.currentEdgeId;

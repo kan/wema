@@ -16,6 +16,7 @@ import type {
   HistoryDelta,
   ChangeOrigin,
 } from './types.js';
+import { type WemaLabels, resolveLabels } from './labels.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
 import { DragManager, DRAG_THRESHOLD } from './drag.js';
@@ -85,6 +86,8 @@ export class WemaBoard {
   private onImageUpload?: (file: File) => Promise<string>;
   private changePending = false;
   private container: HTMLElement;
+  /** The texts of the UI (the `labels` and `foldLabels` options over the English ones) */
+  private labels: WemaLabels;
   private readOnly: boolean;
   private viewOnly: boolean;
   private defaultNoteWidth: number;
@@ -113,6 +116,7 @@ export class WemaBoard {
 
   constructor(options: WemaBoardOptions) {
     this.container = options.container;
+    this.labels = resolveLabels(options.labels, options.foldLabels);
     this.readOnly = options.readOnly ?? false;
     this.viewOnly = options.viewOnly ?? false;
     this.defaultNoteWidth = options.defaultNoteWidth ?? 200;
@@ -175,7 +179,7 @@ export class WemaBoard {
       },
       onLinkClick: options.onLinkClick,
       hostRender: options.renderNote,
-      foldLabels: options.foldLabels,
+      labels: this.labels,
     });
 
     this.selectionManager = new SelectionManager({
@@ -257,6 +261,7 @@ export class WemaBoard {
       view: this.view,
       edgeManager: this.edgeManager,
       noteManager: this.noteManager,
+      labels: this.labels,
       onDelete: (edgeId) => {
         this.edgeManager.deselectEdge();
         this.edgeManager.deleteEdge(edgeId);
@@ -266,6 +271,7 @@ export class WemaBoard {
     this.notePopup = new NoteStylePopup({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
+      labels: this.labels,
       toScreen: (x, y) => this.view.boardToScreen(x, y),
       onColorChange: (noteId, color) => {
         this.noteManager.updateNote(noteId, { color });
@@ -330,6 +336,7 @@ export class WemaBoard {
 
     this.richTextToolbar = new RichTextToolbar({
       boardEl: this.boardEl,
+      labels: this.labels,
       readOnly: this.readOnly,
       viewOnly: this.viewOnly,
     });
@@ -1394,7 +1401,7 @@ export class WemaBoard {
     input.style.cssText = 'width:200px;padding:4px 6px;border:1px solid #ddd;border-radius:3px;font-size:12px;';
 
     const okBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
-    okBtn.textContent = 'OK';
+    okBtn.textContent = this.labels.ok;
     okBtn.addEventListener('click', () => {
       const rawUrl = input.value.trim();
       if (rawUrl) this.embedUrl(noteId, rawUrl);
