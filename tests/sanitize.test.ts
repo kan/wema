@@ -135,6 +135,61 @@ describe('sanitizeHtml', () => {
   });
 });
 
+describe('sanitizeHtml of pasted HTML', () => {
+  const paste = (html: string): string => sanitizeHtml(html, { pasted: true });
+
+  it('drops the look the browser wrote into the copied text', () => {
+    // What Chrome puts on the clipboard for plain text copied from a note
+    const input = '<meta charset="utf-8"><span style="color: rgb(51, 51, 51); font-size: 14px; '
+      + 'font-style: normal; font-weight: 400; text-align: start; '
+      + 'background-color: rgb(255, 249, 196); display: inline !important;">pasted text</span>';
+    const result = paste(input);
+    expect(result).not.toContain('color');
+    expect(result).not.toContain('font-size');
+    expect(result).not.toContain('display');
+    // Nothing is left of the span: "normal" and "400" are no emphasis
+    expect(result).toBe('pasted text');
+  });
+
+  it('replaces a span left without attributes by its text', () => {
+    expect(paste('a <span style="color: red;">b</span> c')).toBe('a b c');
+    expect(paste('<span style="color: red;"><span style="font-size: 20px;">b</span></span>')).toBe('b');
+  });
+
+  it('keeps emphasis written as a style', () => {
+    expect(paste('<span style="font-weight: 700; color: red;">b</span>'))
+      .toBe('<span style="font-weight: 700;">b</span>');
+    expect(paste('<span style="font-style: italic;">i</span>'))
+      .toBe('<span style="font-style: italic;">i</span>');
+  });
+
+  it('what a paste keeps survives the next load', () => {
+    for (const style of ['font-weight: 700;', 'font-style: italic;', 'text-decoration-line: line-through;']) {
+      const kept = paste(`<span style="${style} color: red;">x</span>`);
+      expect(kept).toContain('style=');
+      expect(sanitizeHtml(kept)).toBe(kept);
+    }
+  });
+
+  it('keeps tags, links and lists', () => {
+    const input = '<b>bold</b> <a href="https://example.com">link</a><ul><li>item</li></ul>';
+    expect(paste(input)).toBe(input);
+  });
+
+  it('keeps a span that still carries a class', () => {
+    expect(paste('<span class="x" style="color: red;">b</span>')).toBe('<span class="x">b</span>');
+  });
+
+  it('still removes what is never allowed', () => {
+    expect(paste('<span style="color: red;" onclick="x()">b</span><script>alert(1)</script>')).toBe('b');
+  });
+
+  it('leaves stored HTML as it is: a color given in a note is kept', () => {
+    const input = '<span style="color: rgb(211, 47, 47);">red</span>';
+    expect(sanitizeHtml(input)).toBe(input);
+  });
+});
+
 describe('escapeHtml', () => {
   it('escapes ampersands', () => {
     expect(escapeHtml('A & B')).toBe('A &amp; B');

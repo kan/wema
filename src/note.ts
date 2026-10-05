@@ -722,7 +722,7 @@ export class NoteManager {
       const html = e.clipboardData?.getData('text/html');
       const plain = e.clipboardData?.getData('text/plain') ?? '';
       if (html) {
-        insertHtmlAtCaret(sanitizeHtml(html));
+        insertHtmlAtCaret(sanitizeHtml(html, { pasted: true }));
       } else {
         insertHtmlAtCaret(escapeHtml(plain).replace(/\n/g, '<br>'));
       }

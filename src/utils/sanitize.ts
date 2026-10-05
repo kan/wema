@@ -20,9 +20,23 @@ const REMOVE_TAGS = new Set(['script', 'style', 'noscript', 'object', 'embed', '
 /** CSS properties allowed in inline style */
 const ALLOWED_CSS_PROPS = new Set([
   'color', 'background-color', 'font-size', 'font-weight', 'font-style',
-  'text-decoration', 'text-align', 'margin', 'padding', 'display',
+  'text-decoration', 'text-decoration-line', 'text-align', 'margin', 'padding', 'display',
   'list-style-type', 'white-space',
 ]);
+
+/**
+ * CSS properties kept in the inline style of pasted HTML: the ones that carry
+ * emphasis. Everything else is how the text looked where it was copied,
+ * which a browser writes into the copied HTML by itself. All of these are in
+ * ALLOWED_CSS_PROPS too: what a paste keeps must survive the next load.
+ * (`text-decoration-line` is what a browser lists for a `text-decoration`.)
+ */
+const PASTED_CSS_PROPS = new Set([
+  'font-weight', 'font-style', 'text-decoration', 'text-decoration-line',
+]);
+
+/** Values of the PASTED_CSS_PROPS that mean "no emphasis" (the browser writes them for ordinary text) */
+const PLAIN_CSS_VALUES = new Set(['normal', '400', 'none']);
 
 /** URL schemes allowed in href/src attributes (relative URLs are always allowed) */
 const SAFE_URL_SCHEMES = new Set(['http', 'https', 'mailto', 'tel']);
@@ -77,18 +91,34 @@ export function resolveSafeUrl(href: string): string | null {
 /**
  * Sanitize an HTML string by removing disallowed tags, attributes,
  * and dangerous content (event handlers, URLs with unsafe schemes).
+ *
+ * With `pasted`, the HTML comes from the clipboard: what it looked like
+ * where it was copied (color, background, font size, spacing) is dropped as
+ * well, so that the text takes the look of the note it is pasted into. A
+ * browser writes all of that into the copied HTML by itself. Bold, italic
+ * and line decorations are kept.
  */
-export function sanitizeHtml(html: string): string {
+export function sanitizeHtml(html: string, options?: { pasted?: boolean }): string {
   const parser = new DOMParser();
   const doc = parser.parseFromString(`<body>${html}</body>`, 'text/html');
   const body = doc.body;
 
-  walkAndSanitize(body);
+  walkAndSanitize(body, options?.pasted ?? false);
 
   return body.innerHTML;
 }
 
-function walkAndSanitize(node: Node): void {
+/** Replace an element by its children */
+function unwrap(el: Element): void {
+  const fragment = el.ownerDocument.createDocumentFragment();
+  while (el.firstChild) {
+    fragment.appendChild(el.firstChild);
+  }
+  el.parentNode?.replaceChild(fragment, el);
+}
+
+/** Sanitize the children of a node. `pasted`: the HTML comes from the clipboard (see `sanitizeHtml`). */
+function walkAndSanitize(node: Node, pasted: boolean): void {
   const children = Array.from(node.childNodes);
 
   for (const child of children) {
@@ -114,13 +144,9 @@ function walkAndSanitize(node: Node): void {
 
     if (!ALLOWED_TAGS.has(tagName)) {
       // Replace disallowed element with its children (unwrap)
-      const fragment = el.ownerDocument.createDocumentFragment();
-      while (el.firstChild) {
-        fragment.appendChild(el.firstChild);
-      }
-      el.parentNode?.replaceChild(fragment, el);
+      unwrap(el);
       // Re-walk inserted children
-      walkAndSanitize(node);
+      walkAndSanitize(node, pasted);
       return;
     }
 
@@ -155,7 +181,7 @@ function walkAndSanitize(node: Node): void {
       // Allow class and style globally
       if (name === 'class') continue;
       if (name === 'style') {
-        sanitizeStyle(el as HTMLElement);
+        sanitizeStyle(el as HTMLElement, pasted);
         continue;
       }
 
@@ -179,17 +205,26 @@ function walkAndSanitize(node: Node): void {
     }
 
     // Recurse into children
-    walkAndSanitize(el);
+    walkAndSanitize(el, pasted);
+
+    // A span that carried nothing but a look that was dropped
+    if (pasted && tagName === 'span' && el.attributes.length === 0) {
+      unwrap(el);
+    }
   }
 }
 
-function sanitizeStyle(el: HTMLElement): void {
+function sanitizeStyle(el: HTMLElement, pasted: boolean): void {
   const style = el.style;
+  const cssProps = pasted ? PASTED_CSS_PROPS : ALLOWED_CSS_PROPS;
   const propsToRemove: string[] = [];
 
   for (let i = 0; i < style.length; i++) {
     const prop = style[i];
-    if (!ALLOWED_CSS_PROPS.has(prop)) {
+    // In pasted HTML, a value that says "no emphasis" is the look of
+    // ordinary text, not something to keep
+    const plain = pasted && PLAIN_CSS_VALUES.has(style.getPropertyValue(prop));
+    if (!cssProps.has(prop) || plain) {
       propsToRemove.push(prop);
     }
   }
