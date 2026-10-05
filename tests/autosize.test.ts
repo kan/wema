@@ -250,6 +250,94 @@ describe('autoSize measurement', () => {
     });
   });
 
+  describe('when notes are loaded or created', () => {
+    /**
+     * Make every note element report this rendered size, from the moment it
+     * is created (the size of an element cannot be set before it exists)
+     */
+    function renderNotesAt(width: number, height: number): () => void {
+      const proto = HTMLElement.prototype;
+      const original = {
+        width: Object.getOwnPropertyDescriptor(proto, 'offsetWidth'),
+        height: Object.getOwnPropertyDescriptor(proto, 'offsetHeight'),
+      };
+      const sized = (size: number) => ({
+        configurable: true,
+        get(this: HTMLElement): number { return this.classList.contains('wema-note') ? size : 0; },
+      });
+      Object.defineProperty(proto, 'offsetWidth', sized(width));
+      Object.defineProperty(proto, 'offsetHeight', sized(height));
+      return () => {
+        if (original.width) Object.defineProperty(proto, 'offsetWidth', original.width);
+        if (original.height) Object.defineProperty(proto, 'offsetHeight', original.height);
+      };
+    }
+
+    const data = (): Parameters<WemaBoard['importData']>[0] => ({
+      version: 1,
+      notes: [
+        { id: 'auto', x: 0, y: 0, width: 400, height: 300, text: 'short', color: '#FFF9C4', zIndex: 1, autoSize: true },
+        { id: 'plain', x: 500, y: 0, width: 200, height: 150, text: 'plain', color: '#FFF9C4', zIndex: 2 },
+      ],
+      edges: [],
+    });
+
+    it('importData gives an autoSize note the size it is rendered at', async () => {
+      const restore = renderNotesAt(80, 54);
+      try {
+        const updates = recordUpdates();
+        const commits = recordCommits();
+        board.importData(data());
+        await flush();
+
+        expect(board.getNote('auto')).toEqual(expect.objectContaining({ width: 80, height: 54 }));
+        expect(board.exportData().notes[0]).toEqual(expect.objectContaining({ width: 80, height: 54 }));
+        // The size of a note that is not measured is the one in the data
+        expect(board.getNote('plain')).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+        // Loading is not an operation
+        expect(updates).toHaveLength(0);
+        expect(commits).toHaveLength(0);
+        expect(board.canUndo()).toBe(false);
+
+        // And nothing is left over to report in the next update
+        board.updateNote('auto', { x: 10 });
+        expect(updates[0].prev).toEqual(expect.objectContaining({ width: 80, height: 54 }));
+      } finally {
+        restore();
+      }
+    });
+
+    it('the data option does the same', () => {
+      const restore = renderNotesAt(80, 54);
+      try {
+        board.destroy();
+        board = new WemaBoard({ container, data: data() });
+        expect(board.getNote('auto')).toEqual(expect.objectContaining({ width: 80, height: 54 }));
+      } finally {
+        restore();
+      }
+    });
+
+    it('a note that is not laid out keeps the size in the data', () => {
+      // jsdom reports 0 for every size: as when the board is not displayed
+      board.importData(data());
+      expect(board.getNote('auto')).toEqual(expect.objectContaining({ width: 400, height: 300 }));
+    });
+
+    it('addNote reports the rendered size of an autoSize note in note:create', () => {
+      const restore = renderNotesAt(80, 54);
+      try {
+        const created: WemaEventMap['note:create'][] = [];
+        board.on('note:create', (p) => created.push(p));
+        const note = board.addNote({ text: 'short', width: 400, height: 300, autoSize: true });
+        expect(note).toEqual(expect.objectContaining({ width: 80, height: 54 }));
+        expect(created[0].note).toEqual(expect.objectContaining({ width: 80, height: 54 }));
+      } finally {
+        restore();
+      }
+    });
+  });
+
   describe('fitting once (resizeNotesToContent)', () => {
     function noteEl(noteId: string): HTMLElement {
       return container.querySelector(`[data-note-id="${noteId}"]`) as HTMLElement;

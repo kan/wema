@@ -13,6 +13,8 @@ autoSize の付箋の `width` / `height` は、内容と CSS から決まる派�
 - 入力中と描画後（`requestAnimationFrame`）の計測は `note:update` を出さない。モデルを更新し、`onMeasure` で接続線の再描画と `change` だけを行う（`NoteManager.measure`）
 - 計測によるサイズの変化は、次の `note:update` の `prev` に計測前の値を入れて報告する（`unreportedSizeBase` / `emitUpdate`）。入力なら blur 時にテキストと同じ 1 件になる
 - 計測するのは autoSize の付箋（幅と高さ）と、`foldable` の付箋（高さだけ。`.claude/rules/fold.md`）。以下の規則は両方に当てはまる
+- 付箋の要素を作った時点で計測する（`renderNote()` の末尾）。データや引数の `width` / `height` は、別のフォントの環境で保存された値や見積もりのことがあり、表示と一致するとは限らない。`note:create` には計測後の値が入る
+  - 読み込み（`renderAll()`）では、すべての付箋を DOM に入れてから、まとめて計測する。1 枚ずつ「追加して計測」を繰り返すと、付箋の数だけレイアウトの計算が走る。この計測はイベントも履歴も出さず、`unreportedSizeBase` にも入れない（読み込みは操作ではない）
 - 非表示の付箋（接続線の折り畳み、絞り込み）はレイアウトされないので計測できない。再表示のときに `recomputeVisibility()` が `NoteManager.remeasure()` を呼んで計測し直す
 - `updateNote` が `autoSize` / `foldable` / `text` / `meta` / `width` / `height` を変えるときは、その場で計測してから `note:update` を出す。autoSize の切り替えとその結果のサイズが 1 件になり、Undo で元のサイズへ戻る
 - Undo / Redo の再生と `applyRemote` は `NoteManager.replayUpdate` を使う。履歴に記録されない更新なので、未報告の計測前サイズを消費しない（消費すると、そのサイズの変化がどの `history:commit` にも載らなくなる）

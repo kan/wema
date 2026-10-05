@@ -673,11 +673,23 @@ export class NoteManager {
       if (note.zIndex >= this.zCounter) {
         this.zCounter = note.zIndex + 1;
       }
-      this.renderNote(this.notes.get(note.id)!);
+      this.renderNote(this.notes.get(note.id)!, false);
+    }
+    // The sizes in the data are those of where it was saved (another font,
+    // or an estimate): the measured notes take the size they have here. All
+    // the notes are in the document first, so that reading the sizes one
+    // after the other does not lay the board out again for each note.
+    for (const note of this.notes.values()) {
+      if (isMeasured(note)) this.applyMeasuredSize(note);
     }
   }
 
-  private renderNote(note: WemaNote): void {
+  /**
+   * Create the element of a note. `measure`: copy the rendered size of a
+   * measured note to the model right away (`renderAll` does it for all the
+   * notes at once instead).
+   */
+  private renderNote(note: WemaNote, measure = true): void {
     const el = createElement('div', 'wema-note');
     el.dataset.noteId = note.id;
 
@@ -875,9 +887,9 @@ export class NoteManager {
     this.elements.set(note.id, el);
     this.applyEditable(note.id);
     this.drawByHost(note);
-    // A foldable note starts closed: its height in the model is the closed
-    // one from the start (and in the note:create that follows)
-    if (note.foldable) this.applyMeasuredSize(note);
+    // The size of a measured note is the rendered one from the start (and in
+    // the note:create that follows). A foldable note starts closed.
+    if (measure && isMeasured(note)) this.applyMeasuredSize(note);
   }
 
   /**
