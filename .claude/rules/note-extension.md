@@ -28,7 +28,8 @@ wema-kake の「子ページの付箋」のために足した 2 つの口（issu
 - 「利用側が描いた付箋かどうか」の状態は、このクラスだけが持つ（`isHostDrawn()` はクラスを見る）。同じ情報を別の変数に持たない
 - 利用側の関数を呼ぶ場所は `NoteManager.drawByHost()` の 1 か所。呼ぶのは、要素を作ったとき、`text` または `meta` を変える更新のとき、`refresh()` のとき。**移動やリサイズのたびに呼ばないこと**（ドラッグ中は pointermove ごとに更新が来る）
 - 利用側の関数が例外を投げても、付箋の作成や更新を途中で止めない（`drawByHost()` が捕まえて `console.error` に出し、ふつうの付箋として扱う）。止めると、付箋がモデルに入ったのに `note:create` が出ない、`importData()` が途中で終わる、といった不整合になる
-- 本文を編集できるかどうかは `applyEditable()` の 1 か所で決める（readOnly、viewOnly、利用側が描いた付箋のどれかなら不可）。`contentEditable` を別の場所で書き換えない
+- 本文を編集できるかどうかは `isEditable()` の 1 か所で決める（readOnly、viewOnly、利用側が描いた付箋のどれかなら不可）。`contentEditable` へ反映するのは `applyEditable()` だけで、別の場所で書き換えない
+- **本文のキー操作やボタンで DOM を書き換える処理は、先に `isEditable()` を確かめる。** 本文の中のチェックボックスは、本文が編集できない状態でもフォーカスを受け、そこで押したキーの `keydown` が本文の要素へ届く
 - **本文の要素を読む、または書き込むときは、必ず `getTextElement(id)` を通す。** 利用側が描いた付箋では `null` を返す。隠れている本文の `innerHTML` はブラウザが正規化した値で、モデルの `text` と一致しないことがあり、そこへ書き込んでもデータに反映されない。`querySelector('.wema-note-content')` を直接使ってよいのは、表示と編集可否を決める `NoteManager` の内部（`contentElement()`）だけ
 - ふつうの付箋から利用側の描画へ切り替わるときは、切り替える前に本文を blur して、編集中の内容を確定させる
 - ドラッグは、ムーブハンドルに加えて `.wema-note-custom` の中からも始まる。`NO_DRAG_SELECTOR`（`src/drag.ts`）に当たる要素と、スクロールバーの上では始めない

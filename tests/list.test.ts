@@ -475,6 +475,36 @@ describe('list editing in a note', () => {
     expect(contentOf(note.id).querySelectorAll('input').length).toBe(1);
   });
 
+  it.each(['readOnly', 'viewOnly'] as const)('keys do not edit a list in %s mode', (mode) => {
+    const html = '<ul class="wema-checklist"><li><input type="checkbox">one</li><li><input type="checkbox">two</li></ul>';
+    const note = board.addNote({ text: html });
+    if (mode === 'readOnly') board.setReadOnly(true);
+    else board.setViewOnly(true);
+
+    // The keys reach the text from a checkbox in it, which can take the focus
+    placeCaret(note.id, 'two');
+    const checkbox = contentOf(note.id).querySelectorAll('input')[1];
+    const press = (key: string): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      checkbox.dispatchEvent(event);
+      return event;
+    };
+    expect(press('Tab').defaultPrevented).toBe(false);
+    expect(press('Enter').defaultPrevented).toBe(false);
+    expect(contentOf(note.id).innerHTML).toBe(html);
+    expect(board.getNote(note.id)?.text).toBe(html);
+  });
+
+  it('a list button does not edit the note in readOnly mode', () => {
+    const note = board.addNote({ text: 'one' });
+    clickNote(note.id);
+    const button = popupButton('Bulleted List');
+    board.setReadOnly(true);
+    placeCaret(note.id, 'one');
+    button.click();
+    expect(board.getNote(note.id)?.text).toBe('one');
+  });
+
   it('an indent by Tab is committed at once, as one update', async () => {
     const note = board.addNote({ text: '<ul><li>one</li><li>two</li></ul>' });
     await flush();

@@ -239,7 +239,7 @@ export class NoteManager {
     edit: (content: HTMLElement, range: Range | null) => Range | null,
   ): boolean {
     const content = this.getTextElement(id);
-    if (!content) return false;
+    if (!content || !this.isEditable(id)) return false;
     const next = edit(content, getSelectionRange(content));
     if (!next) return false;
     content.focus();
@@ -252,11 +252,21 @@ export class NoteManager {
     return (this.elements.get(id)?.querySelector('.wema-note-content') as HTMLElement | undefined) ?? null;
   }
 
+  /**
+   * Whether the text of a note can be edited: not in readOnly / viewOnly mode,
+   * and not when the host draws the note. Handlers ask this too, because a
+   * key also arrives from a checkbox in the text, which takes the focus even
+   * while the text itself cannot be edited.
+   */
+  private isEditable(id: NoteId): boolean {
+    return !this.readOnly && !this.viewOnly && !this.isHostDrawn(id);
+  }
+
   /** Make the text of a note editable or not, from the board's mode and who draws the note */
   private applyEditable(id: NoteId): void {
     const content = this.contentElement(id);
     if (!content) return;
-    const editable = !this.readOnly && !this.viewOnly && !this.isHostDrawn(id);
+    const editable = this.isEditable(id);
     content.contentEditable = editable ? 'true' : 'false';
     if (!editable) content.blur();
   }
@@ -588,6 +598,7 @@ export class NoteManager {
     // Tab / Shift+Tab in a list: indent / outdent the items
     content.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key !== 'Tab' || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!this.isEditable(note.id)) return;
       const range = getSelectionRange(content);
       if (!range || !isInListItem(content, range)) return;
       // Inside a list the key never moves the focus, even when the item cannot move
@@ -599,6 +610,7 @@ export class NoteManager {
     // Enter key in checklist: insert new TODO item
     content.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key !== 'Enter' || e.isComposing) return;
+      if (!this.isEditable(note.id)) return;
       const sel = document.getSelection();
       if (!sel || sel.rangeCount === 0) return;
       const li = (sel.anchorNode?.nodeType === Node.TEXT_NODE
