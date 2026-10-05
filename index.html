@@ -47,6 +47,7 @@
     <button id="btn-lock">Lock</button>
     <button id="btn-export">Export JSON</button>
     <button id="btn-import">Import JSON</button>
+    <button id="btn-clear">Clear</button>
     <span id="status" style="margin-left: auto; color: #888; font-size: 12px;"></span>
   </div>
   <div id="board-container"></div>
@@ -56,17 +57,42 @@
   <script type="module">
     import { WemaBoard } from './src/index.ts';
 
+    // Keep the board over a reload of this page (the dev server reloads it on
+    // every change of the source)
+    const STORAGE_KEY = 'wema-dev-board';
+    function loadSaved() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        return saved ? JSON.parse(saved) : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    function save(data) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      } catch {
+        // Storage full or blocked: the page still works, it just does not keep the board
+      }
+    }
+
     const container = document.getElementById('board-container');
-    const board = new WemaBoard({ container });
+    const board = new WemaBoard({ container, data: loadSaved() });
+
+    board.on('change', ({ data }) => save(data));
+    // Text being typed is committed on blur: save it when the page goes away too
+    window.addEventListener('pagehide', () => save(board.exportData()));
 
     // Expose for console debugging
     window.__board = board;
 
     const status = document.getElementById('status');
-    board.on('change', () => {
+    function updateStatus() {
       const edges = board.getEdges().length;
       status.textContent = `Notes: ${board.getNotes().length}` + (edges > 0 ? `  Edges: ${edges}` : '');
-    });
+    }
+    board.on('change', updateStatus);
+    updateStatus();
 
     // Delete button — works for both notes and edges
     const btnDelete = document.getElementById('btn-delete');
@@ -140,6 +166,14 @@
       const data = JSON.parse(text);
       board.importData(data);
       fileInput.value = '';
+    });
+
+    // Clear: empty the board (and with it, what is saved)
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      if (!confirm('Remove all notes?')) return;
+      board.importData({ version: 1, notes: [], edges: [] });
+      save(board.exportData());
+      updateStatus();
     });
   </script>
 </body>
