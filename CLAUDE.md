@@ -34,6 +34,23 @@ npm run verify:package    # npm pack の成果物に公開エントリが揃っ�
 npm run lint         # リント (tsc --noEmit)
 ```
 
+## リリース手順
+
+リリースは、ユーザーから指示されたときだけ行う。バージョン番号は、作業を始める前にユーザーへ確認する（npm への公開は取り消せない）。
+
+1. `CHANGELOG.md` の `## [Unreleased]` を `## [X.Y.Z] - YYYY-MM-DD` に書き換える
+2. `CHANGELOG.md` の末尾に、リンク定義 `[X.Y.Z]: https://github.com/kan/wema/releases/tag/vX.Y.Z` を足す（新しい版が上）
+   - **リンク定義は `[0.3.1]` で止まっている。次のリリースで、欠けている 10 件を、そのときの新しい版とあわせて足すこと。** 欠けているのは 0.3.2 / 0.3.3 / 0.4.0 / 0.5.0 / 0.6.0 / 0.7.0 / 0.7.1 / 0.8.0 / 0.8.1 / 0.9.0。タグと GitHub Release は、どの版にもある。足したら、この項目を消す
+3. `npm version X.Y.Z --no-git-tag-version` で `package.json` と `package-lock.json` を更新する
+4. `npm run lint && npm test && npm run build && npm run verify:package` を通す
+5. `CHANGELOG.md` / `package.json` / `package-lock.json` を `Release vX.Y.Z: 内容の要約` としてコミットする
+6. `git tag vX.Y.Z` でタグを付け、`main` とタグを push する（`git push origin main` と `git push origin vX.Y.Z`）
+7. push のあとは GitHub Actions に任せる。タグの push で動く `release.yml` は、GitHub Release の作成（`wema.html` を添付）と `npm publish` を行う。`main` の push で動く `pages.yml` は、デモページを更新する
+8. 公開された結果を確かめる
+   - `gh run list` で Release / CI / Pages のワークフローが成功していること
+   - `npm view @kanf/wema dist-tags --prefer-online` の `latest` が新しい版であること（公開の直後は古い値を返すことがある）
+   - `gh release view vX.Y.Z` に `wema.html` が付いていること
+
 ## リポジトリ構成
 
 ```

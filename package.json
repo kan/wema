@@ -44,7 +44,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kan/wema.git"
+    "url": "git+https://github.com/kan/wema.git"
   },
   "homepage": "https://github.com/kan/wema",
   "bugs": "https://github.com/kan/wema/issues"
