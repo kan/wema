@@ -231,6 +231,7 @@ class WemaBoard {
   getNote(id: NoteId): WemaNote | undefined;
   getNotes(): WemaNote[];
   refreshNote(id: NoteId): void;  // renderNote で描いた付箋を描き直す（データは変えない）
+  resizeNotesToContent(noteIds: NoteId[]): void;  // 内容に合うサイズへ 1 回だけ変える（autoSize は変えない。Undo 1 回分）
 
   // 接続線
   addEdge(from: NoteId, to: NoteId, params?: ...): WemaEdge;

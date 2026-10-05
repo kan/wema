@@ -6,6 +6,22 @@ import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUr
 import { normalizeMeta } from './utils/meta.js';
 import { isInListItem, indentListItems, outdentListItems, getListType, createListItem } from './utils/list.js';
 
+/** Class of a note whose size follows its content (the style sheet does the sizing) */
+const AUTO_SIZE_CLASS = 'wema-auto-size';
+
+/**
+ * A rendered size as a whole number of pixels that is not smaller than the
+ * exact size. `offsetWidth` rounds: a note set to a width a fraction of a
+ * pixel short of its content wraps the last word. `computed` is the exact
+ * size from the computed style, when the browser gives one in pixels.
+ */
+function wholePixels(offsetSize: number, computed: string): number {
+  const exact = parseFloat(computed);
+  // Only the fraction is taken from the computed style: it is the same size
+  // as offsetSize in a browser, and anything else is not a rendered size
+  return exact > offsetSize && exact - offsetSize < 1 ? offsetSize + 1 : offsetSize;
+}
+
 interface NoteManagerOptions {
   boardEl: HTMLElement;
   /** Element the notes are rendered into (the panned layer inside the board) */
@@ -308,6 +324,31 @@ export class NoteManager {
     if (!this.applyMeasuredSize(note)) return;
     if (!this.unreportedSizeBase.has(noteId)) this.unreportedSizeBase.set(noteId, before);
     this.onMeasure(noteId);
+  }
+
+  /**
+   * Resize a note once to the size its content takes: the size it would have
+   * as an autoSize note. `autoSize` itself is not changed, so the note keeps
+   * that size afterwards. Reported as one note:update, or not at all when
+   * the note has that size already.
+   */
+  resizeToContent(id: NoteId): void {
+    const note = this.notes.get(id);
+    const el = this.elements.get(id);
+    // An autoSize note already has the size of its content
+    if (!note || !el || note.autoSize) return;
+
+    // Lay the note out as an autoSize note for a moment, and read the result
+    el.classList.add(AUTO_SIZE_CLASS);
+    const style = getComputedStyle(el);
+    const width = wholePixels(el.offsetWidth, style.width);
+    const height = wholePixels(el.offsetHeight, style.height);
+    el.classList.remove(AUTO_SIZE_CLASS);
+
+    // Not laid out (hidden by a collapsed edge, or detached): nothing to fit to
+    if (width === 0 || height === 0) return;
+    if (width === note.width && height === note.height) return;
+    this.updateNote(id, { width, height });
   }
 
   /** Delete a note and remove its DOM element */
@@ -713,6 +754,6 @@ export class NoteManager {
       zIndex: String(note.zIndex),
     });
     el.style.setProperty('--wema-note-color', note.color);
-    el.classList.toggle('wema-auto-size', !!note.autoSize);
+    el.classList.toggle(AUTO_SIZE_CLASS, !!note.autoSize);
   }
 }

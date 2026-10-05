@@ -249,4 +249,210 @@ describe('autoSize measurement', () => {
       expect(updates[0].note).toEqual(expect.objectContaining({ x: 10, height: 90 }));
     });
   });
+
+  describe('fitting once (resizeNotesToContent)', () => {
+    function noteEl(noteId: string): HTMLElement {
+      return container.querySelector(`[data-note-id="${noteId}"]`) as HTMLElement;
+    }
+
+    const boardEl = (): HTMLElement => container.querySelector('.wema-board') as HTMLElement;
+
+    function pointer(type: string, target: Element, clientX: number, clientY: number): void {
+      target.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX, clientY,
+      }));
+    }
+
+    /** Press and release on the resize handle of a note, dragging by (dx, dy) in between */
+    function pressHandle(noteId: string, dx = 0, dy = 0): void {
+      // jsdom has no pointer capture
+      HTMLElement.prototype.setPointerCapture ??= () => {};
+      HTMLElement.prototype.releasePointerCapture ??= () => {};
+      const handle = noteEl(noteId).querySelector('.wema-resize-handle')!;
+      pointer('pointerdown', handle, 300, 300);
+      // The board has captured the pointer: the rest arrives there, the click too
+      if (dx !== 0 || dy !== 0) pointer('pointermove', boardEl(), 300 + dx, 300 + dy);
+      pointer('pointerup', boardEl(), 300 + dx, 300 + dy);
+      // jsdom has no layout: the board asks which edge is under the pointer
+      document.elementsFromPoint ??= () => [];
+      boardEl().dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 300 + dx, clientY: 300 + dy }));
+    }
+
+    /**
+     * Double click on the resize handle of a note. As in a browser, the
+     * dblclick event arrives at the board, which captured the pointer.
+     */
+    function dblClickHandle(noteId: string): void {
+      pressHandle(noteId);
+      pressHandle(noteId);
+      boardEl().dispatchEvent(
+        new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 300, clientY: 300 }));
+    }
+
+    it('resizes the note to the size of its content, as one update', async () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      await flush();
+      setRenderedSize(note.id, 60, 40);
+      const updates = recordUpdates();
+      const commits = recordCommits();
+
+      board.resizeNotesToContent([note.id]);
+      await flush();
+
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ width: 60, height: 40 }));
+      expect(updates).toHaveLength(1);
+      expect(updates[0].prev).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+      expect(commits).toHaveLength(1);
+    });
+
+    it('does not turn the note into an autoSize note', () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      setRenderedSize(note.id, 60, 40);
+      board.resizeNotesToContent([note.id]);
+
+      expect(board.getNote(note.id)?.autoSize).toBeUndefined();
+      expect(noteEl(note.id).classList.contains('wema-auto-size')).toBe(false);
+      expect(noteEl(note.id).style.width).toBe('60px');
+    });
+
+    it('is undone in one step, for all the notes', async () => {
+      const a = board.addNote({ text: 'a', width: 200, height: 150 });
+      const b = board.addNote({ text: 'b', width: 200, height: 150 });
+      await flush();
+      setRenderedSize(a.id, 60, 40);
+      setRenderedSize(b.id, 70, 50);
+      const commits = recordCommits();
+
+      board.resizeNotesToContent([a.id, b.id]);
+      await flush();
+      expect(commits).toHaveLength(1);
+      expect(board.getNote(b.id)).toEqual(expect.objectContaining({ width: 70, height: 50 }));
+
+      board.undo();
+      expect(board.getNote(a.id)).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+      expect(board.getNote(b.id)).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+    });
+
+    it('reports nothing when the note has the size of its content already', async () => {
+      const note = board.addNote({ text: 'a', width: 60, height: 40 });
+      await flush();
+      setRenderedSize(note.id, 60, 40);
+      const updates = recordUpdates();
+      const commits = recordCommits();
+
+      board.resizeNotesToContent([note.id]);
+      await flush();
+      expect(updates).toHaveLength(0);
+      expect(commits).toHaveLength(0);
+    });
+
+    it('leaves an autoSize note and a note that is not laid out', async () => {
+      const auto = board.addNote({ text: 'a', width: 100, height: 40, autoSize: true });
+      const hidden = board.addNote({ text: 'b', width: 200, height: 150 });
+      await flush();
+      setRenderedSize(hidden.id, 0, 0);
+      const updates = recordUpdates();
+
+      board.resizeNotesToContent([auto.id, hidden.id, 'no-such-note']);
+      expect(updates).toHaveLength(0);
+      expect(board.getNote(hidden.id)).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+    });
+
+    it('a double click on the resize handle fits the note', () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      setRenderedSize(note.id, 60, 40);
+      dblClickHandle(note.id);
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ width: 60, height: 40 }));
+      // The double click is on a note: it creates no note
+      expect(board.getNotes()).toHaveLength(1);
+    });
+
+    it('a drag of the handle followed by a press is a resize, not a double click', () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      setRenderedSize(note.id, 60, 40);
+      pressHandle(note.id, 50, 30);
+      pressHandle(note.id);
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ width: 250, height: 180 }));
+    });
+
+    it('does nothing in readOnly and viewOnly mode when called', () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      setRenderedSize(note.id, 60, 40);
+      board.setReadOnly(true);
+      board.resizeNotesToContent([note.id]);
+      board.setReadOnly(false);
+      board.setViewOnly(true);
+      board.resizeNotesToContent([note.id]);
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+    });
+
+    it('a press on the handle that only wobbles does not resize the note', async () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      await flush();
+      const commits = recordCommits();
+      pressHandle(note.id, 2, 2);
+      await flush();
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ width: 200, height: 150 }));
+      expect(commits).toHaveLength(0);
+    });
+
+    it('dragging the handle of a note smaller than the minimum does not grow the other side', () => {
+      const note = board.addNote({ text: 'a', width: 82, height: 54 });
+      pressHandle(note.id, 20, 0);
+      expect(board.getNote(note.id)).toEqual(expect.objectContaining({ width: 102, height: 54 }));
+      // It still cannot be made smaller than it is
+      pressHandle(note.id, 0, -30);
+      expect(board.getNote(note.id)?.height).toBe(54);
+    });
+
+    it('resizing by the handle keeps the selection, and the next click on the board clears it', () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      board.select([note.id]);
+      pressHandle(note.id, 50, 30);
+      expect(board.getSelection()).toEqual([note.id]);
+
+      // A press that its own handler stops (here: a collapse button), then a click on the board
+      const button = noteEl(note.id).querySelector('.wema-note-collapse-btn')!;
+      pointer('pointerdown', button, 10, 10);
+      boardEl().dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 600, clientY: 500 }));
+      expect(board.getSelection()).toEqual([]);
+    });
+
+    it('a double click on an empty area still creates a note after a handle was used', () => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      pressHandle(note.id);
+      pointer('pointerdown', boardEl(), 600, 500);
+      pointer('pointerup', boardEl(), 600, 500);
+      boardEl().dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 600, clientY: 500 }));
+      expect(board.getNotes()).toHaveLength(2);
+    });
+
+    it('a double click on the handle of a selected note fits the whole selection', () => {
+      const a = board.addNote({ text: 'a', width: 200, height: 150 });
+      const b = board.addNote({ text: 'b', width: 200, height: 150 });
+      const c = board.addNote({ text: 'c', width: 200, height: 150 });
+      for (const n of [a, b, c]) setRenderedSize(n.id, 60, 40);
+      board.select([a.id, b.id]);
+
+      dblClickHandle(a.id);
+      expect(board.getNote(a.id)?.width).toBe(60);
+      expect(board.getNote(b.id)?.width).toBe(60);
+      expect(board.getNote(c.id)?.width).toBe(200);
+
+      // The handle of a note outside the selection fits that note only
+      board.updateNote(a.id, { width: 200 });
+      dblClickHandle(c.id);
+      expect(board.getNote(c.id)?.width).toBe(60);
+      expect(board.getNote(a.id)?.width).toBe(200);
+    });
+
+    it.each(['readOnly', 'viewOnly'] as const)('a double click on the handle does nothing in %s mode', (mode) => {
+      const note = board.addNote({ text: 'a', width: 200, height: 150 });
+      setRenderedSize(note.id, 60, 40);
+      if (mode === 'readOnly') board.setReadOnly(true);
+      else board.setViewOnly(true);
+      dblClickHandle(note.id);
+      expect(board.getNote(note.id)?.width).toBe(200);
+    });
+  });
 });

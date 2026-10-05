@@ -243,6 +243,11 @@ export class WemaBoard {
       toBoardPoint: (clientX, clientY) => this.view.clientToBoard(clientX, clientY),
       onResizeStart: () => { this.historyManager.beginBatch(); },
       onResizeEnd: () => { this.historyManager.endBatch(); },
+      // A double click on the handle of a selected note fits the whole selection
+      onDoublePress: (noteId) => {
+        const selection = this.selectionManager.getSelection();
+        this.resizeNotesToContent(selection.includes(noteId) ? selection : [noteId]);
+      },
     });
 
     this.edgePopup = new EdgeStylePopup({
@@ -722,6 +727,24 @@ export class WemaBoard {
     // The popup offers text formatting only for notes that show their text.
     // It is not rebuilt otherwise: that would drop what the user is typing in it.
     if (this.noteManager.refresh(id)) this.updateNotePopup();
+  }
+
+  /**
+   * Resize notes once to the size their content takes: the size each would
+   * have as an autoSize note (as wide as its longest line, up to the maximum
+   * width of an autoSize note, and as tall as its lines). `autoSize` is not
+   * changed, so the notes keep that size when their content changes later.
+   *
+   * All the notes are resized as one undo step. A note that is autoSize
+   * already, hidden, or the right size already is left as it is.
+   * Does nothing in readOnly and viewOnly.
+   */
+  resizeNotesToContent(noteIds: NoteId[]): void {
+    if (this.readOnly || this.viewOnly) return;
+    this.batch(() => {
+      for (const id of noteIds) this.noteManager.resizeToContent(id);
+    });
+    this.updateNotePopup();
   }
 
   /** Get all notes */
