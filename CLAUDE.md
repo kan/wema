@@ -44,7 +44,6 @@ npm run lint         # リント (tsc --noEmit)
 
 1. `CHANGELOG.md` の `## [Unreleased]` を `## [X.Y.Z] - YYYY-MM-DD` に書き換える
 2. `CHANGELOG.md` の末尾に、リンク定義 `[X.Y.Z]: https://github.com/kan/wema/releases/tag/vX.Y.Z` を足す（新しい版が上）
-   - **リンク定義は `[0.3.1]` で止まっている。次のリリースで、欠けている 10 件を、そのときの新しい版とあわせて足すこと。** 欠けているのは 0.3.2 / 0.3.3 / 0.4.0 / 0.5.0 / 0.6.0 / 0.7.0 / 0.7.1 / 0.8.0 / 0.8.1 / 0.9.0。タグと GitHub Release は、どの版にもある。足したら、この項目を消す
 3. `npm version X.Y.Z --no-git-tag-version` で `package.json` と `package-lock.json` を更新する
 4. `npm run lint && npm test && npm run build && npm run verify:package` を通す
 5. `CHANGELOG.md` / `package.json` / `package-lock.json` を `Release vX.Y.Z: 内容の要約` としてコミットする
