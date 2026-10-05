@@ -588,6 +588,71 @@
   display: none;
 }
 
+/* Foldable notes (the `foldable` flag): the height follows what the note
+   shows. A note the host draws shows no text to fold, and keeps its height. */
+.wema-note.wema-foldable:not(.wema-note-host-drawn) {
+  height: auto !important;
+}
+
+/* The link that opens and closes the note; shown when the text is long */
+.wema-note-fold-toggle {
+  display: none;
+  align-self: stretch;
+  margin: 0;
+  padding: 0 12px 6px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--wema-anchor-color);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.wema-note-fold-toggle:hover {
+  opacity: 0.8;
+}
+
+.wema-note.wema-fold-long > .wema-note-fold-toggle {
+  display: block;
+}
+
+.wema-note.wema-fold-long > .wema-note-content {
+  padding-bottom: 4px;
+}
+
+/* A closed note: two lines in full. The link lies over the third one, which
+   shows through it, faded. The number of lines is also in note.ts
+   (FOLD_LINES); 1.4 is the line height of the content. */
+.wema-note.wema-folded > .wema-note-content {
+  --wema-fold-line: calc(var(--wema-note-font-size) * 1.4);
+  --wema-fold-top: 4px; /* the top padding of the content */
+  --wema-fold-mask: linear-gradient(
+    to bottom,
+    #000 calc(var(--wema-fold-top) + var(--wema-fold-line) * 2),
+    rgba(0, 0, 0, 0.2) calc(var(--wema-fold-top) + var(--wema-fold-line) * 2.15),
+    rgba(0, 0, 0, 0.1) calc(var(--wema-fold-top) + var(--wema-fold-line) * 3)
+  );
+  flex: none;
+  /* The content is a border box: its padding counts */
+  max-height: calc(var(--wema-fold-top) + var(--wema-fold-line) * 3 + 2px);
+  padding-bottom: 2px;
+  overflow: hidden;
+  -webkit-mask-image: var(--wema-fold-mask);
+  mask-image: var(--wema-fold-mask);
+}
+
+.wema-note.wema-folded > .wema-note-fold-toggle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-bottom: 4px;
+}
+
 /* Resize handle */
 .wema-resize-handle {
   position: absolute;

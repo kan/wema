@@ -196,7 +196,9 @@ export class ResizeManager {
     const newWidth = Math.max(Math.min(MIN_WIDTH, startWidth), startWidth + dx);
     const newHeight = Math.max(Math.min(MIN_HEIGHT, startHeight), startHeight + dy);
 
-    this.noteManager.updateNote(this.ctx.noteId, { width: newWidth, height: newHeight });
+    // The height of a foldable note follows what it shows: only its width is set
+    const widthOnly = this.noteManager.hasMeasuredHeight(this.ctx.noteId);
+    this.noteManager.updateNote(this.ctx.noteId, widthOnly ? { width: newWidth } : { width: newWidth, height: newHeight });
   }
 
   private onPointerUp(e: PointerEvent): void {

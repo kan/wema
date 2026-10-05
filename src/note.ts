@@ -22,6 +22,31 @@ function wholePixels(offsetSize: number, computed: string): number {
   return exact > offsetSize && exact - offsetSize < 1 ? offsetSize + 1 : offsetSize;
 }
 
+/** Class of a note with the `foldable` flag (the style sheet makes its height follow what it shows) */
+const FOLDABLE_CLASS = 'wema-foldable';
+/** Class of a foldable note whose text is long enough to fold: it shows the link that opens and closes it */
+const FOLD_LONG_CLASS = 'wema-fold-long';
+/** Class of a foldable note that is closed: it shows only the beginning of its text */
+const FOLDED_CLASS = 'wema-folded';
+/** How many lines a closed note shows in full (the next one fades out). The style sheet has the same number. */
+const FOLD_LINES = 2;
+
+/** Whether the size of a note is measured from what it shows, instead of set */
+function isMeasured(note: WemaNote): boolean {
+  return !!note.autoSize || !!note.foldable;
+}
+
+/** Whether the text in a content element takes more lines than a closed note shows in full */
+function isLongText(content: HTMLElement): boolean {
+  const style = getComputedStyle(content);
+  const px = (value: string): number => parseFloat(value) || 0;
+  // Where the browser gives no line height in pixels, the one of the style sheet (1.4)
+  const lineHeight = px(style.lineHeight) || px(style.fontSize) * 1.4;
+  const textHeight = content.scrollHeight - px(style.paddingTop) - px(style.paddingBottom);
+  // Half a line of tolerance: the margins of a list or an image add a little
+  return textHeight > lineHeight * (FOLD_LINES + 0.5);
+}
+
 interface NoteManagerOptions {
   boardEl: HTMLElement;
   /** Element the notes are rendered into (the panned layer inside the board) */
@@ -40,6 +65,8 @@ interface NoteManagerOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   /** Let the host draw a note into `container`. Return true when it did (the `renderNote` option). */
   hostRender?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  /** Texts of the link that opens and closes a foldable note (the `foldLabels` option) */
+  foldLabels?: { more?: string; less?: string };
 }
 
 /**
@@ -68,6 +95,14 @@ export class NoteManager {
    * size they had in the last one. The next note:update uses it as `prev`.
    */
   private unreportedSizeBase = new Map<NoteId, { width: number; height: number }>();
+  private foldLabels: { more: string; less: string };
+  /**
+   * The foldable notes the user opened. A state of the display only: not in
+   * the data, no event, no history. A note not in here is closed.
+   */
+  private unfolded = new Set<NoteId>();
+  /** The note whose text has the focus. It is shown open while it is edited. */
+  private editingId: NoteId | null = null;
   private imageOverlay: HTMLElement;
   private activeImage: HTMLImageElement | null = null;
   private activeImageNoteId: NoteId | null = null;
@@ -84,6 +119,10 @@ export class NoteManager {
     this.onMeasure = options.onMeasure;
     this.onLinkClick = options.onLinkClick;
     this.hostRender = options.hostRender;
+    this.foldLabels = {
+      more: options.foldLabels?.more ?? 'Read more',
+      less: options.foldLabels?.less ?? 'Show less',
+    };
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -116,6 +155,7 @@ export class NoteManager {
       color: params?.color ?? this.defaultColor,
       zIndex: params?.zIndex ?? this.zCounter++,
       ...(params?.autoSize ? { autoSize: true } : {}),
+      ...(params?.foldable ? { foldable: true } : {}),
       ...(meta ? { meta } : {}),
     };
 
@@ -165,12 +205,19 @@ export class NoteManager {
     const prev = { ...note };
     Object.assign(note, params, { id }); // prevent id overwrite
     if ('meta' in params) note.meta = normalizeMeta(params.meta);
+    if (!prev.foldable !== !note.foldable) {
+      // A note made foldable starts closed. One that no longer is keeps the
+      // height it has when open: its height is its own again from here on.
+      this.unfolded.delete(id);
+      if (!note.foldable && !('height' in params)) note.height = this.openHeight(id) ?? note.height;
+    }
     this.updateNoteElement(note, 'text' in params);
     // What the host draws depends on the text and the meta, not on the position
     if ('text' in params || 'meta' in params) this.drawByHost(note);
-    // Measure now when the change can resize an autoSize note, so the event
+    // Measure now when the change can resize a measured note, so the event
     // (and its undo) carries the resulting size
-    if ('autoSize' in params || 'text' in params || 'meta' in params || 'width' in params || 'height' in params) {
+    if ('autoSize' in params || 'foldable' in params || 'text' in params || 'meta' in params
+      || 'width' in params || 'height' in params) {
       this.applyMeasuredSize(note);
     }
     return { note, prev };
@@ -224,7 +271,7 @@ export class NoteManager {
     const note = this.notes.get(id);
     if (!note) return false;
     const switched = this.drawByHost(note);
-    if (note.autoSize) this.measure(id);
+    if (isMeasured(note)) this.measure(id);
     return switched;
   }
 
@@ -295,15 +342,76 @@ export class NoteManager {
   }
 
   /**
-   * Copy the rendered size of an autoSize note to the model.
-   * Returns whether the size changed. A size of 0 means the note is not laid
-   * out (hidden by a collapsed edge, or detached) and is ignored.
+   * Show a foldable note open or closed, and its link, from the length of its
+   * text and from whether the user opened it. Called before the note is
+   * measured: this decides the height it has.
+   */
+  private applyFold(note: WemaNote, el: HTMLElement): void {
+    // Nothing to do for a note that is not foldable and shows no trace of
+    // having been (this runs for every note that is resized or typed in)
+    if (!note.foldable && !el.classList.contains(FOLD_LONG_CLASS)) return;
+    const content = el.querySelector(':scope > .wema-note-content') as HTMLElement | null;
+    const toggle = el.querySelector(':scope > .wema-note-fold-toggle');
+    if (!content || !toggle) return;
+    // Not laid out (hidden by a collapsed edge or the filter, or detached):
+    // its text has no length to judge by. It is measured when shown again.
+    if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+
+    // The length is that of the open text: a closed one is cut off
+    el.classList.remove(FOLDED_CLASS);
+    // A note the host draws shows no text to fold
+    const long = !!note.foldable && !el.classList.contains(HOST_DRAWN_CLASS) && isLongText(content);
+    // Open while it is edited, so that the caret is never in a hidden line
+    const closed = long && !this.unfolded.has(note.id) && this.editingId !== note.id;
+
+    el.classList.toggle(FOLD_LONG_CLASS, long);
+    el.classList.toggle(FOLDED_CLASS, closed);
+    const label = closed ? this.foldLabels.more : this.foldLabels.less;
+    if (toggle.textContent !== label) toggle.textContent = label;
+    // The text may have been scrolled while it was edited
+    if (closed) content.scrollTop = 0;
+  }
+
+  /** Open or close a foldable note (the link under its text). Changes the display only. */
+  private toggleFold(id: NoteId): void {
+    // From what the note shows now, not from `unfolded`: a note that is open
+    // only because it is edited is closed by its link
+    const wasClosed = this.elements.get(id)?.classList.contains(FOLDED_CLASS) ?? false;
+    if (this.editingId === id) {
+      // Pressing the link takes the focus away in some browsers and not in
+      // others: end the edit here, so that both behave the same
+      this.contentElement(id)?.blur();
+      this.editingId = null;
+    }
+    if (wasClosed) this.unfolded.add(id);
+    else this.unfolded.delete(id);
+    this.measure(id);
+  }
+
+  /**
+   * The height the whole text of a foldable note takes, without the link
+   * that opens and closes it, or undefined when the note is not laid out.
+   * Leaves the note shown open: the caller applies its state again.
+   */
+  private openHeight(id: NoteId): number | undefined {
+    const el = this.elements.get(id);
+    if (!el) return undefined;
+    el.classList.remove(FOLDED_CLASS, FOLD_LONG_CLASS);
+    return el.offsetHeight || undefined;
+  }
+
+  /**
+   * Copy the rendered size of a measured note (autoSize, foldable) to the
+   * model. Returns whether the size changed. A size of 0 means the note is
+   * not laid out (hidden by a collapsed edge, or detached) and is ignored.
    */
   private applyMeasuredSize(note: WemaNote): boolean {
-    if (!note.autoSize) return false;
     const el = this.elements.get(note.id);
     if (!el) return false;
-    const width = el.offsetWidth;
+    this.applyFold(note, el);
+    if (!isMeasured(note)) return false;
+    // Only an autoSize note has a measured width: a foldable one keeps its own
+    const width = note.autoSize ? el.offsetWidth : note.width;
     const height = el.offsetHeight;
     if (width === 0 || height === 0) return false;
     if (width === note.width && height === note.height) return false;
@@ -313,17 +421,35 @@ export class NoteManager {
   }
 
   /**
-   * Measure an autoSize note outside of a note event (while typing, after
-   * layout). The size change is not an operation of its own: it is reported
-   * through `onMeasure` and becomes part of the next note:update.
+   * Measure a measured note outside of a note event (while typing, after
+   * layout, when a foldable note is opened or closed). The size change is not
+   * an operation of its own: it is reported through `onMeasure` and becomes
+   * part of the next note:update.
    */
   private measure(noteId: NoteId): void {
     const note = this.notes.get(noteId);
     if (!note) return;
     const before = { width: note.width, height: note.height };
     if (!this.applyMeasuredSize(note)) return;
-    if (!this.unreportedSizeBase.has(noteId)) this.unreportedSizeBase.set(noteId, before);
+    // Back at the size of the last note event (a note opened and closed
+    // again): nothing is left to report
+    const base = this.unreportedSizeBase.get(noteId) ?? before;
+    if (base.width === note.width && base.height === note.height) this.unreportedSizeBase.delete(noteId);
+    else this.unreportedSizeBase.set(noteId, base);
     this.onMeasure(noteId);
+  }
+
+  /**
+   * Measure a note that is laid out again (it was hidden by a collapsed edge
+   * or by the filter): what changed while it was hidden was not measured.
+   */
+  remeasure(id: NoteId): void {
+    this.measure(id);
+  }
+
+  /** Whether the height of a note follows what it shows (a foldable note that shows its text) */
+  hasMeasuredHeight(id: NoteId): boolean {
+    return !!this.notes.get(id)?.foldable && !this.isHostDrawn(id);
   }
 
   /**
@@ -363,6 +489,8 @@ export class NoteManager {
     }
     this.notes.delete(id);
     this.unreportedSizeBase.delete(id);
+    this.unfolded.delete(id);
+    if (this.editingId === id) this.editingId = null;
     this.emitter.emit('note:delete', { note: { ...note }, origin });
   }
 
@@ -532,6 +660,8 @@ export class NoteManager {
     this.elements.clear();
     this.notes.clear();
     this.unreportedSizeBase.clear();
+    this.unfolded.clear();
+    this.editingId = null;
     this.zCounter = 1;
   }
 
@@ -569,8 +699,18 @@ export class NoteManager {
       this.measure(note.id);
     });
 
+    // A foldable note is shown open while its text is edited, and goes back
+    // to how it was when the focus leaves
+    content.addEventListener('focus', () => {
+      this.editingId = note.id;
+      this.measure(note.id);
+    });
+
     // Handle blur to commit text edits
     content.addEventListener('blur', () => {
+      if (this.editingId === note.id) this.editingId = null;
+      // Before the commit, so that the update carries the size the note has now
+      this.measure(note.id);
       if (!dirty) return;
       dirty = false;
       this.syncNoteContent(note.id);
@@ -715,6 +855,18 @@ export class NoteManager {
     el.appendChild(content);
     // Where the host draws the note (`renderNote` option); shown instead of the content
     el.appendChild(createElement('div', 'wema-note-custom'));
+    // The link that opens and closes a foldable note; shown when its text is long
+    const foldToggle = createElement('button', 'wema-note-fold-toggle') as HTMLButtonElement;
+    foldToggle.type = 'button';
+    foldToggle.addEventListener('pointerdown', (e) => e.stopPropagation());
+    // Keep the focus where it is: a note that is open because it is edited
+    // would close under the pointer, and the click would miss the link
+    foldToggle.addEventListener('mousedown', (e) => e.preventDefault());
+    foldToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleFold(note.id);
+    });
+    el.appendChild(foldToggle);
     el.appendChild(anchors);
     el.appendChild(resizeHandle);
 
@@ -723,6 +875,9 @@ export class NoteManager {
     this.elements.set(note.id, el);
     this.applyEditable(note.id);
     this.drawByHost(note);
+    // A foldable note starts closed: its height in the model is the closed
+    // one from the start (and in the note:create that follows)
+    if (note.foldable) this.applyMeasuredSize(note);
   }
 
   /**
@@ -739,8 +894,8 @@ export class NoteManager {
     if (textChanged && content && content.innerHTML !== note.text && document.activeElement !== content) {
       content.innerHTML = isPlainText(note.text) ? escapeHtml(note.text) : sanitizeHtml(note.text);
     }
-    // After CSS layout, sync measured size back to model for autoSize notes
-    if (note.autoSize) {
+    // After CSS layout, sync measured size back to model for measured notes
+    if (isMeasured(note)) {
       requestAnimationFrame(() => this.measure(note.id));
     }
   }
@@ -755,5 +910,6 @@ export class NoteManager {
     });
     el.style.setProperty('--wema-note-color', note.color);
     el.classList.toggle(AUTO_SIZE_CLASS, !!note.autoSize);
+    el.classList.toggle(FOLDABLE_CLASS, !!note.foldable);
   }
 }

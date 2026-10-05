@@ -12,7 +12,9 @@ autoSize の付箋の `width` / `height` は、内容と CSS から決まる派�
 
 - 入力中と描画後（`requestAnimationFrame`）の計測は `note:update` を出さない。モデルを更新し、`onMeasure` で接続線の再描画と `change` だけを行う（`NoteManager.measure`）
 - 計測によるサイズの変化は、次の `note:update` の `prev` に計測前の値を入れて報告する（`unreportedSizeBase` / `emitUpdate`）。入力なら blur 時にテキストと同じ 1 件になる
-- `updateNote` が `autoSize` / `text` / `width` / `height` を変えるときは、その場で計測してから `note:update` を出す。autoSize の切り替えとその結果のサイズが 1 件になり、Undo で元のサイズへ戻る
+- 計測するのは autoSize の付箋（幅と高さ）と、`foldable` の付箋（高さだけ。`.claude/rules/fold.md`）。以下の規則は両方に当てはまる
+- 非表示の付箋（接続線の折り畳み、絞り込み）はレイアウトされないので計測できない。再表示のときに `recomputeVisibility()` が `NoteManager.remeasure()` を呼んで計測し直す
+- `updateNote` が `autoSize` / `foldable` / `text` / `meta` / `width` / `height` を変えるときは、その場で計測してから `note:update` を出す。autoSize の切り替えとその結果のサイズが 1 件になり、Undo で元のサイズへ戻る
 - Undo / Redo の再生と `applyRemote` は `NoteManager.replayUpdate` を使う。履歴に記録されない更新なので、未報告の計測前サイズを消費しない（消費すると、そのサイズの変化がどの `history:commit` にも載らなくなる）
 - DOM 上の編集（入力の blur、チェックボックス、画像の操作）の確定は `syncNoteContent` の 1 か所で行う。確定経路を増やすときもここを通すこと
 - ボタンやキーで本文の DOM を書き換える編集（リストへの変換と解除、段下げ、段上げ）は `NoteManager.editContent()` を通す。選択範囲の取得、編集後の選択範囲の復元、`syncNoteContent` での確定をここが行う。`updateNote({ text: innerHTML })` で確定しない

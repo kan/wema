@@ -1,4 +1,4 @@
-import type { NoteId } from './types.js';
+import type { NoteId, WemaNote } from './types.js';
 import { NoteManager } from './note.js';
 import { createElement } from './utils/dom.js';
 import type { Point } from './utils/geometry.js';
@@ -35,6 +35,16 @@ const EMBED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
 
 const AUTO_SIZE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>';
 
+const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="5" x2="20" y2="5"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="4" y1="15" x2="12" y2="15" opacity="0.4"/><polyline points="9 19 12 22 15 19"/></svg>';
+
+/** Where the popup points to for these notes: the center of the bottom of their bounding box */
+function anchorOf(notes: WemaNote[]): Point {
+  const minX = Math.min(...notes.map((n) => n.x));
+  const maxX = Math.max(...notes.map((n) => n.x + n.width));
+  const maxY = Math.max(...notes.map((n) => n.y + n.height));
+  return { x: (minX + maxX) / 2, y: maxY };
+}
+
 export class NoteStylePopup {
   private popupEl: HTMLElement;
   private boardEl: HTMLElement;
@@ -48,6 +58,7 @@ export class NoteStylePopup {
   private onInsertEmbed: ((noteId: NoteId) => void) | null = null;
   private onAutoSizeToggle: ((noteId: NoteId) => void) | null = null;
   private onMultiAutoSizeToggle: ((noteIds: NoteId[]) => void) | null = null;
+  private onFoldableToggle: ((noteIds: NoteId[]) => void) | null = null;
   private currentNoteId: NoteId | null = null;
   private currentNoteIds: NoteId[] | null = null;
   private toScreen: (x: number, y: number) => Point;
@@ -66,6 +77,8 @@ export class NoteStylePopup {
     onInsertEmbed?: (noteId: NoteId) => void;
     onAutoSizeToggle?: (noteId: NoteId) => void;
     onMultiAutoSizeToggle?: (noteIds: NoteId[]) => void;
+    /** Turn the `foldable` flag of the notes on, or off when all of them have it */
+    onFoldableToggle?: (noteIds: NoteId[]) => void;
     /** Convert board coordinates to a position inside the board element */
     toScreen: (x: number, y: number) => Point;
   }) {
@@ -81,6 +94,7 @@ export class NoteStylePopup {
     this.onInsertEmbed = options.onInsertEmbed ?? null;
     this.onAutoSizeToggle = options.onAutoSizeToggle ?? null;
     this.onMultiAutoSizeToggle = options.onMultiAutoSizeToggle ?? null;
+    this.onFoldableToggle = options.onFoldableToggle ?? null;
 
     this.popupEl = createElement('div', 'wema-note-popup');
     this.popupEl.style.display = 'none';
@@ -141,6 +155,8 @@ export class NoteStylePopup {
 
     actions.appendChild(colorBtn);
     actions.appendChild(autoSizeBtn);
+    // A note the host draws shows no text to fold
+    if (!this.noteManager.isHostDrawn(noteId)) actions.appendChild(this.foldableButton([note]));
     actions.appendChild(dupBtn);
     actions.appendChild(delBtn);
 
@@ -242,8 +258,7 @@ export class NoteStylePopup {
     if (!this.noteManager.isHostDrawn(noteId)) this.popupEl.appendChild(richActions);
     this.popupEl.appendChild(colorGrid);
 
-    // Position below the note, centered horizontally
-    this.anchor = { x: note.x + note.width / 2, y: note.y + note.height };
+    this.anchor = anchorOf([note]);
     this.updatePosition();
     this.popupEl.style.display = '';
   }
@@ -296,6 +311,7 @@ export class NoteStylePopup {
 
     actions.appendChild(colorBtn);
     actions.appendChild(autoSizeBtn);
+    actions.appendChild(this.foldableButton(notes));
     actions.appendChild(delBtn);
 
     // Color grid (hidden by default)
@@ -321,13 +337,33 @@ export class NoteStylePopup {
     this.popupEl.appendChild(actions);
     this.popupEl.appendChild(colorGrid);
 
-    // Position at the center-bottom of the bounding box of all selected notes
-    const minX = Math.min(...notes.map((n) => n.x));
-    const maxX = Math.max(...notes.map((n) => n.x + n.width));
-    const maxY = Math.max(...notes.map((n) => n.y + n.height));
-    this.anchor = { x: (minX + maxX) / 2, y: maxY };
+    this.anchor = anchorOf(notes);
     this.updatePosition();
     this.popupEl.style.display = '';
+  }
+
+  /** The button that turns the `foldable` flag of the notes on and off (on while all of them have it) */
+  private foldableButton(notes: WemaNote[]): HTMLButtonElement {
+    const btn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    btn.innerHTML = FOLD_ICON;
+    btn.title = 'Fold Long Text';
+    btn.classList.toggle('active', notes.every((n) => n.foldable));
+    const ids = notes.map((n) => n.id);
+    btn.addEventListener('click', () => this.onFoldableToggle?.(ids));
+    return btn;
+  }
+
+  /**
+   * Point at the notes again where they are now, without building the popup
+   * again (that would drop what is open in it). For a size that changed
+   * without a note event: a measured note that was typed in, opened or closed.
+   */
+  follow(): void {
+    const ids = this.currentNoteIds ?? (this.currentNoteId ? [this.currentNoteId] : []);
+    const notes = ids.map((id) => this.noteManager.getNote(id)).filter((n) => n !== undefined);
+    if (notes.length === 0) return;
+    this.anchor = anchorOf(notes);
+    this.updatePosition();
   }
 
   /** Place the popup under what it points to (call again after the viewport moves) */

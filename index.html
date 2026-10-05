@@ -77,7 +77,11 @@
     }
 
     const container = document.getElementById('board-container');
-    const board = new WemaBoard({ container, data: loadSaved() });
+    const board = new WemaBoard({
+      container,
+      data: loadSaved(),
+      foldLabels: { more: '続きを読む', less: '折り畳む' },
+    });
 
     board.on('change', ({ data }) => save(data));
     // Text being typed is committed on blur: save it when the page goes away too

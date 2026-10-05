@@ -29,6 +29,7 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 - 複数選択・整列・均等配置・自動レイアウト
 - Undo/Redo（Ctrl+Z / Ctrl+Y）
 - autoSize モード（コンテンツに合わせて付箋サイズを自動調整）
+- 長い付箋を畳んで表示（3 行以上の付箋は冒頭だけを見せ、「続きを読む」で開く）
 - リサイズハンドルのダブルクリックで、付箋をコンテンツに合うサイズへ 1 回だけ変更
 - 5色のカラーパレット
 - IndexedDB による自動保存
@@ -82,6 +83,7 @@ const board = new WemaBoard({
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
+  foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言（デフォルト: 'Read more' / 'Show less'）
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean,         // default: true（Ctrl / Cmd + ホイールで拡大・縮小する）
   panMargin?: number,          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白のピクセル数）
@@ -123,6 +125,31 @@ const board = new WemaBoard({
 | `getNotes()` | 全付箋を取得 |
 | `refreshNote(id)` | `renderNote` オプションで描いた付箋を描き直す |
 | `resizeNotesToContent(noteIds)` | 付箋をコンテンツに合うサイズへ 1 回だけ変更する（`autoSize` は変えない） |
+
+#### 長い本文を畳む（`foldable`）
+
+付箋の `foldable` を `true` にすると、本文が 3 行以上のときに冒頭だけを表示する。1 行目と 2 行目をそのまま見せ、3 行目は薄くして、その上に続きを開くリンクを重ねる。開くと、リンクは本文の下へ移り、畳み直すリンクに変わる。2 行以下の付箋は、ふつうの付箋と同じ表示になる。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  foldLabels: { more: '続きを読む', less: '折り畳む' },  // リンクの文言
+});
+
+board.addNote({ text: '長い本文…', foldable: true });
+board.updateNote(noteId, { foldable: true });   // あとから切り替える
+```
+
+付箋のポップアップにも、切り替えのボタンがある。
+
+- 行数は、表示上の行で数える。改行がなくても、付箋の幅で折り返して 3 行以上になれば畳む
+- `foldable` の付箋の高さは、表示している内容から決まる（閉じているときは約 3 行分、開いているときは本文の全体）。`height` は wema が計測して書き込む値になり、`updateNote()` やリサイズハンドルで指定できるのは幅だけになる。接続線、整列、自動レイアウトは、その時点の表示の大きさに従う
+- **開いているかどうかは、表示だけの状態。** データには入らない。`note:update` と `history:commit` を出さず、Undo の対象外。ボードを読み込んだ直後は、すべて閉じている。ロックモードと参照モードでも開閉できる
+- 開閉で高さが変わると `change` が発火する。`data` の `height` は、その時点の表示の高さになる
+- 本文を編集しているあいだは、閉じている付箋も一時的に開く。フォーカスが外れると元の状態へ戻る
+- `foldable` を `false` に戻すと、高さは本文の全体が収まる値になる（非表示の付箋は計測できないので、そのときの高さのまま残る）
+- `renderNote` で利用側が描いた付箋は畳まない
+- 「部分木の折り畳み」（接続線の `collapsed`。接続先の付箋を隠す）とは別の機能
 
 #### 付箋に利用側のデータを持たせる（`meta`）
 
@@ -477,6 +504,7 @@ interface WemaNote {
   color: string;
   zIndex: number;       // 重なり順。ローカルな表示状態（同期対象外）
   autoSize?: boolean;   // コンテンツに合わせてサイズ自動調整
+  foldable?: boolean;   // 長い本文を畳んで表示する（3 行以上のとき、冒頭だけを見せる）
   meta?: Readonly<Record<string, string>>;  // 利用側のデータ。wema は中身を読まない
 }
 

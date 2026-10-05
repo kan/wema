@@ -170,10 +170,12 @@ export class WemaBoard {
       // A measured size is not a note event: redraw the edges and report the data
       onMeasure: (noteId) => {
         this.edgeManager.updateEdgesOf(noteId);
+        this.notePopup.follow();
         this.scheduleChange();
       },
       onLinkClick: options.onLinkClick,
       hostRender: options.renderNote,
+      foldLabels: options.foldLabels,
     });
 
     this.selectionManager = new SelectionManager({
@@ -284,6 +286,7 @@ export class WemaBoard {
           text: note.text,
           color: note.color,
           ...(note.autoSize ? { autoSize: true } : {}),
+          ...(note.foldable ? { foldable: true } : {}),
         });
         this.selectionManager.select([newNote.id]);
         this.notePopup.show(newNote.id);
@@ -315,6 +318,13 @@ export class WemaBoard {
           this.noteManager.updateNote(id, { autoSize: !allAutoSize });
         }
         this.notePopup.showMulti(noteIds);
+      },
+      onFoldableToggle: (noteIds) => {
+        const foldable = !this.getNotesByIds(noteIds).every((n) => n.foldable);
+        this.batch(() => {
+          for (const id of noteIds) this.noteManager.updateNote(id, { foldable });
+        });
+        this.updateNotePopup();
       },
     });
 
@@ -1506,7 +1516,13 @@ export class WemaBoard {
     // Apply to note DOM elements
     for (const note of notes) {
       const el = this.noteManager.getElement(note.id);
-      if (el) el.style.display = hiddenNotes.has(note.id) ? 'none' : '';
+      if (!el) continue;
+      const wasHidden = el.style.display === 'none';
+      const hidden = hiddenNotes.has(note.id);
+      el.style.display = hidden ? 'none' : '';
+      // A hidden note is not laid out, so what happened to it meanwhile was
+      // not measured
+      if (wasHidden && !hidden) this.noteManager.remeasure(note.id);
     }
 
     // Apply to edge SVG elements

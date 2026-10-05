@@ -83,7 +83,7 @@ function diffKeys<T extends { id: string }>(
  */
 const NOTE_UPDATE_KEYS = Object.keys({
   x: true, y: true, width: true, height: true, text: true, color: true, zIndex: true, autoSize: true,
-  meta: true,
+  foldable: true, meta: true,
 } satisfies Record<Exclude<keyof WemaNote, 'id'>, true>) as (keyof WemaNote)[];
 
 /** The edge fields an update delta may change (same rule as NOTE_UPDATE_KEYS) */

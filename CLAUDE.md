@@ -91,6 +91,7 @@ wema/
 │   ├── edge.test.ts
 │   ├── events.test.ts
 │   ├── filter.test.ts
+│   ├── fold.test.ts
 │   ├── geometry.test.ts
 │   ├── layout.test.ts
 │   ├── list.test.ts
@@ -148,6 +149,7 @@ wema/
 | `visibility.md` | 付箋の非表示（折り畳みと絞り込み） | `src/board.ts`、`src/selection.ts` |
 | `sync.md` | `history:commit` / `applyRemote`、履歴の再生、参照モード | `src/history.ts`、`src/board.ts` |
 | `autosize.md` | autoSize の計測と `note:update` | `src/note.ts` |
+| `fold.md` | 長い本文を畳む付箋（`foldable`）と、開閉の状態 | `src/note.ts`、`src/board.ts`、`src/style.css`、`src/resize.ts` |
 | `note-extension.md` | 利用側のデータ（`meta`）と、付箋の中身を利用側が描く口（`renderNote`） | `src/note.ts`、`src/utils/meta.ts`、`src/history.ts` |
 | `pointer-and-popup.md` | ドラッグ直後の `click`、ポップアップの DOM 再構築 | `src/drag.ts`、`src/selection.ts`、`src/*-popup.ts` |
 | `edge-path.md` | 接続線のパス計算 | `src/edge.ts`、`src/utils/geometry.ts` |
@@ -190,6 +192,7 @@ interface WemaNote {
   color: string;
   zIndex: number;
   autoSize?: boolean;
+  foldable?: boolean;  // 長い本文（3 行以上）を畳んで表示する。開閉の状態はデータに入れない
   meta?: Readonly<Record<string, string>>;  // 利用側のデータ。wema は中身を読まない
 }
 
@@ -301,6 +304,7 @@ interface WemaBoardOptions {
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
+  foldLabels?: { more?: string; less?: string };  // foldable の付箋を開閉するリンクの文言（default: 'Read more' / 'Show less'）
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
   panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）

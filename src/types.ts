@@ -34,6 +34,22 @@ export interface WemaNote {
   zIndex: number;
   autoSize?: boolean;
   /**
+   * Show only the beginning of a long text. A note with three lines or more
+   * shows its first two lines and, over the faded third one, a link that
+   * opens the rest ("Read more"); once open, a link under the text that
+   * closes it again. A shorter note looks as usual.
+   *
+   * The height of such a note follows what it shows, like the size of an
+   * `autoSize` note: `height` is measured, not set (the width is still
+   * yours). Whether a note is open is a state of the display only: there is
+   * no field for it, opening or closing a note emits no note event and is not
+   * an undo step, and every note starts closed. The measured `height` does
+   * follow it: `change` fires with the new height, and the next
+   * `note:update` of the note reports it, as for an `autoSize` note that was
+   * typed in.
+   */
+  foldable?: boolean;
+  /**
    * Data of the embedding application, kept with the note. The board does not
    * read it: it stores it and hands it back (in `getNote()`, `exportData()`,
    * the note events and the history deltas, through undo and `applyRemote()`).
@@ -155,6 +171,11 @@ export interface WemaBoardOptions {
    * Also called in readOnly and viewOnly.
    */
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  /**
+   * Texts of the link under a `foldable` note: `more` opens the note
+   * (default: "Read more"), `less` closes it (default: "Show less").
+   */
+  foldLabels?: { more?: string; less?: string };
   /**
    * Pan the board with the mouse wheel / trackpad scroll (default: true).
    * Set to false when the board sits in a page that should scroll instead.
