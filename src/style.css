@@ -123,6 +123,12 @@
   white-space: normal;
 }
 
+/* Sub-lists (indented items) */
+.wema-note-content li > ul,
+.wema-note-content li > ol {
+  margin: 0;
+}
+
 .wema-note-content input[type="checkbox"] {
   margin-right: 6px;
   cursor: pointer;
@@ -134,9 +140,24 @@
   padding-left: 4px;
 }
 
+.wema-note-content li > .wema-checklist {
+  padding-left: 20px;
+}
+
 .wema-note-content .wema-checklist li.wema-checked {
   text-decoration: line-through;
   color: #aaa;
+}
+
+/* Sub-items of a checked item keep their own state. A line-through cannot be
+   turned off by a descendant; it does not reach into an inline-block. */
+.wema-note-content .wema-checklist li.wema-checked > ul,
+.wema-note-content .wema-checklist li.wema-checked > ol {
+  display: inline-block;
+  width: 100%;
+  box-sizing: border-box;
+  vertical-align: top;
+  color: var(--wema-note-color-text);
 }
 
 .wema-note-content a {

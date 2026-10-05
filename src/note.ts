@@ -1,9 +1,10 @@
 import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
-import { createElement, setStyles } from './utils/dom.js';
+import { createElement, setStyles, getSelectionRange, setSelectionRange } from './utils/dom.js';
 import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUrl } from './utils/sanitize.js';
 import { normalizeMeta } from './utils/meta.js';
+import { isInListItem, indentListItems, outdentListItems, getListType, createListItem } from './utils/list.js';
 
 interface NoteManagerOptions {
   boardEl: HTMLElement;
@@ -224,6 +225,27 @@ export class NoteManager {
   getTextElement(id: NoteId): HTMLElement | null {
     if (this.isHostDrawn(id)) return null;
     return this.contentElement(id);
+  }
+
+  /**
+   * Run an edit on a note's text in the DOM, at the current selection, and
+   * commit it. `edit` gets the selection (null when it is not in the text) and
+   * returns the range to select afterwards, or null when it changed nothing.
+   *
+   * @returns whether the text was edited
+   */
+  editContent(
+    id: NoteId,
+    edit: (content: HTMLElement, range: Range | null) => Range | null,
+  ): boolean {
+    const content = this.getTextElement(id);
+    if (!content) return false;
+    const next = edit(content, getSelectionRange(content));
+    if (!next) return false;
+    content.focus();
+    setSelectionRange(next);
+    this.syncNoteContent(id);
+    return true;
   }
 
   private contentElement(id: NoteId): HTMLElement | null {
@@ -563,6 +585,17 @@ export class NoteManager {
       }
     });
 
+    // Tab / Shift+Tab in a list: indent / outdent the items
+    content.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || e.isComposing || e.ctrlKey || e.metaKey || e.altKey) return;
+      const range = getSelectionRange(content);
+      if (!range || !isInListItem(content, range)) return;
+      // Inside a list the key never moves the focus, even when the item cannot move
+      e.preventDefault();
+      const move = e.shiftKey ? outdentListItems : indentListItems;
+      this.editContent(note.id, (el, at) => at && move(el, at));
+    });
+
     // Enter key in checklist: insert new TODO item
     content.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.key !== 'Enter' || e.isComposing) return;
@@ -570,13 +603,11 @@ export class NoteManager {
       if (!sel || sel.rangeCount === 0) return;
       const li = (sel.anchorNode?.nodeType === Node.TEXT_NODE
         ? sel.anchorNode.parentElement : sel.anchorNode as HTMLElement)?.closest('li');
-      if (!li || !li.closest('.wema-checklist')) return;
+      // Look at the list the item is in: a checklist may hold a plain sub-list
+      if (!li || !li.parentElement || getListType(li.parentElement) !== 'checklist') return;
 
       e.preventDefault();
-      const newLi = document.createElement('li');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      newLi.appendChild(cb);
+      const newLi = createListItem('checklist');
       newLi.appendChild(document.createTextNode(' '));
 
       // Split text after caret into new item
@@ -585,9 +616,11 @@ export class NoteManager {
       afterRange.setStart(range.endContainer, range.endOffset);
       afterRange.setEndAfter(li.lastChild ?? li);
       const trailing = afterRange.extractContents();
-      // Remove the checkbox from extracted contents if any (shouldn't happen, but safety)
-      const extractedCb = trailing.querySelector('input[type="checkbox"]');
-      if (extractedCb) extractedCb.remove();
+      // Remove the item's own checkbox from extracted contents if any (shouldn't
+      // happen, but safety). The checkboxes of a sub-list that comes along stay.
+      for (const child of Array.from(trailing.children)) {
+        if (child.tagName === 'INPUT' && (child as HTMLInputElement).type === 'checkbox') child.remove();
+      }
       newLi.appendChild(trailing);
 
       li.parentNode?.insertBefore(newLi, li.nextSibling);
@@ -596,8 +629,7 @@ export class NoteManager {
       const newRange = document.createRange();
       newRange.setStart(newLi, 2); // after checkbox and space text node
       newRange.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
+      setSelectionRange(newRange);
       dirty = true;
     });
 

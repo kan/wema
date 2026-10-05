@@ -74,6 +74,7 @@ wema/
 │       ├── id.ts             # ID生成 (crypto.randomUUID)
 │       ├── dom.ts            # DOM/SVG操作ヘルパー
 │       ├── sanitize.ts       # HTML サニタイズ
+│       ├── list.ts           # リストの編集 (行のリスト化と解除・段下げ・段上げ)
 │       ├── meta.ts           # 付箋の meta の検査と比較
 │       └── oembed.ts         # oEmbed URL → iframe 変換
 ├── standalone/
@@ -92,6 +93,7 @@ wema/
 │   ├── filter.test.ts
 │   ├── geometry.test.ts
 │   ├── layout.test.ts
+│   ├── list.test.ts
 │   ├── note-extension.test.ts
 │   ├── sanitize.test.ts
 │   ├── history.test.ts

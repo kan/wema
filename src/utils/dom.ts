@@ -25,6 +25,22 @@ export function createSvgElement<K extends keyof SVGElementTagNameMap>(
  */
 export const TYPING_SELECTOR = '[contenteditable]:not([contenteditable="false"]), input, textarea, select';
 
+/** The current selection as a range, or null unless it is inside the element */
+export function getSelectionRange(el: HTMLElement): Range | null {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  return el.contains(range.commonAncestorContainer) ? range : null;
+}
+
+/** Make the range the current selection */
+export function setSelectionRange(range: Range): void {
+  const sel = document.getSelection();
+  if (!sel) return;
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 /** Set multiple inline styles on an element */
 export function setStyles(el: HTMLElement | SVGElement, styles: Partial<CSSStyleDeclaration>): void {
   Object.assign(el.style, styles);

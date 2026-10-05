@@ -2,6 +2,7 @@ import type { NoteId } from './types.js';
 import { NoteManager } from './note.js';
 import { createElement } from './utils/dom.js';
 import type { Point } from './utils/geometry.js';
+import { type ListType, toggleList, appendListItem, indentListItems, outdentListItems } from './utils/list.js';
 
 const NOTE_COLORS: { hex: string; name: string }[] = [
   { hex: '#FFF9C4', name: 'Butter' },
@@ -24,7 +25,11 @@ const LIST_OL_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none
 
 const CHECKBOX_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="9 11 12 14 22 4" stroke-width="2"/></svg>';
 
-const IMAGE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
+const INDENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="5" x2="21" y2="5"/><line x1="11" y1="12" x2="21" y2="12"/><line x1="3" y1="19" x2="21" y2="19"/><polyline points="3 9 6 12 3 15"/></svg>';
+
+const OUTDENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="5" x2="21" y2="5"/><line x1="11" y1="12" x2="21" y2="12"/><line x1="3" y1="19" x2="21" y2="19"/><polyline points="6 9 3 12 6 15"/></svg>';
+
+const IMAGE_ICON ='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>';
 
 const EMBED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>';
 
@@ -166,6 +171,27 @@ export class NoteStylePopup {
       this.toggleList(this.currentNoteId, 'checklist');
     });
 
+    const outdentBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    outdentBtn.innerHTML = OUTDENT_ICON;
+    outdentBtn.title = 'Outdent (Shift+Tab)';
+    outdentBtn.addEventListener('click', () => {
+      if (!this.currentNoteId) return;
+      this.noteManager.editContent(this.currentNoteId, (content, range) => range && outdentListItems(content, range));
+    });
+
+    const indentBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
+    indentBtn.innerHTML = INDENT_ICON;
+    indentBtn.title = 'Indent (Tab)';
+    indentBtn.addEventListener('click', () => {
+      if (!this.currentNoteId) return;
+      this.noteManager.editContent(this.currentNoteId, (content, range) => range && indentListItems(content, range));
+    });
+
+    // Keep the focus and the selection in the note while a list button is pressed
+    for (const btn of [ulBtn, olBtn, cbBtn, outdentBtn, indentBtn]) {
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+    }
+
     const imgBtn = createElement('button', 'wema-popup-btn') as HTMLButtonElement;
     imgBtn.innerHTML = IMAGE_ICON;
     imgBtn.title = 'Image';
@@ -185,6 +211,8 @@ export class NoteStylePopup {
     richActions.appendChild(ulBtn);
     richActions.appendChild(olBtn);
     richActions.appendChild(cbBtn);
+    richActions.appendChild(outdentBtn);
+    richActions.appendChild(indentBtn);
     richActions.appendChild(imgBtn);
     richActions.appendChild(embedBtn);
 
@@ -321,98 +349,15 @@ export class NoteStylePopup {
     this.popupEl.remove();
   }
 
-  /** Toggle or convert list type (ul / ol / checklist) in a note's content.
-   *  Only affects the list at the caret position. If caret is outside a list,
-   *  inserts a new list at the end. */
-  private toggleList(noteId: NoteId, listType: 'ul' | 'ol' | 'checklist'): void {
-    const content = this.noteManager.getTextElement(noteId);
-    if (!content) return;
-
-    // Try to find the list at the current caret position
-    const caretList = this.findCaretList(content);
-
-    if (caretList) {
-      // Convert this specific list if it's a different type
-      if (this.getListType(caretList) === listType) return; // already same type
-      const newList = this.convertList(caretList, listType);
-      caretList.parentNode?.replaceChild(newList, caretList);
-    } else {
-      // No list at caret — append a new one
-      content.focus();
-      content.appendChild(this.createNewList(listType));
-    }
-
-    // Update model directly so updateNoteElement won't overwrite the DOM
-    // (dispatching 'input' only sets dirty without syncing the model)
-    this.noteManager.updateNote(noteId, { text: content.innerHTML });
-  }
-
-  /** Find the closest ul/ol ancestor of the caret within the content element */
-  private findCaretList(content: HTMLElement): HTMLElement | null {
-    const sel = document.getSelection();
-    if (!sel || sel.rangeCount === 0) return null;
-    const node = sel.anchorNode;
-    if (!node || !content.contains(node)) return null;
-    const el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node as HTMLElement;
-    const list = el?.closest('ul, ol');
-    if (list && content.contains(list)) return list as HTMLElement;
-    return null;
-  }
-
-  /** Determine the logical list type of a DOM list element */
-  private getListType(list: Element): 'ul' | 'ol' | 'checklist' {
-    if (list.tagName === 'OL') return 'ol';
-    if (list.classList.contains('wema-checklist')) return 'checklist';
-    return 'ul';
-  }
-
-  /** Create a new empty list of the given type */
-  private createNewList(listType: 'ul' | 'ol' | 'checklist'): HTMLElement {
-    const tag = listType === 'ol' ? 'ol' : 'ul';
-    const list = document.createElement(tag);
-    const li = document.createElement('li');
-    if (listType === 'checklist') {
-      list.classList.add('wema-checklist');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      li.appendChild(cb);
-      li.appendChild(document.createTextNode(' Todo'));
-    } else {
-      li.textContent = 'Item';
-    }
-    list.appendChild(li);
-    return list;
-  }
-
-  /** Convert a list element to a different list type, preserving items */
-  private convertList(oldList: HTMLElement, listType: 'ul' | 'ol' | 'checklist'): HTMLElement {
-    const tag = listType === 'ol' ? 'ol' : 'ul';
-    const newList = document.createElement(tag);
-    const wasChecklist = oldList.classList.contains('wema-checklist');
-
-    if (listType === 'checklist') {
-      newList.classList.add('wema-checklist');
-    }
-
-    // Move children and adjust checkbox presence
-    for (const child of Array.from(oldList.children)) {
-      if (child.tagName !== 'LI') { newList.appendChild(child); continue; }
-      const li = child as HTMLElement;
-
-      if (wasChecklist && listType !== 'checklist') {
-        // Remove checkboxes
-        const cb = li.querySelector('input[type="checkbox"]');
-        if (cb) cb.remove();
-        li.classList.remove('wema-checked');
-      } else if (!wasChecklist && listType === 'checklist') {
-        // Add checkboxes
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        li.insertBefore(cb, li.firstChild);
-      }
-      newList.appendChild(li);
-    }
-    return newList;
+  /**
+   * Toggle a list on the lines the selection covers (the line of the caret
+   * when nothing is selected): make them a list, convert the list they are
+   * in, or turn them back into plain lines when the list already has the
+   * type. Without a caret in the note, a new list is added at the end.
+   */
+  private toggleList(noteId: NoteId, listType: ListType): void {
+    this.noteManager.editContent(noteId, (content, range) =>
+      range ? toggleList(content, range, listType) : appendListItem(content, listType));
   }
 
   /** Insert block HTML content at the end of a note's content */
