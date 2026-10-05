@@ -95,6 +95,7 @@ wema/
 │   ├── layout.test.ts
 │   ├── list.test.ts
 │   ├── note-extension.test.ts
+│   ├── rich-text.test.ts
 │   ├── sanitize.test.ts
 │   ├── history.test.ts
 │   ├── sync.test.ts

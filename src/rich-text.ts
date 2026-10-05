@@ -6,9 +6,15 @@ const TEXT_COLORS = [
   '#F57C00', '#7B1FA2', '#00796B', '#455A64',
 ];
 
+/** Tags that mean bold. The first one is the tag the toolbar adds. */
+const BOLD_TAGS = ['b', 'strong'];
+
+/** Tags that mean strikethrough (the only one the sanitizer keeps) */
+const STRIKE_TAGS = ['s'];
+
 /**
  * Floating toolbar that appears when text is selected inside a .wema-note-content element.
- * Provides inline formatting: Bold, Text Color, and Link insertion.
+ * Provides inline formatting: Bold, Strikethrough, Text Color, and Link insertion.
  */
 export class RichTextToolbar {
   private boardEl: HTMLElement;
@@ -125,18 +131,25 @@ export class RichTextToolbar {
   private buildToolbar(): void {
     this.toolbarEl.innerHTML = '';
 
-    // Bold button
-    const boldBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
-    boldBtn.innerHTML = '<b>B</b>';
-    boldBtn.title = 'Bold';
-    if (this.isFormatActive('bold')) {
-      boldBtn.classList.add('active');
-    }
-    boldBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.toggleBold();
-    });
+    /** A button that wraps the selection in an inline element, or unwraps it */
+    const formatButton = (label: string, title: string, tags: string[], active: boolean): HTMLButtonElement => {
+      const btn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
+      btn.innerHTML = label;
+      btn.title = title;
+      btn.classList.toggle('active', active);
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleInline(tags);
+      });
+      return btn;
+    };
+
+    const boldBtn = formatButton('<b>B</b>', 'Bold', BOLD_TAGS, this.isFormatActive('bold'));
+    // Not queryCommandState for the strikethrough: it is also true for the
+    // line-through that the style sheet puts on a checked checklist item
+    const strikeBtn = formatButton('<s>S</s>', 'Strikethrough', STRIKE_TAGS,
+      this.findSelectionAncestor(STRIKE_TAGS) !== null);
 
     // Text color button
     const colorBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
@@ -187,6 +200,7 @@ export class RichTextToolbar {
     });
 
     this.toolbarEl.appendChild(boldBtn);
+    this.toolbarEl.appendChild(strikeBtn);
     this.toolbarEl.appendChild(colorBtn);
     this.toolbarEl.appendChild(linkBtn);
     this.toolbarEl.appendChild(colorPalette);
@@ -278,20 +292,29 @@ export class RichTextToolbar {
     return null;
   }
 
-  private toggleBold(): void {
+  /** The element with one of the tags that holds the whole selection, if any */
+  private findSelectionAncestor(tags: string[]): HTMLElement | null {
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const found = this.findAncestor(sel.getRangeAt(0).commonAncestorContainer, tags);
+    return found && this.activeContentEl?.contains(found) ? found as HTMLElement : null;
+  }
+
+  /**
+   * Wrap the selection in an inline element (the first of the tags), or
+   * unwrap the element with one of the tags (the ones that mean the same
+   * format) that already holds it.
+   */
+  private toggleInline(tags: string[]): void {
     const sel = document.getSelection();
     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
 
-    const range = sel.getRangeAt(0);
-
-    // Check if selection is already bold
-    const boldParent = this.findAncestor(range.commonAncestorContainer, ['b', 'strong']);
-    if (boldParent && this.activeContentEl?.contains(boldParent)) {
-      // Unwrap: move children out and remove the bold element
-      this.unwrapElement(boldParent as HTMLElement);
+    const parent = this.findSelectionAncestor(tags);
+    if (parent) {
+      // Unwrap: move children out and remove the element
+      this.unwrapElement(parent);
     } else {
-      // Wrap selection in <b>
-      this.wrapSelection('b');
+      this.wrapSelection(tags[0]);
     }
     this.triggerInput();
   }
