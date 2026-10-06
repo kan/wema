@@ -1,8 +1,8 @@
 import type { NoteId, WemaNote } from './types.js';
 import { NoteManager } from './note.js';
 import type { TextLabelKey, WemaLabels } from './labels.js';
-import { createElement, setLabel } from './utils/dom.js';
-import type { Point } from './utils/geometry.js';
+import { createElement, placeOverlay, setLabel } from './utils/dom.js';
+import { type Box, type OverlaySide, boundingBoxOf } from './utils/geometry.js';
 import { type ListType, toggleList, appendListItem, indentListItems, outdentListItems } from './utils/list.js';
 
 const NOTE_COLORS: { hex: string; label: TextLabelKey }[] = [
@@ -38,14 +38,6 @@ const AUTO_SIZE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="no
 
 const FOLD_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="5" x2="20" y2="5"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="4" y1="15" x2="12" y2="15" opacity="0.4"/><polyline points="9 19 12 22 15 19"/></svg>';
 
-/** Where the popup points to for these notes: the center of the bottom of their bounding box */
-function anchorOf(notes: WemaNote[]): Point {
-  const minX = Math.min(...notes.map((n) => n.x));
-  const maxX = Math.max(...notes.map((n) => n.x + n.width));
-  const maxY = Math.max(...notes.map((n) => n.y + n.height));
-  return { x: (minX + maxX) / 2, y: maxY };
-}
-
 export class NoteStylePopup {
   private popupEl: HTMLElement;
   private boardEl: HTMLElement;
@@ -63,9 +55,9 @@ export class NoteStylePopup {
   private onFoldableToggle: ((noteIds: NoteId[]) => void) | null = null;
   private currentNoteId: NoteId | null = null;
   private currentNoteIds: NoteId[] | null = null;
-  private toScreen: (x: number, y: number) => Point;
-  /** Where the popup points to, in board coordinates (null while hidden) */
-  private anchor: Point | null = null;
+  private toScreenBox: (box: Box) => Box;
+  /** Where the popup was placed last (see `boxWith()`; null while hidden) */
+  private placed: { box: Box; side: OverlaySide } | null = null;
 
   constructor(options: {
     boardEl: HTMLElement;
@@ -83,10 +75,10 @@ export class NoteStylePopup {
     onMultiAutoSizeToggle?: (noteIds: NoteId[]) => void;
     /** Turn the `foldable` flag of the notes on, or off when all of them have it */
     onFoldableToggle?: (noteIds: NoteId[]) => void;
-    /** Convert board coordinates to a position inside the board element */
-    toScreen: (x: number, y: number) => Point;
+    /** Convert a box in board coordinates to a box inside the board element */
+    toScreenBox: (box: Box) => Box;
   }) {
-    this.toScreen = options.toScreen;
+    this.toScreenBox = options.toScreenBox;
     this.boardEl = options.boardEl;
     this.noteManager = options.noteManager;
     this.labels = options.labels;
@@ -263,9 +255,8 @@ export class NoteStylePopup {
     if (!this.noteManager.isHostDrawn(noteId)) this.popupEl.appendChild(richActions);
     this.popupEl.appendChild(colorGrid);
 
-    this.anchor = anchorOf([note]);
-    this.updatePosition();
     this.popupEl.style.display = '';
+    this.updatePosition();
   }
 
   /** Show popup for multiple selected notes (color change + bulk delete) */
@@ -342,9 +333,8 @@ export class NoteStylePopup {
     this.popupEl.appendChild(actions);
     this.popupEl.appendChild(colorGrid);
 
-    this.anchor = anchorOf(notes);
-    this.updatePosition();
     this.popupEl.style.display = '';
+    this.updatePosition();
   }
 
   /** The button that turns the `foldable` flag of the notes on and off (on while all of them have it) */
@@ -359,31 +349,42 @@ export class NoteStylePopup {
   }
 
   /**
-   * Point at the notes again where they are now, without building the popup
-   * again (that would drop what is open in it). For a size that changed
-   * without a note event: a measured note that was typed in, opened or closed.
+   * Place the popup under the notes it is open for, where they are now, or
+   * above them when there is no room below. Call again after the viewport
+   * moves, or a note or the popup changes size: the popup is not built again
+   * (that would drop what is open in it).
    */
-  follow(): void {
+  updatePosition(): void {
     const ids = this.currentNoteIds ?? (this.currentNoteId ? [this.currentNoteId] : []);
     const notes = ids.map((id) => this.noteManager.getNote(id)).filter((n) => n !== undefined);
     if (notes.length === 0) return;
-    this.anchor = anchorOf(notes);
-    this.updatePosition();
+    const target = this.toScreenBox(boundingBoxOf(notes));
+    const box = placeOverlay(this.popupEl, this.boardEl, target, 'below', 8);
+    this.placed = {
+      box: {
+        left: target.left,
+        top: Math.min(target.top, box.top),
+        right: target.right,
+        bottom: Math.max(target.bottom, box.bottom),
+      },
+      side: box.top < target.top ? 'above' : 'below',
+    };
   }
 
-  /** Place the popup under what it points to (call again after the viewport moves) */
-  updatePosition(): void {
-    if (!this.anchor) return;
-    const { x, y } = this.toScreen(this.anchor.x, this.anchor.y);
-    this.popupEl.style.left = `${x}px`;
-    this.popupEl.style.top = `${y + 8}px`;
+  /**
+   * The box the popup takes together with the note, in screen coordinates,
+   * and the side of the note the popup is on, while it is open for just this
+   * note (null otherwise). What is placed next to it goes outside both.
+   */
+  boxWith(noteId: NoteId): { box: Box; side: OverlaySide } | null {
+    return this.currentNoteId === noteId ? this.placed : null;
   }
 
   hide(): void {
+    this.placed = null;
     this.popupEl.style.display = 'none';
     this.currentNoteId = null;
     this.currentNoteIds = null;
-    this.anchor = null;
   }
 
   destroy(): void {

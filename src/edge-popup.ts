@@ -2,7 +2,7 @@ import type { Anchor, EdgeId, LineStyle, ArrowHead, EdgeRouting } from './types.
 import { EdgeManager } from './edge.js';
 import { NoteManager } from './note.js';
 import type { TextLabelKey, WemaLabels } from './labels.js';
-import { createElement, setLabel } from './utils/dom.js';
+import { createElement, placeOverlay, setLabel } from './utils/dom.js';
 import type { Point } from './utils/geometry.js';
 import type { Viewport } from './viewport.js';
 
@@ -367,16 +367,19 @@ export class EdgeStylePopup {
     if (clientX != null && clientY != null) {
       this.anchor = this.view.clientToBoard(clientX, clientY);
     }
-    this.updatePosition();
-
     this.popupEl.style.display = '';
+    this.updatePosition();
   }
 
-  /** Place the popup under the clicked point of the edge (call again after the viewport changes) */
+  /**
+   * Place the popup under the clicked point of the edge, or above it when
+   * there is no room below (call again after the viewport changes or the
+   * popup changes size)
+   */
   updatePosition(): void {
+    if (this.currentEdgeId === null) return;
     const { x, y } = this.view.boardToScreen(this.anchor.x, this.anchor.y);
-    this.popupEl.style.left = `${x}px`;
-    this.popupEl.style.top = `${y + 12}px`;
+    placeOverlay(this.popupEl, this.boardEl, { left: x, top: y, right: x, bottom: y }, 'below', 12);
   }
 
   hide(): void {

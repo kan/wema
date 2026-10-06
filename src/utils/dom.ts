@@ -1,3 +1,5 @@
+import { type Box, type OverlaySide, placeOverlayBox } from './geometry.js';
+
 /** Create an HTML element with optional class name */
 export function createElement<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -15,6 +17,47 @@ export function createElement<K extends keyof HTMLElementTagNameMap>(
 export function setLabel(el: HTMLElement, label: string): void {
   el.title = label;
   el.setAttribute('aria-label', label);
+}
+
+/**
+ * Position an overlay (a child of the board element) next to `target`, kept
+ * inside the part of the board that is on screen. `target` is in screen
+ * coordinates (pixels inside the board element). The overlay must be
+ * displayed, or its size reads as 0. Returns the box the overlay takes.
+ */
+export function placeOverlay(
+  el: HTMLElement,
+  boardEl: HTMLElement,
+  target: Box,
+  side: OverlaySide,
+  gap: number,
+): Box {
+  // The board may reach beyond the window when the page scrolls
+  const board = boardEl.getBoundingClientRect();
+  const root = document.documentElement;
+  const bounds = {
+    left: Math.max(0, -board.left),
+    top: Math.max(0, -board.top),
+    right: Math.min(boardEl.clientWidth, root.clientWidth - board.left),
+    bottom: Math.min(boardEl.clientHeight, root.clientHeight - board.top),
+  };
+  const size = { width: el.offsetWidth, height: el.offsetHeight };
+  const { x, y } = placeOverlayBox(size, target, bounds, side, gap);
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  return { left: x, top: y, right: x + size.width, bottom: y + size.height };
+}
+
+/** The box of an element or a range in screen coordinates (pixels inside the board element) */
+export function screenBoxOf(source: Element | Range, boardEl: HTMLElement): Box {
+  const rect = source.getBoundingClientRect();
+  const board = boardEl.getBoundingClientRect();
+  return {
+    left: rect.left - board.left,
+    top: rect.top - board.top,
+    right: rect.right - board.left,
+    bottom: rect.bottom - board.top,
+  };
 }
 
 /** Create an SVG element with optional class name */

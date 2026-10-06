@@ -159,13 +159,103 @@ describe('Viewport', () => {
       (board as unknown as { showEmbedInput(id: string): void }).showEmbedInput(note.id);
       const input = container.querySelector('.wema-embed-input') as HTMLElement;
       (input.querySelector('input') as HTMLInputElement).value = 'https://example.com/typed';
-      expect([input.style.left, input.style.top]).toEqual(['200px', '300px']);
+      expect([input.style.left, input.style.top]).toEqual(['200px', '256px']);
 
       board.setViewport({ x: -30, y: 12 });
 
       expect(container.querySelector('.wema-embed-input')).toBe(input);
       expect((input.querySelector('input') as HTMLInputElement).value).toBe('https://example.com/typed');
-      expect([input.style.left, input.style.top]).toEqual(['170px', '312px']);
+      expect([input.style.left, input.style.top]).toEqual(['170px', '268px']);
+    });
+
+    describe('inside the visible part of the board', () => {
+      /** jsdom does no layout: give the window and the popups a size */
+      function layoutWindow(width: number, height: number): void {
+        vi.spyOn(document.documentElement, 'clientWidth', 'get').mockReturnValue(width);
+        vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(height);
+      }
+
+      function sized(selector: string, width: number, height: number): HTMLElement {
+        const el = container.querySelector(selector) as HTMLElement;
+        Object.defineProperty(el, 'offsetWidth', { value: width, configurable: true });
+        Object.defineProperty(el, 'offsetHeight', { value: height, configurable: true });
+        return el;
+      }
+
+      function showNotePopup(noteId: string): void {
+        board.select([noteId]);
+        board.selectAll();
+      }
+
+      it('puts the note popup above a note at the bottom edge, and back inside at the right edge', () => {
+        layoutWindow(2000, 2000);
+        const popup = sized('.wema-note-popup', 300, 40);
+        const note = board.addNote({ x: 650, y: 430, width: 200, height: 150 });
+        showNotePopup(note.id);
+
+        // Below would end at 628 (the board is 600 high): above the note, at 430 - 8 - 40.
+        // Centered would end at 900 (the board is 800 wide): pushed back to 800 - 4 - 300
+        expect([popup.style.left, popup.style.top]).toEqual(['496px', '382px']);
+      });
+
+      it('goes back under the note when the viewport makes room', () => {
+        layoutWindow(2000, 2000);
+        const popup = sized('.wema-note-popup', 300, 40);
+        const note = board.addNote({ x: 250, y: 430, width: 200, height: 150 });
+        showNotePopup(note.id);
+        expect(popup.style.top).toBe('382px');
+
+        board.setViewport({ y: -100 });
+
+        expect([popup.style.left, popup.style.top]).toEqual(['200px', '488px']);
+      });
+
+      it('stops at the edge of the window when the board reaches beyond it', () => {
+        layoutWindow(600, 400); // the board is at (100, 50): 500 x 350 of it are on screen
+        const popup = sized('.wema-note-popup', 300, 40);
+        const note = board.addNote({ x: 250, y: 100, width: 200, height: 150 });
+        showNotePopup(note.id);
+
+        // Below would end at 298, inside 350; centered would end at 500, the edge: 500 - 4 - 300
+        expect([popup.style.left, popup.style.top]).toEqual(['196px', '258px']);
+      });
+
+      it('keeps the edge popup and the embed URL input inside too', () => {
+        layoutWindow(2000, 2000);
+        const a = board.addNote({ x: 0, y: 400, width: 200, height: 150 });
+        const b = board.addNote({ x: 400, y: 400, width: 200, height: 150 });
+        const edge = board.addEdge(a.id, b.id);
+        const internals = board as unknown as {
+          edgePopup: { show(id: string, x: number, y: number): void };
+          showEmbedInput(id: string): void;
+          placeEmbedInput(): void;
+        };
+        const edgePopup = sized('.wema-edge-popup', 200, 180);
+        internals.edgePopup.show(edge.id, 120, 600); // screen point: (20, 550)
+        expect([edgePopup.style.left, edgePopup.style.top]).toEqual(['4px', '358px']);
+
+      });
+
+      it('puts the embed URL input beyond the note popup, on the side the popup is on', () => {
+        layoutWindow(2000, 2000);
+        const popup = sized('.wema-note-popup', 300, 70);
+        const note = board.addNote({ x: 250, y: 430, width: 200, height: 150 });
+        showNotePopup(note.id);
+        const internals = board as unknown as { showEmbedInput(id: string): void; placeEmbedInput(): void };
+        internals.showEmbedInput(note.id);
+        const input = sized('.wema-embed-input', 280, 40);
+        internals.placeEmbedInput();
+
+        // The popup is above the note (430 - 8 - 70), the input above the popup (352 - 6 - 40)
+        expect(popup.style.top).toBe('352px');
+        expect([input.style.left, input.style.top]).toEqual(['210px', '306px']);
+
+        board.setViewport({ y: -200 });
+
+        // Both under the note (bottom edge at 380): the popup at 388, the input at 388 + 70 + 6
+        expect(popup.style.top).toBe('388px');
+        expect(input.style.top).toBe('464px');
+      });
     });
 
     it('moves the edge popup along', () => {
@@ -732,7 +822,8 @@ describe('Viewport', () => {
 
       // Under the middle of the note's bottom edge: (200 * 2 + 10, 200 * 2 + 20), with gaps that do not scale
       expect([popup.style.left, popup.style.top]).toEqual(['410px', '428px']);
-      expect([input.style.left, input.style.top]).toEqual(['410px', '470px']);
+      // Under the popup, which has no height in jsdom
+      expect([input.style.left, input.style.top]).toEqual(['410px', '434px']);
     });
 
     it('keeps the edge popup at the clicked point of the edge', () => {

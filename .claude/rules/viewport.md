@@ -23,7 +23,15 @@ paths:
 - 表示位置と倍率は表示だけの状態（`zIndex` や絞り込みと同じ扱い）。`setViewport()` が発火するのは `viewport:change` だけで、`note:*` / `edge:*` / `history:commit` / `change` は出さず、`exportData()` にも含めない
 - 表示位置と倍率を変える経路は `setViewport()` の 1 つだけ（`zoomTo` / `revealNotes` / `centerContent` / `fitToContent`、ホイール、ドラッグはすべてここを通る）。倍率の範囲（`minZoom` / `maxZoom`）と値の検査は `Viewport.set()` が行う
 - 表示位置や倍率が変わったら、ポップアップ類も付いていかせる（`setViewport()` が各オーバーレイの `updatePosition` を呼ぶ。各オーバーレイは、対象のボード座標または対象の要素の位置から、自分の位置を計算し直す。画面座標を保存しておいて差分で動かす方式にはしない）。閉じてはいけない。埋め込み URL の入力中にトラックパッドが少し動いただけで、入力内容が消えるため。対象との間隔（付箋の下 8px など）は画面のピクセルで、倍率を掛けない
-- ポップアップ類のセレクタは `board.ts` の `OVERLAY_SELECTOR` の 1 か所で管理する。オーバーレイを増やしたら、ここと `setViewport()` に足す
+- ポップアップ類のセレクタは `board.ts` の `OVERLAY_SELECTOR` の 1 か所で管理する。オーバーレイを増やしたら、ここ、`placeOverlays()`（`board.ts`）、`style.css` の幅の規則（`width: max-content` をまとめて指定している箇所）の 3 つに足す
+- **ポップアップ類の `left` / `top` は、必ず `placeOverlay()`（`src/utils/dom.ts`）で決める。** `style.left` を直接書かない。`placeOverlay()` は、対象の箱（画面座標）、出す側（`above` / `below`）、間隔を受け取り、ボードの見えている範囲（ボードとウィンドウの重なり）に収まる位置を決める。計算は `placeOverlayBox()`（`src/utils/geometry.ts`）にあり、DOM に依らない
+  - 決まった側に収まらなければ反対側、どちらにも収まらなければ端で止める。対象が見えている範囲の外にあるときは収めない（対象と離れた端に残さない）
+  - 位置を決める前に、要素を表示しておく（`display: none` のままだと大きさが 0 と読まれる）
+  - 中央寄せのための `transform: translateX(-50%)` は使わない。大きさは JavaScript が引く。`width: max-content` を外さない（絶対配置の箱は右側の残りの幅まで縮むので、右端に近いほど幅が変わってしまう）
+  - 位置を決め直すきっかけは 3 つ。`setViewport()`、`ResizeObserver`（オーバーレイ自身かボードの大きさが変わったとき。色の一覧を開いたときなど）、`window` の `scroll` / `resize`（ボードの見えている範囲が変わる。`scroll` はバブルしないのでキャプチャで受ける）。どれも `placeOverlays()` を呼ぶ。付箋の大きさが計測で変わったとき（`onMeasure`）も同じ。各オーバーレイの `updatePosition` は、開いていなければ何も読まずに戻ること（パンやスクロールのたびに呼ばれる）
+  - 付箋のポップアップは、対象の箱を保存しない。`updatePosition()` のたびに、いまの付箋から求める
+  - 埋め込み URL の入力欄は、付箋のポップアップと付箋を合わせた箱の外側に出す。箱とポップアップの側は、ポップアップを置いたときの結果を `NoteStylePopup.boxWith()` が返す（DOM から読み戻さない）。`placeOverlays()` の中で、ポップアップより後に位置を決めること
+  - 埋め込み URL の入力欄は `overlayObserver` に登録していない。中身が固定で、自分から大きさが変わらないため。大きさが変わる動的なオーバーレイを足すときは登録する
 - Ctrl / Cmd + ホイール（トラックパッドのピンチも同じイベントで届く）は、ポインタの位置を中心にズームする。1 回のイベントで変える量には上限を設けている（マウスのホイール 1 ノッチで倍率が飛ばないようにするため）
 - autoSize の計測（`offsetWidth` / `offsetHeight`）は transform の影響を受けないので、倍率で割らない。`getBoundingClientRect()` は倍率の掛かった値を返すので、計測には使わない
 - Space + ドラッグの Space は、フォーカスではなく「ポインタがボードの上にあるか」で受け付ける（`document` の keydown / keyup と、ボードの pointerenter / pointerleave）。`window` の blur で解除する

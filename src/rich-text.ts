@@ -1,5 +1,5 @@
 import type { WemaLabels } from './labels.js';
-import { createElement, setLabel } from './utils/dom.js';
+import { createElement, placeOverlay, screenBoxOf, setLabel } from './utils/dom.js';
 import { isSafeUrl } from './utils/sanitize.js';
 
 const TEXT_COLORS = [
@@ -127,8 +127,8 @@ export class RichTextToolbar {
 
     this.activeContentEl = contentEl as HTMLElement;
     this.buildToolbar();
-    this.positionToolbar(range);
     this.toolbarEl.style.display = '';
+    this.positionToolbar(range);
   }
 
   private buildToolbar(): void {
@@ -264,14 +264,8 @@ export class RichTextToolbar {
   }
 
   private positionToolbar(range: Range): void {
-    const rect = range.getBoundingClientRect();
-    const boardRect = this.boardEl.getBoundingClientRect();
-
-    const left = rect.left + rect.width / 2 - boardRect.left;
-    const top = rect.top - boardRect.top - 8; // 8px gap above selection
-
-    this.toolbarEl.style.left = `${left}px`;
-    this.toolbarEl.style.top = `${top}px`;
+    // Above the selection, or below it when there is no room above
+    placeOverlay(this.toolbarEl, this.boardEl, screenBoxOf(range, this.boardEl), 'above', 8);
   }
 
   private isFormatActive(format: string): boolean {

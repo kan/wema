@@ -32,15 +32,17 @@ import { HistoryManager, replayDeltas } from './history.js';
 import type { ReplayCallbacks } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
 import { Viewport } from './viewport.js';
-import { createElement, createSvgElement, setStyles, TYPING_SELECTOR } from './utils/dom.js';
+import { createElement, createSvgElement, placeOverlay, setStyles, TYPING_SELECTOR } from './utils/dom.js';
 import { toEmbedUrlAsync } from './utils/oembed.js';
 import { isSafeUrl } from './utils/sanitize.js';
-import { resolveAutoAnchor } from './utils/geometry.js';
-import type { Point } from './utils/geometry.js';
+import { type Box, boundingBoxOf, resolveAutoAnchor } from './utils/geometry.js';
 
 /** Popups and toolbars that sit on the board; a pointer event on one of them is not a board gesture */
 const OVERLAY_SELECTOR =
   '.wema-edge-popup, .wema-note-popup, .wema-richtext-toolbar, .wema-image-overlay, .wema-embed-input';
+
+/** Gap between the embed URL input and what it sits next to (the note popup, or the note), in screen pixels */
+const EMBED_INPUT_GAP = 6;
 
 /** Zoom per pixel of Ctrl + wheel, as a power of 2 (a capped notch of 30 changes the zoom by about 23%) */
 const WHEEL_ZOOM_RATE = 0.01;
@@ -66,6 +68,8 @@ export class WemaBoard {
   private pointerInside = false;
   /** The inline URL input for embeds and the note it belongs to, while it is open */
   private embedInput: { el: HTMLElement; noteId: NoteId } | null = null;
+  /** Places the overlays again when one of them, or the board, changes size */
+  private overlayObserver: ResizeObserver | null = null;
   private pan: { pointerId: number; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null = null;
   private panMoved = false;
   private noteManager: NoteManager;
@@ -112,6 +116,7 @@ export class WemaBoard {
   private handleSpaceDown: (e: KeyboardEvent) => void;
   private handleKeyUp: (e: KeyboardEvent) => void;
   private handleBlur: () => void;
+  private handlePageChange: () => void;
   private handleWheel: (e: WheelEvent) => void;
 
   constructor(options: WemaBoardOptions) {
@@ -174,7 +179,7 @@ export class WemaBoard {
       // A measured size is not a note event: redraw the edges and report the data
       onMeasure: (noteId) => {
         this.edgeManager.updateEdgesOf(noteId);
-        this.notePopup.follow();
+        this.placeOverlays();
         this.scheduleChange();
       },
       onLinkClick: options.onLinkClick,
@@ -272,7 +277,7 @@ export class WemaBoard {
       boardEl: this.boardEl,
       noteManager: this.noteManager,
       labels: this.labels,
-      toScreen: (x, y) => this.view.boardToScreen(x, y),
+      toScreenBox: (box) => this.view.boardBoxToScreen(box),
       onColorChange: (noteId, color) => {
         this.noteManager.updateNote(noteId, { color });
       },
@@ -340,6 +345,16 @@ export class WemaBoard {
       readOnly: this.readOnly,
       viewOnly: this.viewOnly,
     });
+
+    // An overlay that grows (a color palette opens in it) or a board that
+    // shrinks may leave the overlay cut off at the edge
+    if (typeof ResizeObserver !== 'undefined') {
+      this.overlayObserver = new ResizeObserver(() => this.placeOverlays());
+      this.overlayObserver.observe(this.boardEl);
+      for (const el of this.boardEl.children) {
+        if (el.matches(OVERLAY_SELECTOR)) this.overlayObserver.observe(el);
+      }
+    }
 
     // Initialize history manager for undo/redo
     this.historyManager = new HistoryManager(this.emitter, this.createReplay('local'));
@@ -619,6 +634,7 @@ export class WemaBoard {
       if (e.code === 'Space') this.setSpaceHeld(false);
     };
     this.handleBlur = () => this.setSpaceHeld(false);
+    this.handlePageChange = () => this.placeOverlays();
 
     this.handleWheel = (e: WheelEvent) => {
       const target = e.target as HTMLElement;
@@ -660,6 +676,10 @@ export class WemaBoard {
     document.addEventListener('keydown', this.handleSpaceDown);
     document.addEventListener('keyup', this.handleKeyUp);
     window.addEventListener('blur', this.handleBlur);
+    // The visible part of the board changes when the page scrolls (capture:
+    // scroll events do not bubble) or the window changes size
+    window.addEventListener('scroll', this.handlePageChange, { capture: true, passive: true });
+    window.addEventListener('resize', this.handlePageChange);
     this.boardEl.addEventListener('wheel', this.handleWheel, { passive: false });
 
     // Import initial data if provided
@@ -690,7 +710,10 @@ export class WemaBoard {
     document.removeEventListener('keydown', this.handleSpaceDown);
     document.removeEventListener('keyup', this.handleKeyUp);
     window.removeEventListener('blur', this.handleBlur);
+    window.removeEventListener('scroll', this.handlePageChange, { capture: true });
+    window.removeEventListener('resize', this.handlePageChange);
     this.boardEl.removeEventListener('wheel', this.handleWheel);
+    this.overlayObserver?.disconnect();
     this.noteManager.destroy();
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
@@ -875,11 +898,7 @@ export class WemaBoard {
     if (!this.view.set(viewport)) return;
 
     // Overlays live in screen space: put them back over what they belong to
-    this.notePopup.updatePosition();
-    this.edgePopup.updatePosition();
-    this.richTextToolbar.updatePosition();
-    this.noteManager.updateOverlayPosition();
-    this.placeEmbedInput();
+    this.placeOverlays();
 
     this.emitter.emit('viewport:change', this.getViewport());
   }
@@ -1024,17 +1043,11 @@ export class WemaBoard {
   }
 
   /** Bounding box, in board coordinates, of the shown notes among `noteIds` (default: all) */
-  private visibleBounds(noteIds?: NoteId[]): { left: number; top: number; right: number; bottom: number } | null {
+  private visibleBounds(noteIds?: NoteId[]): Box | null {
     const ids = noteIds ? new Set(noteIds) : null;
     const notes = this.noteManager.getNotes()
       .filter((note) => (!ids || ids.has(note.id)) && !this.hiddenNoteIds.has(note.id));
-    if (notes.length === 0) return null;
-    return {
-      left: Math.min(...notes.map((n) => n.x)),
-      top: Math.min(...notes.map((n) => n.y)),
-      right: Math.max(...notes.map((n) => n.x + n.width)),
-      bottom: Math.max(...notes.map((n) => n.y + n.height)),
-    };
+    return notes.length === 0 ? null : boundingBoxOf(notes);
   }
 
   /** Whether this pointerdown starts a pan rather than a selection or a note drag */
@@ -1388,8 +1401,6 @@ export class WemaBoard {
       if (this.embedInput?.el === container) this.embedInput = null;
     };
     container.style.position = 'absolute';
-    this.placeEmbedInput();
-    container.style.transform = 'translateX(-50%)';
     container.style.zIndex = '10002';
     container.addEventListener('click', (e) => e.stopPropagation());
     container.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -1416,6 +1427,7 @@ export class WemaBoard {
     container.appendChild(okBtn);
     container.appendChild(cancelBtn);
     this.boardEl.appendChild(container);
+    this.placeEmbedInput();
     input.focus();
   }
 
@@ -1424,9 +1436,19 @@ export class WemaBoard {
     if (!this.embedInput) return;
     const note = this.noteManager.getNote(this.embedInput.noteId);
     if (!note) return;
-    const below = this.view.boardToScreen(note.x + note.width / 2, note.y + note.height);
-    this.embedInput.el.style.left = `${below.x}px`;
-    this.embedInput.el.style.top = `${below.y + 50}px`;
+    // Next to the note popup, on the far side from the note
+    const { box, side } = this.notePopup.boxWith(note.id)
+      ?? { box: this.view.boardBoxToScreen(boundingBoxOf([note])), side: 'below' as const };
+    placeOverlay(this.embedInput.el, this.boardEl, box, side, EMBED_INPUT_GAP);
+  }
+
+  /** Put every overlay back next to what it belongs to, inside the visible part of the board */
+  private placeOverlays(): void {
+    this.notePopup.updatePosition();
+    this.edgePopup.updatePosition();
+    this.richTextToolbar.updatePosition();
+    this.noteManager.updateOverlayPosition();
+    this.placeEmbedInput();
   }
 
   /** Image URL pattern (by file extension) */

@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **ボードの端に近い付箋で、操作 UI が見切れていた。** 付箋のポップアップ、接続線のポップアップ、文字のツールバー、画像の上のボタン、埋め込み URL の入力欄は、対象からの決まった位置に出していた。対象が端にあると、ボードの外へはみ出して操作できなかった。ボードの見えている範囲に収まる位置へ出す
+  - 決まった側（付箋のポップアップは下、文字のツールバーは上）に収まらないときは、反対側に出す。どちらにも収まらないときは、端で止める（対象に重なる）
+  - 左右は、端で止める
+  - ページがスクロールしてボードの一部がウィンドウの外にあるときは、ウィンドウに入っている部分へ収める
+  - 色の一覧を開くなどして操作 UI の大きさが変わったとき、ボードの大きさが変わったときも、位置を決め直す
+  - 対象が見えている範囲の外にあるときは、端に残さず、対象と一緒に外へ出す
+- 埋め込み URL の入力欄が、付箋のポップアップの下の段に重なっていた。ポップアップの外側（付箋とは反対の側）に並べる
+
+### Changed
+
+- 操作 UI の位置を、CSS の `transform` ではなく `left` / `top` で決めるようにした。`.wema-note-popup` などの `transform` を上書きして位置を調整していた場合は、効かなくなる
+
 ## [0.10.0] - 2026-10-05
 
 ### Added

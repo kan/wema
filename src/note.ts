@@ -2,7 +2,9 @@ import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import type { WemaLabels } from './labels.js';
-import { createElement, setLabel, setStyles, getSelectionRange, setSelectionRange } from './utils/dom.js';
+import {
+  createElement, setLabel, setStyles, getSelectionRange, setSelectionRange, placeOverlay, screenBoxOf,
+} from './utils/dom.js';
 import { sanitizeHtml, escapeHtml, isPlainText, insertHtmlAtCaret, resolveSafeUrl } from './utils/sanitize.js';
 import { normalizeMeta } from './utils/meta.js';
 import { isInListItem, indentListItems, outdentListItems, getListType, createListItem } from './utils/list.js';
@@ -609,17 +611,17 @@ export class NoteManager {
     });
     this.imageOverlay.appendChild(delBtn);
 
-    this.updateOverlayPosition();
     this.imageOverlay.style.display = '';
+    this.updateOverlayPosition();
   }
 
-  /** Place the image overlay above its image (call again after the viewport changes) */
+  /**
+   * Place the image overlay above its image, or below it when there is no
+   * room above (call again after the viewport changes)
+   */
   updateOverlayPosition(): void {
     if (!this.activeImage) return;
-    const boardRect = this.boardEl.getBoundingClientRect();
-    const imgRect = this.activeImage.getBoundingClientRect();
-    this.imageOverlay.style.left = `${imgRect.left + imgRect.width / 2 - boardRect.left}px`;
-    this.imageOverlay.style.top = `${imgRect.top - boardRect.top - 4}px`;
+    placeOverlay(this.imageOverlay, this.boardEl, screenBoxOf(this.activeImage, this.boardEl), 'above', 4);
   }
 
   /** Hide the image overlay */

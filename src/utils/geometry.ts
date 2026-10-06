@@ -6,6 +6,74 @@ export interface Point {
   y: number;
 }
 
+/** A box given by its edges */
+export interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** The bounding box of the notes (at least one) */
+export function boundingBoxOf(notes: WemaNote[]): Box {
+  return {
+    left: Math.min(...notes.map((n) => n.x)),
+    top: Math.min(...notes.map((n) => n.y)),
+    right: Math.max(...notes.map((n) => n.x + n.width)),
+    bottom: Math.max(...notes.map((n) => n.y + n.height)),
+  };
+}
+
+/** The side of its target an overlay is placed on */
+export type OverlaySide = 'above' | 'below';
+
+/** How close an overlay may come to the edge of the visible area */
+const OVERLAY_EDGE_MARGIN = 4;
+
+/**
+ * Where to put an overlay (popup, toolbar) of the given size so that it stays
+ * inside `bounds`: centered on `target`, on the given side of it and `gap`
+ * away. It moves to the other side when it only fits there, and is pushed
+ * back inside when it fits on neither. A target that is entirely out of
+ * `bounds` takes its overlay along instead of leaving it at the edge.
+ * All boxes are in the same coordinates; the result is the top left corner.
+ */
+export function placeOverlayBox(
+  size: { width: number; height: number },
+  target: Box,
+  bounds: Box,
+  side: OverlaySide,
+  gap: number,
+): Point {
+  const above = target.top - gap - size.height;
+  const below = target.bottom + gap;
+  const natural = {
+    x: (target.left + target.right) / 2 - size.width / 2,
+    y: side === 'above' ? above : below,
+  };
+  const targetVisible =
+    target.right >= bounds.left && target.left <= bounds.right &&
+    target.bottom >= bounds.top && target.top <= bounds.bottom;
+  if (!targetVisible) return natural;
+
+  const minX = bounds.left + OVERLAY_EDGE_MARGIN;
+  const minY = bounds.top + OVERLAY_EDGE_MARGIN;
+  const maxX = bounds.right - OVERLAY_EDGE_MARGIN - size.width;
+  const maxY = bounds.bottom - OVERLAY_EDGE_MARGIN - size.height;
+
+  const fitsAbove = above >= minY;
+  const fitsBelow = below <= maxY;
+  let y = natural.y;
+  if (side === 'above' && !fitsAbove && fitsBelow) y = below;
+  if (side === 'below' && !fitsBelow && fitsAbove) y = above;
+
+  // The top left corner wins when the overlay is larger than the bounds
+  return {
+    x: Math.max(minX, Math.min(natural.x, maxX)),
+    y: Math.max(minY, Math.min(y, maxY)),
+  };
+}
+
 /** Converts a pointer position (clientX / clientY) to board coordinates */
 export type ToBoardPoint = (clientX: number, clientY: number) => Point;
 

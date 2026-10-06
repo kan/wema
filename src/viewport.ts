@@ -1,5 +1,5 @@
 import type { WemaViewport } from './types.js';
-import type { Point } from './utils/geometry.js';
+import type { Box, Point } from './utils/geometry.js';
 
 /**
  * Which part of the board is shown, and the conversions between the three
@@ -80,6 +80,13 @@ export class Viewport {
   /** Convert board coordinates to a position inside the board element (for overlays) */
   boardToScreen(x: number, y: number): Point {
     return { x: x * this.zoom + this.x, y: y * this.zoom + this.y };
+  }
+
+  /** Convert a box in board coordinates to a box inside the board element (for overlays) */
+  boardBoxToScreen(box: Box): Box {
+    const topLeft = this.boardToScreen(box.left, box.top);
+    const bottomRight = this.boardToScreen(box.right, box.bottom);
+    return { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y };
   }
 
   /** Convert a pointer position (clientX / clientY) to board coordinates */
