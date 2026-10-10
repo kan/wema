@@ -514,6 +514,121 @@ describe('Viewport', () => {
 
       expect(board.getSelection()).toEqual([note.id]);
     });
+
+    describe("with emptyDrag: 'pan'", () => {
+      beforeEach(() => {
+        board.destroy();
+        createBoard({ emptyDrag: 'pan', panMargin: Infinity });
+      });
+
+      it('pans on a plain left drag of an empty area in normal mode', () => {
+        board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+
+        drag(boardEl, 200, 200);
+
+        expect(board.getViewport()).toEqual({ x: 200, y: 200, zoom: 1 });
+        expect(board.getSelection()).toEqual([]);
+        expect(container.querySelector('.wema-rubberband')).toBeNull();
+      });
+
+      it.each([
+        ['Ctrl', { ctrlKey: true }],
+        ['Cmd', { metaKey: true }],
+        ['Shift', { shiftKey: true }],
+      ])('draws a rubberband with %s + drag', (_name, init) => {
+        const note = board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+
+        drag(boardEl, 200, 200, init);
+
+        expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 1 });
+        expect(board.getSelection()).toEqual([note.id]);
+      });
+
+      it('still drags a note instead of panning', () => {
+        const note = board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+        const handle = container.querySelector('.wema-move-handle') as HTMLElement;
+
+        drag(handle, 40, 30);
+
+        expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 1 });
+        expect(board.getNote(note.id)).toEqual(expect.objectContaining({ x: 240, y: 280 }));
+      });
+
+      it('ends the editing of a note when the press starts a pan', () => {
+        const note = board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+        const content = container.querySelector('.wema-note-content') as HTMLElement;
+        content.tabIndex = 0; // jsdom does not treat contenteditable as focusable
+        content.focus();
+        expect(document.activeElement).toBe(content);
+        content.textContent = 'typed';
+        content.dispatchEvent(new Event('input', { bubbles: true }));
+
+        drag(boardEl, 30, 30);
+
+        expect(document.activeElement).toBe(boardEl);
+        expect(board.getNote(note.id)!.text).toBe('typed');
+      });
+
+      it('clears the selection with a click that does not move', () => {
+        const note = board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+        board.select([note.id]);
+
+        drag(boardEl, 0, 0);
+        boardEl.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        expect(board.getSelection()).toEqual([]);
+        expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 1 });
+      });
+
+      it('still creates a note on a double click', () => {
+        boardEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 400, clientY: 300 }));
+        expect(board.getNotes()).toHaveLength(1);
+      });
+
+      it('keeps Shift + drag for the rubberband in viewOnly, and adds Ctrl + drag', () => {
+        const note = board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+        board.setViewOnly(true);
+
+        for (const init of [{ shiftKey: true }, { ctrlKey: true }, { metaKey: true }]) {
+          board.select([]);
+          drag(boardEl, 200, 200, init);
+          expect(board.getSelection()).toEqual([note.id]);
+          expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 1 });
+        }
+
+        board.select([]);
+        drag(boardEl, 200, 200);
+        expect(board.getSelection()).toEqual([]);
+        expect(board.getViewport()).toEqual({ x: 200, y: 200, zoom: 1 });
+      });
+
+      it('takes the focus from a field outside the board', () => {
+        const field = document.createElement('input');
+        document.body.appendChild(field);
+        field.focus();
+
+        drag(boardEl, 30, 30);
+
+        expect(document.activeElement).toBe(boardEl);
+        field.remove();
+      });
+
+      it('pans in readOnly whatever keys are held', () => {
+        board.setReadOnly(true);
+        drag(boardEl, -80, 10, { ctrlKey: true });
+        expect(board.getViewport()).toEqual({ x: -80, y: 10, zoom: 1 });
+      });
+    });
+
+    it("treats an unknown emptyDrag as 'select'", () => {
+      board.destroy();
+      createBoard({ emptyDrag: 'scroll' as never });
+      const note = board.addNote({ x: 200, y: 250, width: 100, height: 100 });
+
+      drag(boardEl, 200, 200);
+
+      expect(board.getSelection()).toEqual([note.id]);
+    });
   });
 
   describe('pan by double click', () => {

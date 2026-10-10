@@ -62,6 +62,7 @@ export class WemaBoard {
   private view: Viewport;
   private wheelPan: boolean;
   private wheelZoom: boolean;
+  private emptyDrag: 'select' | 'pan';
   /** How much empty space a user gesture may show beyond the notes, in screen pixels (Infinity: no limit) */
   private panMargin: number;
   private spaceHeld = false;
@@ -130,6 +131,7 @@ export class WemaBoard {
     this.onImageUpload = options.onImageUpload;
     this.wheelPan = options.wheelPan ?? true;
     this.wheelZoom = options.wheelZoom ?? true;
+    this.emptyDrag = options.emptyDrag === 'pan' ? 'pan' : 'select';
     this.panMargin = options.panMargin !== undefined && options.panMargin >= 0 ? options.panMargin : 200;
 
     // Create board element
@@ -571,6 +573,12 @@ export class WemaBoard {
       if (!this.wantsPan(e)) return;
       e.preventDefault();
       e.stopPropagation();
+      // preventDefault() also keeps the focus where it is. A left press on an
+      // empty area still moves it to the board, as it does without a pan:
+      // that ends the editing of a note, and takes the keyboard shortcuts
+      // back from a field outside the board.
+      const onEmptyArea = !(e.target as HTMLElement).closest('.wema-note');
+      if (e.button === 0 && onEmptyArea) this.boardEl.focus({ preventScroll: true });
       this.pan = {
         pointerId: e.pointerId,
         startX: e.clientX,
@@ -1057,10 +1065,15 @@ export class WemaBoard {
     if (e.button === 1) return true; // middle button, anywhere
     if (e.button !== 0) return false;
     if (this.spaceHeld) return true; // Space + drag, anywhere
-    // With nothing to select or edit on an empty area, a plain drag pans.
-    // In viewOnly, Shift + drag still starts a rubberband selection.
-    const onEmptyArea = !target.closest('.wema-note');
-    return onEmptyArea && (this.readOnly || (this.viewOnly && !e.shiftKey));
+    if (target.closest('.wema-note')) return false;
+    // On an empty area, a plain drag pans where there is nothing to select
+    // (readOnly), in viewOnly, and wherever `emptyDrag` says so. Outside
+    // readOnly, Shift + drag still starts a rubberband selection, and so does
+    // Ctrl / Cmd + drag with `emptyDrag: 'pan'`.
+    if (this.readOnly) return true;
+    const pansByDefault = this.viewOnly || this.emptyDrag === 'pan';
+    const selects = e.shiftKey || (this.emptyDrag === 'pan' && (e.ctrlKey || e.metaKey));
+    return pansByDefault && !selects;
   }
 
   private setSpaceHeld(held: boolean): void {
@@ -1086,8 +1099,14 @@ export class WemaBoard {
   autoLayout(noteIds?: NoteId[]): void {
     if (this.readOnly || this.viewOnly) return;
     const targetIds = noteIds ?? this.getNoteFilter() ?? undefined;
+    // Wrapped to the shape of the board, so that the result fits it at the
+    // largest zoom (a board with no size yet gives NaN: the default shape)
+    const aspectRatio = this.boardEl.clientWidth / this.boardEl.clientHeight;
     this.applyPositions(
-      computeAutoLayout(this.noteManager.getNotes(), this.edgeManager.getEdges(), { noteIds: targetIds }),
+      computeAutoLayout(this.noteManager.getNotes(), this.edgeManager.getEdges(), {
+        noteIds: targetIds,
+        aspectRatio,
+      }),
     );
   }
 

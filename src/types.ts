@@ -197,6 +197,15 @@ export interface WemaBoardOptions {
    */
   wheelZoom?: boolean;
   /**
+   * What a plain left drag of an empty area does in the normal mode
+   * (default: 'select'). 'select' draws a rubberband selection. 'pan' moves
+   * the board instead, and the rubberband selection takes Shift or
+   * Ctrl / Cmd + drag. A readOnly or viewOnly board pans on a plain drag
+   * either way; with 'pan', a viewOnly board also takes Ctrl / Cmd + drag
+   * (besides Shift + drag) for the rubberband selection.
+   */
+  emptyDrag?: 'select' | 'pan';
+  /**
    * How far the user can pan away from the notes: the empty space shown
    * beyond the outermost shown notes, in screen pixels (default: 200). Notes
    * that fit in the board can be put anywhere inside it. Pass `Infinity` to

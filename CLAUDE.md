@@ -286,7 +286,7 @@ class WemaBoard {
   // レイアウト
   alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void;
   distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical'): void;
-  autoLayout(noteIds?: NoteId[]): void;
+  autoLayout(noteIds?: NoteId[]): void;  // ボードの縦横比に合わせて折り返す
 
   // 履歴・同期
   batch<T>(fn: () => T, options?: { origin?: 'user' | 'agent' }): T;  // Undo 1 回分にまとめる
@@ -330,6 +330,7 @@ interface WemaBoardOptions {
   foldLabels?: { more?: string; less?: string };  // labels の readMore / showLess と同じ文言。両方あればこちらが優先（default: 'Read more' / 'Show less'）
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
+  emptyDrag?: 'select' | 'pan';  // default: 'select'（空いている場所の左ドラッグ。'pan' でパン、ラバーバンド選択は Shift か Ctrl / Cmd + ドラッグ）
   panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）
   minZoom?: number;            // default: 0.25
   maxZoom?: number;            // default: 2

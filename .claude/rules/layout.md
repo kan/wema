@@ -13,7 +13,7 @@ paths:
 ```typescript
 computeAlignment(notes: LayoutNote[], alignment: NoteAlignment): NotePosition[];
 computeDistribution(notes: LayoutNote[], direction: DistributeDirection): NotePosition[];
-computeAutoLayout(notes: LayoutNote[], edges: LayoutEdge[], options?: { noteIds?: NoteId[] }): NotePosition[];
+computeAutoLayout(notes: LayoutNote[], edges: LayoutEdge[], options?: { noteIds?: NoteId[]; aspectRatio?: number }): NotePosition[];
 ```
 
 ## `computeAutoLayout` の配置の決め方
@@ -29,4 +29,9 @@ computeAutoLayout(notes: LayoutNote[], edges: LayoutEdge[], options?: { noteIds?
 - 子を持たない兄弟の折り返しは 16 枚以上から（`WRAP_MIN`）。折り返すと、2 行目以降への線が上の行の付箋の裏を斜めに通り、付箋のあいだに線の断片が見えて読みにくい。1 行で並べたほうが線は読めるので、1 行では広すぎる枚数になるまで折り返さない
 - 段と段の間隔は `gapBelow()` が決める。そのあいだの線の横の広がりに比例させ、`V_GAP`（60px）から `MAX_V_GAP`（150px）の範囲に収める。接続線の曲線（`computeEdgePath`）は、両端で「長さの 0.4 倍、最大 150px」だけ縦に進む。間隔がそれより狭いと曲線が折り返して波打ち、同じ親から出る線どうしが交差する。`FAN_SLOPE` と `MAX_V_GAP` はこの描き方から決めた値なので、`computeEdgePath` の係数を変えたら合わせて直すこと
 - 段の間隔（`V_GAP`）を `AUTO_ANCHOR_ROOM`（`src/utils/geometry.ts`）より小さくしないこと。小さくすると、横に離れた子への線が左右の辺から出て、隣の付箋の裏を通る
-- 接続線のない付箋は、つながったまとまりの下に格子で置く
+- つながったまとまり同士と、接続線のない付箋は、どちらも `packBlocks()` で左から詰めて折り返す（行の高さは、その行で最も高いものに合わせる。大きさが違っても重ならない）。接続線のない付箋を、最も幅の広い付箋に合わせた格子へ戻さないこと。幅の広い付箋が 1 枚あるだけで、全体が縦 1 列になる
+- 全体の形は `arrange()` が決める。まとまりの折り返し方、接続線のない付箋の折り返し方、接続線のない付箋を下と右のどちらに置くかの組み合わせを比べ、`aspectRatio`（幅 ÷ 高さ。省略時は 1.6）の範囲に最も大きく収まるものを選ぶ。同じなら面積の小さいもの
+  - 比べる折り返し方は `wrappings()` が作る。1 行目に入れる個数を 1 から順に試す（`WRAP_EXACT` 個までは全部、その先は `WRAP_STEP` 倍ずつ）。ここでは大きさだけを計算し（`flow()`）、選んだ 1 組だけを `packBlocks()` で配置する
+  - `wrappings()` が行の幅を足す順序は、`flow()` と同じにしておくこと。順序が違うと、小数の幅の付箋で丸めの差が出て、行の最後の 1 枚が次の行へ送られる
+  - `WemaBoard.autoLayout()` は、ボードの要素の縦横比（`clientWidth / clientHeight`）を渡す。サーバー側（wema-kake の MCP の `auto_layout`）は `{ noteIds }` だけで呼ぶので、`aspectRatio` を必須にしないこと
+  - 制限: 接続線の鎖は折り返さない。段の数が多いまとまりは、縦横比に関わらず縦に長い

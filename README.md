@@ -87,6 +87,7 @@ const board = new WemaBoard({
   foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言。labels の readMore / showLess と同じもの
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
   wheelZoom?: boolean,         // default: true（Ctrl / Cmd + ホイールで拡大・縮小する）
+  emptyDrag?: 'select' | 'pan',  // default: 'select'（空いている場所の左ドラッグ。'pan' でパン、選択は Shift か Ctrl / Cmd + ドラッグ）
   panMargin?: number,          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白のピクセル数）
   minZoom?: number,            // default: 0.25
   maxZoom?: number,            // default: 2
@@ -321,8 +322,9 @@ board.zoomTo(1);               // 等倍に戻す
 | Ctrl / Cmd + ホイール、トラックパッドのピンチ | ズーム | ズーム | ズーム |
 | 中ボタンのドラッグ | パン | パン | パン |
 | Space + 左ドラッグ | パン | パン | パン |
-| 空いている場所の左ドラッグ | ラバーバンド選択 | パン | パン |
+| 空いている場所の左ドラッグ | ラバーバンド選択（`emptyDrag: 'pan'` ではパン） | パン | パン |
 | 空いている場所の Shift + 左ドラッグ | ラバーバンド選択 | パン | ラバーバンド選択 |
+| 空いている場所の Ctrl / Cmd + 左ドラッグ | ラバーバンド選択 | パン | パン（`emptyDrag: 'pan'` ではラバーバンド選択） |
 | 空いている場所のダブルクリック | 付箋を作成 | その位置を中央へ | その位置を中央へ |
 | リサイズハンドルのダブルクリック | 付箋を内容に合うサイズへ変更 | （ハンドルなし） | （ハンドルなし） |
 
@@ -332,6 +334,9 @@ board.zoomTo(1);               // 等倍に戻す
 - ホイールでのパンは、ページのスクロールを止める。ボードをスクロールするページに埋め込む場合は、`wheelPan: false` で無効にできる
 - Space は、ポインタがボードの上にある間だけパンの合図になる。ボードにフォーカスが無くても使える。テキストの編集中や、入力欄・ボタンにフォーカスがあるときは、通常のキー入力として扱う
 - 通常モードでも `createOnDblClick: false` を指定していれば、ダブルクリックはその位置を中央へ動かす
+- `emptyDrag: 'pan'` を指定すると、通常モードでも、空いている場所の左ドラッグがパンになる。ラバーバンド選択は、Shift または Ctrl / Cmd を押しながらドラッグする。既定値は `'select'`（左ドラッグがラバーバンド選択）
+  - 動かさずに離したとき（クリック）の選択の解除、ダブルクリックでの付箋の作成、編集中の付箋の確定は、`'select'` のときと変わらない
+  - このパンも下の `panMargin` の制限を受ける。付箋全体がボードに収まっているあいだは、付箋がボードからはみ出さない範囲でしか動かない
 - **操作でパンできる範囲は、付箋のある範囲の周囲までに限る。** 表示中の付箋全体を囲む範囲の外側に見える余白は、上下左右とも `panMargin`（既定値 200、画面のピクセル）まで。付箋全体がボードに収まるときは、付箋がボードからはみ出さない範囲で動かせる
   - 制限するのは上の表の操作（ホイール、ドラッグ、ダブルクリック、Ctrl / Cmd + ホイール）だけ。`setViewport()` などのメソッドは、指定どおりの位置へ動かす
   - 範囲の外にある状態（メソッドで動かした、付箋を削除した、絞り込みを変えた）からは、付箋へ近づく方向にだけ動かせる。範囲の中へ勝手に戻すことはしない
@@ -344,7 +349,7 @@ board.zoomTo(1);               // 等倍に戻す
 |---------|------|
 | `alignNotes(noteIds, alignment)` | 付箋を整列（left/center/right/top/middle/bottom） |
 | `distributeNotes(noteIds, direction)` | 付箋を均等配置（horizontal/vertical） |
-| `autoLayout(noteIds?)` | 自動レイアウト（接続線から階層を作る。今の位置の左上を保つ） |
+| `autoLayout(noteIds?)` | 自動レイアウト（接続線から階層を作る。今の位置の左上を保つ。ボードの縦横比に合わせて折り返す） |
 
 同じ計算を DOM なしで行う関数も export している。サーバー側など `WemaBoard` を作れない環境で使える。どれも入力を変更せず、付箋の新しい位置 `{ id, x, y }` の配列を返す。
 
@@ -352,13 +357,22 @@ board.zoomTo(1);               // 等倍に戻す
 |------|------|
 | `computeAlignment(notes, alignment)` | 整列後の位置。全付箋の位置を返す |
 | `computeDistribution(notes, direction)` | 均等配置後の位置。両端を除く付箋の位置を返す |
-| `computeAutoLayout(notes, edges, options?)` | 自動レイアウト後の位置。`options.noteIds` で対象を絞れる |
+| `computeAutoLayout(notes, edges, options?)` | 自動レイアウト後の位置。`options.noteIds` で対象を絞れる。`options.aspectRatio` で、収めたい範囲の縦横比（幅 ÷ 高さ、既定値 1.6）を渡せる |
 
 ```typescript
 import { computeAutoLayout } from '@kanf/wema';
 
 const positions = computeAutoLayout(data.notes, data.edges);
+// 横長の画面に収めたいとき
+const wide = computeAutoLayout(data.notes, data.edges, { aspectRatio: 16 / 9 });
 ```
+
+自動レイアウトは、次のように配置する。
+
+- 接続線でつながった付箋は、線の向きに上から下へ段を作る。つながっていないまとまり同士は、横に並べて折り返す
+- 接続線のない付箋は、左から詰めて折り返し、まとまりの下か右に置く。付箋の大きさが違っていても、付箋同士は重ならない
+- 折り返す幅と、接続線のない付箋を下と右のどちらに置くかは、全体が `aspectRatio` の範囲に最も大きく収まるように選ぶ。`autoLayout()` は、ボードの要素の縦横比を使う
+- 接続線の鎖は折り返さない。段の数が多いボードは、縦横比を渡しても縦に長くなる
 
 #### Undo/Redo
 

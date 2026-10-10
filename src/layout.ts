@@ -23,6 +23,13 @@ export type DistributeDirection = 'horizontal' | 'vertical';
 export interface AutoLayoutOptions {
   /** Lay out only these notes (default: all notes) */
   noteIds?: NoteId[];
+  /**
+   * Width / height of the area the result should fit into, such as the
+   * visible part of the board (default: 1.6). Groups of connected notes and
+   * notes without edges are wrapped so that the whole fits this shape at the
+   * largest scale.
+   */
+  aspectRatio?: number;
 }
 
 /**
@@ -123,8 +130,15 @@ const GROUP_GAP = 80;
  * row until it gets too wide to take in at a glance.
  */
 const WRAP_MIN = 16;
-/** Width / height that the packed groups aim for */
-const TARGET_ASPECT = 1.6;
+/** Width / height that the result aims for when `aspectRatio` is not given */
+const DEFAULT_ASPECT = 1.6;
+/**
+ * Every number of blocks in the first row is tried up to this one; beyond it,
+ * the numbers grow by `WRAP_STEP`. This keeps the work linear for huge inputs
+ * while trying every wrapping for the sizes a board usually has.
+ */
+const WRAP_EXACT = 64;
+const WRAP_STEP = 1.25;
 /** Down + up passes over the levels when positioning a group */
 const SWEEPS = 4;
 /**
@@ -312,9 +326,25 @@ function gapBelow(level: Unit[]): number {
   return Math.min(Math.max(reach * FAN_SLOPE, V_GAP), MAX_V_GAP);
 }
 
-/** Put blocks side by side, starting a new row when `maxWidth` would be exceeded */
-function packBlocks(blocks: Block[], maxWidth: number): Block {
+/**
+ * Put blocks side by side, starting a new row when `maxWidth` would be
+ * exceeded. A row is as tall as its tallest block, so blocks never overlap
+ * whatever their sizes are.
+ */
+function packBlocks(blocks: Block[], maxWidth: number, hGap: number, vGap: number): Block {
   const places: NotePosition[] = [];
+  const size = flow(blocks, maxWidth, hGap, vGap, (block, x, y) => places.push(...shifted(block.places, x, y)));
+  return { ...size, places };
+}
+
+/** The size `packBlocks` gives; `place` receives the position of each block */
+function flow(
+  blocks: Block[],
+  maxWidth: number,
+  hGap: number,
+  vGap: number,
+  place?: (block: Block, x: number, y: number) => void,
+): { width: number; height: number } {
   let x = 0;
   let y = 0;
   let rowHeight = 0;
@@ -322,21 +352,86 @@ function packBlocks(blocks: Block[], maxWidth: number): Block {
   for (const block of blocks) {
     if (x > 0 && x + block.width > maxWidth) {
       x = 0;
-      y += rowHeight + GROUP_GAP;
+      y += rowHeight + vGap;
       rowHeight = 0;
     }
-    places.push(...shifted(block.places, x, y));
+    place?.(block, x, y);
     width = Math.max(width, x + block.width);
     rowHeight = Math.max(rowHeight, block.height);
-    x += block.width + GROUP_GAP;
+    x += block.width + hGap;
   }
-  return { width, height: y + rowHeight, places };
+  return { width, height: y + rowHeight };
 }
 
-/** Width that gives `TARGET_ASPECT` to boxes of the given sizes, each padded by `gap` */
-function targetWidth(sizes: { width: number; height: number }[], gap: number): number {
-  const area = sizes.reduce((sum, s) => sum + (s.width + gap) * (s.height + gap), 0);
-  return Math.sqrt(area * TARGET_ASPECT);
+/** A way of wrapping blocks into rows: the size it gives, and the `maxWidth` that gives it */
+interface Wrapping {
+  width: number;
+  height: number;
+  maxWidth: number;
+}
+
+/**
+ * The ways of wrapping `blocks` into rows that are worth comparing: one for
+ * each row width that holds the first 1, 2, 3, ... blocks. With blocks of
+ * one size, these are all the grids there are. Only the sizes are computed
+ * here; the one that is chosen is placed with `packBlocks`.
+ */
+function wrappings(blocks: Block[], hGap: number, vGap: number): Wrapping[] {
+  const results: Wrapping[] = [];
+  let x = 0;
+  let next = 1;
+  blocks.forEach((block, i) => {
+    // Added up the way `flow` does, so that rounding cannot push the last
+    // block of the row over this width
+    const maxWidth = x + block.width;
+    x += block.width + hGap;
+    if (i + 1 < next && i + 1 < blocks.length) return;
+    next = i + 1 < WRAP_EXACT ? i + 2 : Math.ceil((i + 1) * WRAP_STEP);
+    const size = flow(blocks, maxWidth, hGap, vGap);
+    const last = results[results.length - 1];
+    if (!last || last.width !== size.width || last.height !== size.height) results.push({ ...size, maxWidth });
+  });
+  return results;
+}
+
+/**
+ * Place the groups of connected notes and the notes without edges, choosing
+ * how each of the two wraps and whether the notes without edges go below or
+ * to the right of the groups. The choice is the one that fits an area of
+ * the given aspect ratio at the largest scale; among equals, the one that
+ * takes the least room.
+ */
+function arrange(groups: Block[], loose: Block[], aspect: number): NotePosition[] {
+  const empty: Wrapping = { width: 0, height: 0, maxWidth: 0 };
+  const groupShapes = groups.length > 0 ? wrappings(groups, GROUP_GAP, GROUP_GAP) : [empty];
+  const looseShapes = loose.length > 0 ? wrappings(loose, H_GAP, V_GAP) : [empty];
+  const gap = groups.length > 0 && loose.length > 0 ? GROUP_GAP : 0;
+
+  let best = { fit: Infinity, area: Infinity, g: empty, l: empty, beside: false };
+  const consider = (g: Wrapping, l: Wrapping, beside: boolean): void => {
+    const width = beside ? g.width + gap + l.width : Math.max(g.width, l.width);
+    const height = beside ? Math.max(g.height, l.height) : g.height + gap + l.height;
+    // The height of the smallest area of the wanted shape that holds the result
+    const fit = Math.max(width / aspect, height);
+    const area = width * height;
+    if (fit < best.fit || (fit === best.fit && area < best.area)) best = { fit, area, g, l, beside };
+  };
+  for (const g of groupShapes) {
+    for (const l of looseShapes) {
+      consider(g, l, false);
+      if (gap > 0) consider(g, l, true);
+    }
+  }
+
+  const { g, l, beside } = best;
+  return [
+    ...packBlocks(groups, g.maxWidth, GROUP_GAP, GROUP_GAP).places,
+    ...shifted(
+      packBlocks(loose, l.maxWidth, H_GAP, V_GAP).places,
+      beside ? g.width + gap : 0,
+      beside ? 0 : g.height + gap,
+    ),
+  ];
 }
 
 /**
@@ -493,7 +588,10 @@ function groupUnits(nodes: LayoutNote[], unitOf: Map<NoteId, Unit>): Unit[][] {
  *   does not run behind the notes there
  * - Many childless children of one note wrap into several rows
  * - Groups that share no edge are placed side by side and wrap into rows;
- *   notes without edges go in a grid below
+ *   notes without edges wrap into rows below or to the right of the groups.
+ *   Both wrap so that the whole fits `options.aspectRatio` (width / height
+ *   of the area to fill, 1.6 by default) at the largest scale
+ * - Notes never overlap each other, whatever their sizes are
  * - The current arrangement is the starting point: the result keeps the
  *   top-left corner of the area the notes occupy now, and ties are ordered
  *   by the notes' current position (left to right, then top to bottom)
@@ -513,21 +611,9 @@ export function computeAutoLayout(
   const graph = buildGraph(targets, edges);
   const unitOf = buildUnits(graph, assignLevels(graph));
   const groups = groupUnits(graph.nodes, unitOf).map(layoutGroup);
-  const packed = packBlocks(
-    groups,
-    Math.max(targetWidth(groups, GROUP_GAP), ...groups.map((g) => g.width)),
-  );
-  let places = packed.places;
-
-  // Notes without edges go in a grid below, about as wide as the groups above
-  const loose = targets.filter((n) => !unitOf.has(n.id));
-  if (loose.length > 0) {
-    const maxWidth = Math.max(packed.width, targetWidth(loose, H_GAP));
-    const widest = Math.max(...loose.map((n) => n.width));
-    const cols = Math.max(1, Math.min(loose.length, Math.floor((maxWidth + H_GAP) / (widest + H_GAP))));
-    const top = groups.length > 0 ? packed.height + GROUP_GAP : 0;
-    places = [...places, ...shifted(gridBlock(loose, cols).places, 0, top)];
-  }
+  const loose = targets.filter((n) => !unitOf.has(n.id)).map((n) => gridBlock([n], 1));
+  const aspect = options?.aspectRatio;
+  const places = arrange(groups, loose, aspect && aspect > 0 && Number.isFinite(aspect) ? aspect : DEFAULT_ASPECT);
 
   // Keep the top-left corner of the area the notes occupy now
   const originX = Math.min(...targets.map((n) => n.x));

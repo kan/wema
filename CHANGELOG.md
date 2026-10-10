@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **空いている場所の左ドラッグを、パンにできるようにした（`emptyDrag` オプション）。** 通常モードでは、空いている場所の左ドラッグは必ずラバーバンド選択になり、パンには中ボタンか Space が要った。`emptyDrag: 'pan'` を指定すると、左ドラッグがパンになる。ラバーバンド選択は、Shift または Ctrl / Cmd を押しながらドラッグする
+  - 既定値は `'select'` で、これまでと変わらない
+  - クリックでの選択の解除、ダブルクリックでの付箋の作成、編集中の付箋の確定は、`'pan'` でも働く
+  - 参照モード（viewOnly）でも、`'pan'` のときは Ctrl / Cmd + ドラッグでラバーバンド選択ができる（Shift + ドラッグはこれまでどおり）
+- `computeAutoLayout()` の `options` に `aspectRatio`（収めたい範囲の幅 ÷ 高さ）を足した。省略したときは、これまでと同じ 1.6
+
+### Changed
+
+- **自動レイアウトを、画面に収まる形へ折り返すようにした。** これまでは、付箋を縦 1 列に並べることがあった
+  - 接続線のない付箋の格子は、列の幅を最も幅の広い付箋から決めていた。幅の広い付箋が 1 枚あると、列が 1 つになっていた。付箋ごとの幅で、左から詰めて折り返す
+  - 接続線のない付箋は、つながった付箋のまとまりの下に置いていた。まとまりが縦に長いと、全体がさらに縦に伸びていた。下と右のうち、全体が収まりやすい側に置く
+  - `autoLayout()` は、ボードの縦横比に合わせて折り返す。これまでは、ボードの形に関わらず 1.6 を目安にしていた
+  - 同じ入力でも、配置の結果がこれまでと変わることがある。`computeAutoLayout(notes, edges, { noteIds })` の呼び出し方は変わらない
+
 ## [0.10.1] - 2026-10-06
 
 ### Fixed

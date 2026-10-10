@@ -37,6 +37,8 @@ paths:
 - Space + ドラッグの Space は、フォーカスではなく「ポインタがボードの上にあるか」で受け付ける（`document` の keydown / keyup と、ボードの pointerenter / pointerleave）。`window` の blur で解除する
 - 座標を省略した `addNote()` は、ボード座標の固定位置ではなく、表示中の領域の左上を基準にする
 - パンの開始は `wantsPan()` で決める。中ボタン、Space + 左ドラッグ、readOnly / viewOnly の空いている場所の左ドラッグ（viewOnly の Shift + ドラッグはラバーバンド選択）。`pointerdown` をキャプチャ段階で受けるので、付箋の上から始めたパンは付箋のドラッグより優先される
+  - `emptyDrag: 'pan'` のボードでは、通常モードでも空いている場所の左ドラッグがパンになる。ラバーバンド選択は Shift または Ctrl / Cmd + ドラッグ（viewOnly でも Ctrl / Cmd が加わる）。既定値の `'select'` の挙動を変えないこと（スタンドアロン版と既存の利用側が使っている）
+  - **`handlePanDown` は `preventDefault()` を呼ぶので、ブラウザはフォーカスを動かさない。** 空いている場所を左ボタンで押してパンを始めたときは、`handlePanDown` がボードへフォーカスを移す（フォーカスがボードの外の入力欄にあるときも移す。パンにならない押下では、ブラウザが同じことをする）。これを外すと、編集中の付箋が blur せず、編集が確定しない。jsdom はもともと `pointerdown` でフォーカスを動かさないので、テストが確かめているのは、この処理がフォーカスを移すことだけ。`preventDefault()` の影響は実ブラウザで確かめる
 - ダブルクリックは、付箋を作成できるとき（通常モードで `createOnDblClick` が有効）は作成、できないときはその位置を中央へパンする
 - 利用者の操作（ホイール、ドラッグ、ダブルクリック、Ctrl + ホイール）による移動は `panWithinLimit()` を通し、付箋のある範囲から `panMargin` より遠くへ行かせない。操作を増やすときも `setViewport()` を直接呼ばず、ここを通す。メソッド（`setViewport` / `zoomTo` / `revealNotes` / `centerContent` / `fitToContent`）は制限しない
   - 軸ごとの規則: 付箋全体がボードより大きいときは、付箋の外側の余白を `panMargin` まで見せる。ボードに収まるときは、付箋がボードからはみ出さない範囲で動かせる（小さい付箋群を画面の外へ追い出せないようにするため）

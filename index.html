@@ -82,6 +82,8 @@
       data: loadSaved(),
       // Japanese by default; open with ?lang=en to see the English labels
       labels: new URLSearchParams(location.search).get('lang') === 'en' ? undefined : jaLabels,
+      // Open with ?emptyDrag=pan to pan with a plain drag of an empty area
+      emptyDrag: new URLSearchParams(location.search).get('emptyDrag') === 'pan' ? 'pan' : 'select',
     });
 
     board.on('change', ({ data }) => save(data));

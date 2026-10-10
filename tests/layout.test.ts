@@ -178,8 +178,28 @@ describe('Layout', () => {
 
       // Connected notes should be in different rows
       expect(r1.y).toBeLessThan(r2.y);
-      // Disconnected note should be below connected ones
-      expect(r3.y).toBeGreaterThanOrEqual(r2.y);
+      // Disconnected note should be beside the connected ones, clear of them
+      expect(r3.x).toBeGreaterThanOrEqual(r1.x + 200);
+      expect(r3.x).toBeGreaterThanOrEqual(r2.x + 200);
+    });
+
+    it('wraps to the shape of the board', () => {
+      const boardEl = container.querySelector('.wema-board') as HTMLElement;
+      const height = (): number => {
+        board.autoLayout();
+        const notes = board.getNotes();
+        return Math.max(...notes.map((n) => n.y + n.height)) - Math.min(...notes.map((n) => n.y));
+      };
+      for (let i = 0; i < 12; i++) addNoteAt(i * 10, 0);
+
+      Object.defineProperty(boardEl, 'clientWidth', { value: 1600, configurable: true });
+      Object.defineProperty(boardEl, 'clientHeight', { value: 400, configurable: true });
+      const wide = height();
+      Object.defineProperty(boardEl, 'clientWidth', { value: 400, configurable: true });
+      Object.defineProperty(boardEl, 'clientHeight', { value: 1600, configurable: true });
+      const tall = height();
+
+      expect(wide).toBeLessThan(tall);
     });
 
     it('works with specific noteIds subset', () => {
@@ -248,7 +268,7 @@ describe('Layout functions (no board)', () => {
   });
 
   describe('computeAutoLayout', () => {
-    it('places a child below its parent and a disconnected note below both', () => {
+    it('places a child below its parent and a disconnected note beside both', () => {
       const result = computeAutoLayout(
         [note('p', 500, 500), note('c', 0, 0), note('x', 900, 900)],
         [{ from: 'p', to: 'c' }],
@@ -258,7 +278,8 @@ describe('Layout functions (no board)', () => {
       expect(result).toHaveLength(3);
       expect(pos.p.x).toBe(pos.c.x);
       expect(pos.c.y).toBe(pos.p.y + 150 + 60);
-      expect(pos.x.y).toBeGreaterThan(pos.c.y);
+      expect(pos.x.x).toBe(pos.p.x + 200 + 80);
+      expect(pos.x.y).toBe(pos.p.y);
     });
 
     it('places a cycle that no root leads to', () => {
@@ -432,6 +453,95 @@ describe('Layout functions (no board)', () => {
             p.x + p.width <= q.x || q.x + q.width <= p.x || p.y + p.height <= q.y || q.y + q.height <= p.y;
           expect(apart, `${p.id} and ${q.id}`).toBe(true);
         }
+      }
+    });
+
+    const boundsOf = (notes: LayoutNote[], pos: Record<string, { x: number; y: number }>) => {
+      const boxes = notes.map((n) => ({ ...n, ...pos[n.id] }));
+      return {
+        width: Math.max(...boxes.map((b) => b.x + b.width)) - Math.min(...boxes.map((b) => b.x)),
+        height: Math.max(...boxes.map((b) => b.y + b.height)) - Math.min(...boxes.map((b) => b.y)),
+      };
+    };
+    const expectNoOverlap = (notes: LayoutNote[], pos: Record<string, { x: number; y: number }>): void => {
+      const boxes = notes.map((n) => ({ ...n, ...pos[n.id] }));
+      for (const p of boxes) {
+        for (const q of boxes) {
+          if (p.id >= q.id) continue;
+          const apart =
+            p.x + p.width <= q.x || q.x + q.width <= p.x || p.y + p.height <= q.y || q.y + q.height <= p.y;
+          expect(apart, `${p.id} and ${q.id}`).toBe(true);
+        }
+      }
+    };
+
+    it('does not put notes without edges in one column because one of them is wide', () => {
+      const notes = [
+        note('wide', 0, 0, 900, 150),
+        ...Array.from({ length: 8 }, (_, i) => note(`s${i}`, i + 1, 0)),
+      ];
+      const pos = layout(notes, []);
+
+      expect(new Set(notes.map((n) => pos[n.id].x)).size).toBeGreaterThan(1);
+      expect(boundsOf(notes, pos).height).toBeLessThan(1000);
+      expectNoOverlap(notes, pos);
+    });
+
+    it('puts notes without edges beside a tall chain instead of below it', () => {
+      const notes = [
+        note('a', 0, 0, 640, 500), note('b', 0, 600), note('c', 0, 800, 320, 500),
+        note('x', 0, 1400, 410, 260), note('y', 0, 1700, 640, 500), note('z', 0, 2300, 640, 500),
+      ];
+      const pos = layout(notes, [edge('a', 'b'), edge('b', 'c')]);
+
+      // The chain is 500 + 60 + 150 + 60 + 500 tall; nothing makes the result taller
+      expect(boundsOf(notes, pos).height).toBe(1270);
+      expectNoOverlap(notes, pos);
+    });
+
+    it('wraps to options.aspectRatio', () => {
+      const notes = Array.from({ length: 12 }, (_, i) => note(`n${i}`, i * 10, 0));
+      const shape = (aspectRatio?: number) => {
+        const result = computeAutoLayout(notes, [], { aspectRatio });
+        return boundsOf(notes, Object.fromEntries(result.map((r) => [r.id, r])));
+      };
+
+      const wide = shape(4);
+      const tall = shape(0.25);
+      expect(wide.width).toBeGreaterThan(wide.height);
+      expect(tall.height).toBeGreaterThan(tall.width);
+      // A value that is not a ratio falls back to the default
+      for (const bad of [0, -1, NaN, Infinity]) {
+        expect(shape(bad)).toEqual(shape());
+      }
+    });
+
+    it('can put notes of fractional widths in one row', () => {
+      const notes = Array.from({ length: 7 }, (_, i) => note(`n${i}`, i * 10, 0, 100.1 + i * 0.7, 150));
+      const result = computeAutoLayout(notes, [], { aspectRatio: 1000 });
+      expect(new Set(result.map((r) => r.y)).size).toBe(1);
+    });
+
+    it('never overlaps notes of random sizes, with and without edges', () => {
+      // Deterministic pseudo-random numbers (mulberry32)
+      let seed = 12345;
+      const random = (): number => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+      for (let round = 0; round < 40; round++) {
+        const count = 2 + Math.floor(random() * 30);
+        const notes = Array.from({ length: count }, (_, i) =>
+          note(`n${i}`, random() * 2000, random() * 2000, 80 + random() * 700, 60 + random() * 500));
+        const edges = Array.from({ length: Math.floor(random() * count) }, () =>
+          edge(`n${Math.floor(random() * count)}`, `n${Math.floor(random() * count)}`));
+        const aspectRatio = 0.3 + random() * 3;
+        const result = computeAutoLayout(notes, edges, { aspectRatio });
+
+        expect(result).toHaveLength(count);
+        expectNoOverlap(notes, Object.fromEntries(result.map((r) => [r.id, r])));
       }
     });
 
