@@ -524,6 +524,8 @@ board.setViewOnly(false);
 
 この 2 つの操作は Undo 履歴に積まれず、`history:commit` も発火しない。参照モード中、`undo()` と `redo()` は何もしない。`viewOnly: true` で作成したボードは、終了時に作成時点の位置と折り畳み状態へ戻る。
 
+同じ 2 つは、参照モードのままプログラムからも変えられる。位置は `updateNote()`、折り畳みは `updateEdge(id, { collapsed })` で変える。どちらも利用者の操作と同じ扱いで、モード終了時に元へ戻り、Undo 履歴に積まれない。`updateEdge()` に渡した `collapsed` 以外のキーは、参照モードでは無視する。
+
 スタンドアロン版では 👁 ボタン（Ctrl+Shift+L）で切替。状態はリロード後も保持される。
 
 ### モード比較

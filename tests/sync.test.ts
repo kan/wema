@@ -466,6 +466,46 @@ describe('Sync API', () => {
       expect(commits).toHaveLength(1);
     });
 
+    it('lets updateEdge() change collapsed in viewOnly, and nothing else', async () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+      await flush();
+      const commits = recordCommits();
+      const updates: WemaEventMap['edge:update'][] = [];
+      board.on('edge:update', (p) => updates.push(p));
+
+      board.setViewOnly(true);
+      board.updateEdge(edge.id, { label: 'ignored' });
+      expect(updates).toHaveLength(0);
+
+      board.updateEdge(edge.id, { collapsed: true, label: 'ignored', strokeWidth: 6 });
+      await flush();
+      expect(board.getEdges()[0]).toMatchObject({ collapsed: true });
+      expect(board.getEdges()[0].label).toBeUndefined();
+      expect(board.getEdges()[0].strokeWidth).toBeUndefined();
+      expect(updates).toHaveLength(1);
+      expect(updates[0].origin).toBe('local');
+
+      // Temporary, like the collapse button: restored on exit, never recorded
+      board.setViewOnly(false);
+      await flush();
+      expect(board.getEdges()[0].collapsed).toBeFalsy();
+      expect(commits).toHaveLength(0);
+    });
+
+    it('keeps updateEdge() blocked in readOnly, with or without viewOnly', () => {
+      const n1 = board.addNote({ x: 0, y: 0 });
+      const n2 = board.addNote({ x: 300, y: 0 });
+      const edge = board.addEdge(n1.id, n2.id);
+
+      board.setViewOnly(true);
+      board.setReadOnly(true);
+      board.updateEdge(edge.id, { collapsed: true });
+
+      expect(board.getEdges()[0].collapsed).toBeFalsy();
+    });
+
     it('restores to the remote state received during viewOnly', () => {
       const n1 = board.addNote({ x: 0, y: 0 });
       const n2 = board.addNote({ x: 300, y: 0 });

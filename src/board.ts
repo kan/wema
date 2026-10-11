@@ -813,9 +813,19 @@ export class WemaBoard {
     return this.edgeManager.getSelectedEdge();
   }
 
-  /** Update an existing edge's properties */
+  /**
+   * Update an existing edge's properties. Does nothing in readOnly.
+   * In viewOnly, only `collapsed` is applied (the other keys are ignored):
+   * it is what the collapse button changes there, and like that it is
+   * temporary. Leaving viewOnly restores it, and it is not recorded in the
+   * undo history.
+   */
   updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void {
-    if (this.readOnly || this.viewOnly) return;
+    if (this.readOnly) return;
+    if (this.viewOnly) {
+      if (!('collapsed' in params)) return;
+      params = { collapsed: params.collapsed };
+    }
     this.edgeManager.updateEdge(id, params);
   }
 

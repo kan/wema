@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **参照モード（viewOnly）のまま、`updateEdge(id, { collapsed })` で折り畳みを切り替えられるようにした。** これまで参照モードの `updateEdge()` は何もしなかった。プログラムから折り畳みを変えるには、いったん参照モードを解除する必要があり、解除すると利用者が動かした付箋と開いた接続線が元へ戻っていた（#61）
+  - 利用者が折り畳みボタンを押したときと同じ扱いにする。モード終了時に元の状態へ戻り、Undo 履歴に積まれず、`history:commit` も発火しない
+  - `collapsed` 以外のキー（`label` や `strokeWidth` など）は、これまでどおり参照モードでは反映しない。一緒に渡したときは `collapsed` だけを反映する
+  - ロックモード（readOnly）では、これまでどおり何もしない
+
 ## [0.11.0] - 2026-10-10
 
 ### Added
