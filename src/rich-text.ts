@@ -1,5 +1,6 @@
+import type { NoteId } from './types.js';
 import type { WemaLabels } from './labels.js';
-import { createElement, placeOverlay, screenBoxOf, setLabel } from './utils/dom.js';
+import { createElement, getSelectionRange, placeOverlay, screenBoxOf, setLabel } from './utils/dom.js';
 import { isSafeUrl } from './utils/sanitize.js';
 
 const TEXT_COLORS = [
@@ -15,12 +16,14 @@ const STRIKE_TAGS = ['s'];
 
 /**
  * Floating toolbar that appears when text is selected inside a .wema-note-content element.
- * Provides inline formatting: Bold, Strikethrough, Text Color, and Link insertion.
+ * Provides inline formatting: Bold, Strikethrough, Text Color, and Link insertion,
+ * and a button that quotes the selection in a new note.
  */
 export class RichTextToolbar {
   private boardEl: HTMLElement;
   private toolbarEl: HTMLElement;
   private labels: WemaLabels;
+  private onQuote: (noteId: NoteId, html: string) => void;
   private readOnly: boolean;
   private viewOnly: boolean;
   private rafId = 0;
@@ -30,9 +33,17 @@ export class RichTextToolbar {
   private savedRange: Range | null = null;
   private subPanelOpen = false;
 
-  constructor(options: { boardEl: HTMLElement; labels: WemaLabels; readOnly: boolean; viewOnly: boolean }) {
+  constructor(options: {
+    boardEl: HTMLElement;
+    labels: WemaLabels;
+    readOnly: boolean;
+    viewOnly: boolean;
+    /** The quote button was pressed: `html` is the selected part of the note's text */
+    onQuote: (noteId: NoteId, html: string) => void;
+  }) {
     this.boardEl = options.boardEl;
     this.labels = options.labels;
+    this.onQuote = options.onQuote;
     this.readOnly = options.readOnly;
     this.viewOnly = options.viewOnly;
 
@@ -202,10 +213,21 @@ export class RichTextToolbar {
       }
     });
 
+    // Quote button: the selected text goes to a new note
+    const quoteBtn = createElement('button', 'wema-richtext-btn') as HTMLButtonElement;
+    quoteBtn.textContent = '❞';
+    setLabel(quoteBtn, this.labels.quote);
+    quoteBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.quoteSelection();
+    });
+
     this.toolbarEl.appendChild(boldBtn);
     this.toolbarEl.appendChild(strikeBtn);
     this.toolbarEl.appendChild(colorBtn);
     this.toolbarEl.appendChild(linkBtn);
+    this.toolbarEl.appendChild(quoteBtn);
     this.toolbarEl.appendChild(colorPalette);
     this.toolbarEl.appendChild(linkInput);
   }
@@ -314,6 +336,32 @@ export class RichTextToolbar {
       this.wrapSelection(tags[0]);
     }
     this.triggerInput();
+  }
+
+  /** Hand the selected part of the note, as HTML, to the board, which quotes it in a new note */
+  private quoteSelection(): void {
+    const range = this.activeContentEl ? getSelectionRange(this.activeContentEl) : null;
+    const noteId = this.activeContentEl?.closest<HTMLElement>('.wema-note')?.dataset.noteId;
+    if (!range || range.collapsed || !noteId) return;
+
+    const holder = document.createElement('div');
+    holder.appendChild(range.cloneContents());
+    if (holder.textContent?.trim() === '' && !holder.querySelector('img, iframe, video, audio')) return;
+    // A selection across list items copies the items without their list:
+    // they get one like the list they come from
+    if (holder.querySelector(':scope > li')) {
+      const from = range.commonAncestorContainer;
+      const list = (from instanceof Element ? from : from.parentElement)?.closest('ul, ol');
+      const copy = list ? list.cloneNode(false) as HTMLElement : document.createElement('ul');
+      copy.append(...holder.childNodes);
+      holder.appendChild(copy);
+    }
+    const html = holder.innerHTML;
+
+    // The toolbar belongs to the selection, which the new note takes the place of
+    document.getSelection()?.removeAllRanges();
+    this.hide();
+    this.onQuote(noteId, html);
   }
 
   private applyColor(color: string): void {

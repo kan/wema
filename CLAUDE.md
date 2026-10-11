@@ -85,6 +85,7 @@ wema/
 │   ├── resize.ts             # 付箋のリサイズ
 │   ├── rich-text.ts          # リッチテキスト編集 (Selection/Range API)
 │   ├── viewport.ts           # 表示位置・倍率の状態と座標変換
+│   ├── animation.ts          # 付箋の移動のアニメーション (表示だけを補間)
 │   ├── history.ts            # Undo/Redo 履歴管理 (デルタベース)
 │   ├── edge-popup.ts         # Edge スタイル編集ポップアップ
 │   ├── note-popup.ts         # ノートスタイル編集ポップアップ (単一/複数)
@@ -117,7 +118,9 @@ wema/
 │   ├── labels.test.ts
 │   ├── layout.test.ts
 │   ├── list.test.ts
+│   ├── move.test.ts
 │   ├── note-extension.test.ts
+│   ├── page-scroll.test.ts
 │   ├── rich-text.test.ts
 │   ├── sanitize.test.ts
 │   ├── history.test.ts
@@ -176,6 +179,8 @@ wema/
 | `pointer-and-popup.md` | ドラッグ直後の `click`、ポップアップの DOM 再構築 | `src/drag.ts`、`src/selection.ts`、`src/*-popup.ts` |
 | `edge-path.md` | 接続線のパス計算 | `src/edge.ts`、`src/utils/geometry.ts` |
 | `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
+| `move-animation.md` | 付箋の移動のアニメーション（`moveNotes()` と `duration`） | `src/animation.ts`、`src/note.ts`、`src/board.ts`、`src/edge.ts` |
+| `page-scroll.md` | ページと一緒にスクロールするモード（`pageScroll`） | `src/board.ts`、`src/style.css` |
 | `standalone.md` | スタンドアロン版の責務とビルド | `standalone/`、`scripts/build-standalone.ts` |
 
 ### データの流れ
@@ -260,7 +265,7 @@ class WemaBoard {
 
   // 接続線
   addEdge(from: NoteId, to: NoteId, params?: ...): WemaEdge;
-  updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void;
+  updateEdge(id: EdgeId, params: Partial<Omit<WemaEdge, 'id' | 'from' | 'to'>>): void;  // viewOnly では collapsed だけを反映する
   deleteEdge(id: EdgeId): void;
   getEdges(): WemaEdge[];
   getEdgesOf(noteId: NoteId): WemaEdge[];
@@ -283,10 +288,16 @@ class WemaBoard {
   centerContent(options?: { noteIds?: NoteId[]; padding?: number }): void;    // 倍率は変えない
   fitToContent(options?: { noteIds?: NoteId[]; padding?: number; maxZoom?: number }): void;  // 収まる倍率にする（既定では等倍を超えない）
 
-  // レイアウト
-  alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void;
-  distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical'): void;
-  autoLayout(noteIds?: NoteId[]): void;  // ボードの縦横比に合わせて折り返す
+  // ページと一緒にスクロールするモード（表示だけを変える。狭い画面向け）
+  setPageScroll(pageScroll: boolean): void;  // ボードが付箋の高さまで伸び、表示位置は { x: 0, y: 0, zoom: 1 } に固定
+  isPageScroll(): boolean;
+
+  // レイアウト（options.duration を渡すと、付箋と接続線が新しい位置までアニメーションする）
+  moveNotes(moves: { id: NoteId; x?: number; y?: number; width?: number; height?: number }[], options?: { duration?: number }): void;  // viewOnly でも通る
+  alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom', options?: { duration?: number }): void;
+  distributeNotes(noteIds: NoteId[], direction: 'horizontal' | 'vertical', options?: { duration?: number }): void;
+  autoLayout(noteIds?: NoteId[], options?: { duration?: number }): void;  // ボードの縦横比に合わせて折り返す
+  stackNotes(options?: { noteIds?: NoteId[]; x?: number; y?: number; width?: number; gap?: number; order?: NoteId[]; duration?: number }): void;  // 縦 1 列に積む。viewOnly でも通る
 
   // 履歴・同期
   batch<T>(fn: () => T, options?: { origin?: 'user' | 'agent' }): T;  // Undo 1 回分にまとめる
@@ -332,6 +343,7 @@ interface WemaBoardOptions {
   wheelZoom?: boolean;         // default: true（Ctrl / Cmd + ホイールでズームする）
   emptyDrag?: 'select' | 'pan';  // default: 'select'（空いている場所の左ドラッグ。'pan' でパン、ラバーバンド選択は Shift か Ctrl / Cmd + ドラッグ）
   panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）
+  pageScroll?: boolean;        // default: false（ページと一緒にスクロールするモードで始める）
   minZoom?: number;            // default: 0.25
   maxZoom?: number;            // default: 2
 }

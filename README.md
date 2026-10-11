@@ -26,6 +26,7 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 - **部分木の折り畳み** → 付箋にカーソルを乗せると折り畳みボタン（−）が出現。クリックで全ての接続先とその子孫を一括非表示。数字バッジをクリックで再展開
 - リッチテキスト（太字、取り消し線、テキスト色、箇条書き、チェックボックス、リンク、画像、Embed）
 - リストの段下げと段上げ（Tab / Shift+Tab）
+- **引用** → 付箋の文字を選ぶと出るツールバーの引用ボタン（❞）で、選んだ文字を引用した付箋を隣に作り、元の付箋から矢印でつなぐ
 - 複数選択・整列・均等配置・自動レイアウト
 - Undo/Redo（Ctrl+Z / Ctrl+Y）
 - autoSize モード（コンテンツに合わせて付箋サイズを自動調整）
@@ -89,6 +90,7 @@ const board = new WemaBoard({
   wheelZoom?: boolean,         // default: true（Ctrl / Cmd + ホイールで拡大・縮小する）
   emptyDrag?: 'select' | 'pan',  // default: 'select'（空いている場所の左ドラッグ。'pan' でパン、選択は Shift か Ctrl / Cmd + ドラッグ）
   panMargin?: number,          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白のピクセル数）
+  pageScroll?: boolean,        // default: false（ボードをページと一緒にスクロールさせる。狭い画面向け）
   minZoom?: number,            // default: 0.25
   maxZoom?: number,            // default: 2
 });
@@ -343,21 +345,85 @@ board.zoomTo(1);               // 等倍に戻す
   - 付箋が 1 枚も表示されていないボードには、制限がない
   - `panMargin: Infinity` で制限をなくせる
 
+#### ページと一緒にスクロールする（`pageScroll`）
+
+狭い画面では、ボードの中をパンするより、付箋を縦に積んでページ全体をスクロールさせるほうが読みやすい。`pageScroll` を有効にすると、ボードは自分の表示領域を持たず、付箋の高さまで伸びて、ページの一部として流れる。
+
+| メソッド | 説明 |
+|---------|------|
+| `setPageScroll(pageScroll)` | モードを切り替える。生成時は `pageScroll` オプションで指定する |
+| `isPageScroll()` | モード中か |
+
+```typescript
+const board = new WemaBoard({ container, pageScroll: window.innerWidth < 768 });
+
+window.addEventListener('resize', () => {
+  const narrow = window.innerWidth < 768;
+  board.setPageScroll(narrow);
+  if (narrow) board.stackNotes({ x: 20, y: 56, width: window.innerWidth - 40, duration: 300 });
+});
+```
+
+モードの間は、次のようになる。
+
+- ボードの高さは、表示中の付箋のいちばん下の端に 24px を足した値になる。付箋を動かす、足す、消す、隠すと追従する。付箋が少ないときは、コンテナの高さまで広がる（`min-height: 100%`）
+- 表示位置と倍率は `{ x: 0, y: 0, zoom: 1 }` に固定する。モードへ入るとき、この値へ戻す（モードを抜けても、前の位置へは戻さない）
+- ホイール、空いている場所のドラッグ、中ボタン、Space、ダブルクリックでは、ボードは動かない。ホイールはページをスクロールし、Ctrl / Cmd + ホイールとピンチはブラウザの拡大になる
+- `setViewport()` / `zoomTo()` / `centerContent()` / `fitToContent()` は何もしない。`revealNotes()` は、付箋が見える位置までページをスクロールする
+- **指での操作は、ページに渡す。** 付箋の上から始めたスワイプでもページがスクロールし、指では付箋のドラッグ、リサイズ、ラバーバンド選択を始められない。タップ（選択、リンク、折り畳みボタン、開閉のリンク）は働く。マウスでの操作は、モードの外と変わらない
+- 通常モードのダブルクリックでの付箋の作成、マウスでのラバーバンド選択は、これまでどおり働く
+- 引用ボタンで作る付箋は、元の付箋の右隣ではなく、同じ列の下に置く
+- `duration` 付きの移動で全体が短くなるときは、付箋が動き終わってからボードの高さを縮める（動いている途中でページのスクロール位置が跳ばないようにするため）
+
+制限:
+
+- **ボード座標の負の位置（`x < 0` や `y < 0`）にある付箋は、見えない。** 表示位置を原点に固定するので、ボードの左と上の外にはスクロールできない。モードへ入る前に、付箋を 0 以上の位置へ動かしておく（`stackNotes()` には `x` と `y` を渡す。省略すると、付箋のある範囲の左上が起点になる）
+
+利用側で用意すること:
+
+- **コンテナの高さを固定しない。** ボードはコンテナからはみ出して伸びる（`overflow: visible`）ので、コンテナを `height: auto` にして、ページ（または外側の要素）をスクロールできるようにする
+- 付箋の並べ直しは行わない。縦に積むには `stackNotes()` を呼ぶ
+- 表示だけの状態で、`note:*` / `edge:*` / `history:commit` / `change` は発火しない
+
 #### レイアウト・整列
 
 | メソッド | 説明 |
 |---------|------|
-| `alignNotes(noteIds, alignment)` | 付箋を整列（left/center/right/top/middle/bottom） |
-| `distributeNotes(noteIds, direction)` | 付箋を均等配置（horizontal/vertical） |
-| `autoLayout(noteIds?)` | 自動レイアウト（接続線から階層を作る。今の位置の左上を保つ。ボードの縦横比に合わせて折り返す） |
+| `moveNotes(moves, options?)` | 複数の付箋の位置と大きさをまとめて変える。`moves` は `{ id, x?, y?, width?, height? }` の配列 |
+| `alignNotes(noteIds, alignment, options?)` | 付箋を整列（left/center/right/top/middle/bottom） |
+| `distributeNotes(noteIds, direction, options?)` | 付箋を均等配置（horizontal/vertical） |
+| `autoLayout(noteIds?, options?)` | 自動レイアウト（接続線から階層を作る。今の位置の左上を保つ。ボードの縦横比に合わせて折り返す） |
+| `stackNotes(options?)` | 付箋を縦 1 列に積む（狭い画面向け）。`options` は下の `computeStackLayout()` と同じ項目に、`noteIds`（省略時は表示中の付箋すべて）と `duration` を足したもの |
 
-同じ計算を DOM なしで行う関数も export している。サーバー側など `WemaBoard` を作れない環境で使える。どれも入力を変更せず、付箋の新しい位置 `{ id, x, y }` の配列を返す。
+どのメソッドも、`options.duration`（ミリ秒）を渡すと、付箋を新しい位置までアニメーションで動かす。接続線も付箋についていく。
+
+```typescript
+// ウィンドウの大きさに合わせて、全部の付箋を 300ms で動かす
+board.moveNotes(
+  [{ id: 'blog', x: 20, y: 56, width: 335 }, { id: 'about', x: 20, y: 240, width: 335 }],
+  { duration: 300 },
+);
+// 狭い画面では縦 1 列に積む
+board.stackNotes({ x: 20, y: 56, width: 335, gap: 16, duration: 300 });
+```
+
+- **データは、呼び出した時点で新しい位置になる。** アニメーションするのは表示だけ。`note:update` は付箋 1 枚につき 1 回で、全体が Undo 1 回分になる。途中の位置では、イベントと履歴は出ない。`getNote()` と `exportData()` は、動いている途中でも終点の値を返す
+- 動いている途中の付箋をもう一度動かすと、いま表示されている位置から新しい終点へ向かう。ドラッグ、Undo、`updateNote()`、`applyRemote()` で位置や大きさが変わったときは、アニメーションをやめて、その位置にすぐ表示する
+- `duration` を省略したとき（既定値 0）と、利用者が OS で視差効果を減らす設定（`prefers-reduced-motion: reduce`）にしているときは、アニメーションしない
+- `moveNotes()` と `stackNotes()` は、`updateNote()` と同じく参照モード（viewOnly）でも働く（位置はモード終了時に元へ戻る。幅と高さは戻らない）。ロックモード（readOnly）では何もしない。`alignNotes()` / `distributeNotes()` / `autoLayout()` は、これまでどおりどちらのモードでも何もしない
+- 大きさが内容で決まる付箋は、その大きさを渡しても変わらない（`autoSize` の付箋の `width` と `height`、`foldable` の付箋の `height`）。`note:update` も出ない。`stackNotes()` は、新しい幅での高さを測ってから積む
+- `stackNotes()` は、非表示の付箋（絞り込み、接続線の折り畳み）を動かさない。`noteIds` で指定しても同じ
+
+同じ計算を DOM なしで行う関数も export している。サーバー側など `WemaBoard` を作れない環境で使える。どれも入力を変更せず、付箋の新しい位置 `{ id, x, y }` の配列を返す（`computeStackLayout()` は幅も入った `{ id, x, y, width }`）。
 
 | 関数 | 説明 |
 |------|------|
 | `computeAlignment(notes, alignment)` | 整列後の位置。全付箋の位置を返す |
 | `computeDistribution(notes, direction)` | 均等配置後の位置。両端を除く付箋の位置を返す |
 | `computeAutoLayout(notes, edges, options?)` | 自動レイアウト後の位置。`options.noteIds` で対象を絞れる。`options.aspectRatio` で、収めたい範囲の縦横比（幅 ÷ 高さ、既定値 1.6）を渡せる |
+| `computeStackLayout(notes, options?)` | 縦 1 列に積んだ位置と幅。`options` は `x` / `y`（1 枚目の左上。省略時は付箋のある範囲の左上）、`width`（全部の付箋の幅。省略時はそれぞれの幅のまま）、`gap`（付箋の間隔。既定値 16）、`order`（上から並べる順の ID の配列） |
+
+`computeStackLayout()` の並び順は、`order` を省略すると、いまの位置の上から順（同じ高さなら左から順）になる。`order` に無い付箋は、`order` の後ろに同じ規則で並べる。列から漏れる付箋は無い。付箋を積む高さには、渡された `height` を使う。幅を変えると高さが変わる付箋（`autoSize` / `foldable`）があるときは、`stackNotes()` を使う。
 
 ```typescript
 import { computeAutoLayout } from '@kanf/wema';

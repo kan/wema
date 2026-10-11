@@ -23,6 +23,15 @@
 /* .wema-viewport, the layer that holds the notes and edges and is moved when
    panning, is positioned by inline styles set in board.ts */
 
+/* Page scroll mode (setPageScroll): the board flows with the page, and a
+   touch belongs to the page. `manipulation` lets a swipe that starts on a
+   note scroll and a pinch zoom, without the wait for a double tap. */
+.wema-board.wema-page-scroll .wema-note,
+.wema-board.wema-page-scroll .wema-move-handle,
+.wema-board.wema-page-scroll .wema-resize-handle {
+  touch-action: manipulation;
+}
+
 .wema-board.wema-pan-ready {
   cursor: grab;
 }
@@ -121,6 +130,14 @@
 .wema-note-content li {
   margin: 2px 0;
   white-space: normal;
+}
+
+/* A quote (the quote button of the text toolbar makes one in a new note) */
+.wema-note-content blockquote {
+  margin: 2px 0 6px;
+  padding: 1px 0 1px 10px;
+  border-left: 3px solid rgba(0, 0, 0, 0.25);
+  opacity: 0.85;
 }
 
 /* Sub-lists (indented items) */

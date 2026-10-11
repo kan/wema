@@ -1,4 +1,5 @@
 import type { WemaLabels } from './labels.js';
+import type { StackLayoutOptions } from './layout.js';
 
 /** Unique identifier for a note */
 export type NoteId = string;
@@ -102,6 +103,33 @@ export interface WemaViewport {
   x: number;
   y: number;
   zoom: number;
+}
+
+/** Where `moveNotes()` puts a note. A key left out keeps the value the note has. */
+export interface WemaNoteMove {
+  id: NoteId;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}
+
+/** Options for the methods that move notes (`moveNotes()`, `alignNotes()`, `autoLayout()`, ...) */
+export interface WemaMoveOptions {
+  /**
+   * How long the notes take to get to their place, in milliseconds
+   * (default: 0, they are there at once). Only what is drawn is animated,
+   * the edges included: the data has the new place from the start, with one
+   * `note:update` per note and one undo step for all of them. Ignored when
+   * the user asked the system for less motion (`prefers-reduced-motion`).
+   */
+  duration?: number;
+}
+
+/** Options for `stackNotes()` */
+export interface WemaStackOptions extends StackLayoutOptions, WemaMoveOptions {
+  /** Notes to stack (default: all shown notes) */
+  noteIds?: NoteId[];
 }
 
 /** Options for `revealNotes()`, `centerContent()` and `fitToContent()` */
@@ -214,6 +242,13 @@ export interface WemaBoardOptions {
    * no limit.
    */
   panMargin?: number;
+  /**
+   * Start in the page scroll mode (default: false): the board is as tall as
+   * its notes and scrolls with the page, instead of panning and zooming a
+   * view of its own. Meant for a narrow screen. Switch at runtime with
+   * `setPageScroll()`, which also says what the mode changes.
+   */
+  pageScroll?: boolean;
   /** Smallest zoom (default: 0.25) */
   minZoom?: number;
   /** Largest zoom (default: 2) */

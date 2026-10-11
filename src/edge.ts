@@ -1,4 +1,4 @@
-import type { NoteId, EdgeId, WemaEdge, WemaEventMap, EdgeStyle, LineStyle, ArrowHead, ChangeOrigin } from './types.js';
+import type { NoteId, EdgeId, WemaNote, WemaEdge, WemaEventMap, EdgeStyle, LineStyle, ArrowHead, ChangeOrigin } from './types.js';
 import { EventEmitter } from './events.js';
 import { NoteManager } from './note.js';
 import { generateId } from './utils/id.js';
@@ -152,11 +152,27 @@ export class EdgeManager {
 
   /** Redraw all edges connected to a note (called after note move) */
   updateEdgesOf(noteId: NoteId): void {
+    this.updateEdgesOfNotes([noteId]);
+  }
+
+  /**
+   * Redraw all edges connected to any of the notes, each edge once. Used for
+   * every frame of an animation, where many notes move at the same time.
+   */
+  updateEdgesOfNotes(noteIds: NoteId[]): void {
+    const ids = new Set(noteIds);
+    const edgeIds: EdgeId[] = [];
+    // Where each note is drawn is read once, and before any path is written:
+    // reading the size of a measured note lays the board out
+    const shown = new Map<NoteId, WemaNote | undefined>();
     for (const [id, edge] of this.edges) {
-      if (edge.from === noteId || edge.to === noteId) {
-        this.updateEdgePath(id);
+      if (!ids.has(edge.from) && !ids.has(edge.to)) continue;
+      edgeIds.push(id);
+      for (const noteId of [edge.from, edge.to]) {
+        if (!shown.has(noteId)) shown.set(noteId, this.noteManager.getShownNote(noteId));
       }
     }
+    for (const id of edgeIds) this.updateEdgePath(id, shown);
   }
 
   /** Remove all edges and elements */
@@ -266,12 +282,14 @@ export class EdgeManager {
     this.updateEdgePath(edge.id);
   }
 
-  private updateEdgePath(id: EdgeId): void {
+  private updateEdgePath(id: EdgeId, shown?: Map<NoteId, WemaNote | undefined>): void {
     const edge = this.edges.get(id);
     if (!edge) return;
 
-    const fromNote = this.noteManager.getNote(edge.from);
-    const toNote = this.noteManager.getNote(edge.to);
+    // Where the notes are drawn, which is not where the model has them while
+    // they are animated to their place: the edge stays attached on the way
+    const fromNote = shown ? shown.get(edge.from) : this.noteManager.getShownNote(edge.from);
+    const toNote = shown ? shown.get(edge.to) : this.noteManager.getShownNote(edge.to);
     if (!fromNote || !toNote) return;
 
     const d = computeEdgePath(fromNote, toNote, edge.fromAnchor, edge.toAnchor, edge.routing);

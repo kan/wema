@@ -1,16 +1,18 @@
 import './style.css';
 
 export { WemaBoard } from './board.js';
-export { computeAlignment, computeDistribution, computeAutoLayout } from './layout.js';
+export { computeAlignment, computeDistribution, computeAutoLayout, computeStackLayout } from './layout.js';
 export { enLabels, jaLabels } from './labels.js';
 export type { WemaLabels } from './labels.js';
 export type {
   LayoutNote,
   LayoutEdge,
   NotePosition,
+  NotePlacement,
   NoteAlignment,
   DistributeDirection,
   AutoLayoutOptions,
+  StackLayoutOptions,
 } from './layout.js';
 export type {
   NoteId,
@@ -26,6 +28,9 @@ export type {
   WemaBoardData,
   WemaBoardOptions,
   WemaBatchOptions,
+  WemaNoteMove,
+  WemaMoveOptions,
+  WemaStackOptions,
   WemaViewport,
   WemaViewportMoveOptions,
   WemaCenterOptions,

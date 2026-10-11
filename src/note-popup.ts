@@ -356,7 +356,8 @@ export class NoteStylePopup {
    */
   updatePosition(): void {
     const ids = this.currentNoteIds ?? (this.currentNoteId ? [this.currentNoteId] : []);
-    const notes = ids.map((id) => this.noteManager.getNote(id)).filter((n) => n !== undefined);
+    // Where the notes are drawn: the popup stays with a note that is animated to its place
+    const notes = ids.map((id) => this.noteManager.getShownNote(id)).filter((n) => n !== undefined);
     if (notes.length === 0) return;
     const target = this.toScreenBox(boundingBoxOf(notes));
     const box = placeOverlay(this.popupEl, this.boardEl, target, 'below', 8);

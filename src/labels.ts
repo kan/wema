@@ -82,6 +82,8 @@ export interface WemaLabels {
   textColor: string;
   link: string;
   removeLink: string;
+  /** Button that makes a new note quoting the selected text, with an arrow from the note to it */
+  quote: string;
   /** Button that applies the URL typed for a link or an embed (shown as text) */
   ok: string;
 
@@ -159,6 +161,7 @@ export const enLabels: WemaLabels = {
   textColor: 'Text Color',
   link: 'Link',
   removeLink: 'Remove link',
+  quote: 'Quote in a new note',
   ok: 'OK',
 
   deleteImage: 'Delete image',
@@ -226,6 +229,7 @@ export const jaLabels: WemaLabels = {
   textColor: '文字色',
   link: 'リンク',
   removeLink: 'リンクを解除',
+  quote: '引用した付箋を作る',
   ok: 'OK',
 
   deleteImage: '画像を削除',

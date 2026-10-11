@@ -16,6 +16,7 @@ paths:
 - Undo / Redo の再生と `applyRemote` は同じ `replayDeltas` を通り、どちらも `historyManager.withoutRecording()` の中で実行するので履歴に積まれない。`origin` は `createReplay(origin)` が NoteManager / EdgeManager のメソッドへ引数で渡す（可変の状態として持たない）
 - `commitPending()` は確定時に `coalesceDeltas` で同じ付箋・接続線への更新を 1 件にまとめる（ドラッグ中の pointermove ごとの差分をそのまま `history:commit` に載せないため）。間に作成・削除を挟む更新はまとめない
 - 参照モード（viewOnly）中は `historyManager.setIgnoredKeys(['x', 'y'], ['collapsed'])` で、終了時に復元するキーだけ記録を止める（text など復元しないキーは記録する）。終了時の復元も記録しない。`undo()` / `redo()` は何もしない
+- 参照モード中の `updateEdge()` は `collapsed` だけを通す（issue #61）。折り畳みボタンと同じ一時的な変更で、復元用スナップショットには反映しない（`updateNote()` での移動と同じ扱い）。スナップショットに反映するのは `applyRemote` だけ
 - `applyRemote` は参照モードの復元用スナップショット（`positionSnapshot` / `collapsedEdgeSnapshot`）も更新する。更新しないと、終了時の復元でリモートの変更を巻き戻してしまう。参照モード中の `importData()` も、同じ理由でスナップショットを取り直す（`snapshotForViewOnly()`）
 - `zIndex` はローカルな表示状態。`bringToFront` はイベントも履歴も出さない
 - `change` は必ず `scheduleChange()` 経由で発火し、`data` に `exportData()` の結果を入れる

@@ -188,7 +188,7 @@ describe('the labels option', () => {
   it('labels the text toolbar', async () => {
     createBoard({ labels: jaLabels });
     await showToolbar();
-    expect(titlesIn('.wema-richtext-toolbar')).toEqual(['太字', '取り消し線', '文字色', 'リンク', 'リンクを解除']);
+    expect(titlesIn('.wema-richtext-toolbar')).toEqual(['太字', '取り消し線', '文字色', 'リンク', '引用した付箋を作る', 'リンクを解除']);
   });
 
   it('labels the button that applies a link', async () => {

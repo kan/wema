@@ -34,6 +34,9 @@ const FOLDED_CLASS = 'wema-folded';
 /** How many lines a closed note shows in full (the next one fades out). The style sheet has the same number. */
 const FOLD_LINES = 2;
 
+/** The position and the size of a note */
+export type NoteRect = Pick<WemaNote, 'x' | 'y' | 'width' | 'height'>;
+
 /** Whether the size of a note is measured from what it shows, instead of set */
 function isMeasured(note: WemaNote): boolean {
   return !!note.autoSize || !!note.foldable;
@@ -98,6 +101,11 @@ export class NoteManager {
    * size they had in the last one. The next note:update uses it as `prev`.
    */
   private unreportedSizeBase = new Map<NoteId, { width: number; height: number }>();
+  /**
+   * For notes that are animated to their place: where they are drawn for
+   * now. The model already has the place they end at (see `setShownRect`).
+   */
+  private shownRects = new Map<NoteId, NoteRect>();
   private labels: WemaLabels;
   /**
    * The foldable notes the user opened. A state of the display only: not in
@@ -408,6 +416,19 @@ export class NoteManager {
   private applyMeasuredSize(note: WemaNote): boolean {
     const el = this.elements.get(note.id);
     if (!el) return false;
+    // A note on its way to its place is drawn with another width for now:
+    // what is measured is the size it has at the width of the model
+    const shown = this.shownRects.get(note.id);
+    if (!shown || shown.width === note.width) return this.readMeasuredSize(note, el);
+    el.style.width = `${note.width}px`;
+    try {
+      return this.readMeasuredSize(note, el);
+    } finally {
+      el.style.width = `${shown.width}px`;
+    }
+  }
+
+  private readMeasuredSize(note: WemaNote, el: HTMLElement): boolean {
     this.applyFold(note, el);
     if (!isMeasured(note)) return false;
     // Only an autoSize note has a measured width: a foldable one keeps its own
@@ -489,6 +510,7 @@ export class NoteManager {
     }
     this.notes.delete(id);
     this.unreportedSizeBase.delete(id);
+    this.shownRects.delete(id);
     this.unfolded.delete(id);
     if (this.editingId === id) this.editingId = null;
     this.emitter.emit('note:delete', { note: { ...note }, origin });
@@ -500,9 +522,54 @@ export class NoteManager {
     return note ? { ...note } : undefined;
   }
 
+  /**
+   * Draw a note somewhere else than where the model has it, or back where
+   * the model has it (null). Used to animate a note to its place: the model
+   * has the end from the start, and only what is drawn moves. Changes
+   * nothing in the data and emits nothing.
+   */
+  setShownRect(id: NoteId, rect: NoteRect | null): void {
+    if (rect) this.shownRects.set(id, rect);
+    else if (!this.shownRects.delete(id)) return;
+    const note = this.notes.get(id);
+    const el = this.elements.get(id);
+    if (note && el) this.applyStyles(el, note);
+  }
+
+  /**
+   * A note as it is drawn now: the note of the model, except while it is
+   * animated to its place. What is drawn next to a note (its edges) follows
+   * this one.
+   */
+  getShownNote(id: NoteId): WemaNote | undefined {
+    const note = this.notes.get(id);
+    if (!note) return undefined;
+    const shown = this.shownRects.get(id);
+    if (!shown) return { ...note };
+    const rect = { ...shown };
+    // The style sheet sizes a measured note: its size on the way is the one
+    // it is laid out with (0 when it is not laid out: keep the given one)
+    const el = isMeasured(note) ? this.elements.get(id) : undefined;
+    if (el) {
+      if (note.autoSize) rect.width = el.offsetWidth || rect.width;
+      rect.height = el.offsetHeight || rect.height;
+    }
+    return { ...note, ...rect };
+  }
+
   /** Get all notes */
   getNotes(): WemaNote[] {
     return Array.from(this.notes.values()).map((n) => ({ ...n }));
+  }
+
+  /** The lowest bottom edge among the notes `counts` accepts, or null when there is none */
+  lowestBottom(counts: (id: NoteId) => boolean): number | null {
+    let bottom: number | null = null;
+    for (const note of this.notes.values()) {
+      if (!counts(note.id)) continue;
+      bottom = Math.max(bottom ?? -Infinity, note.y + note.height);
+    }
+    return bottom;
   }
 
   /** Get the DOM element for a note */
@@ -660,6 +727,7 @@ export class NoteManager {
     this.elements.clear();
     this.notes.clear();
     this.unreportedSizeBase.clear();
+    this.shownRects.clear();
     this.unfolded.clear();
     this.editingId = null;
     this.zCounter = 1;
@@ -913,11 +981,12 @@ export class NoteManager {
   }
 
   private applyStyles(el: HTMLElement, note: WemaNote): void {
+    const rect = this.shownRects.get(note.id) ?? note;
     setStyles(el, {
-      left: `${note.x}px`,
-      top: `${note.y}px`,
-      width: `${note.width}px`,
-      height: `${note.height}px`,
+      left: `${rect.x}px`,
+      top: `${rect.y}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
       zIndex: String(note.zIndex),
     });
     el.style.setProperty('--wema-note-color', note.color);

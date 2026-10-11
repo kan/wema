@@ -32,6 +32,65 @@ export interface AutoLayoutOptions {
   aspectRatio?: number;
 }
 
+/** A new position and width for a note, as computed by `computeStackLayout` */
+export interface NotePlacement extends NotePosition {
+  width: number;
+}
+
+/** Options for `computeStackLayout` */
+export interface StackLayoutOptions {
+  /** Left edge of the column (default: the leftmost edge of the notes) */
+  x?: number;
+  /** Top edge of the first note (default: the topmost edge of the notes) */
+  y?: number;
+  /** Width given to every note (default: each note keeps its own) */
+  width?: number;
+  /** Space between two notes (default: 16) */
+  gap?: number;
+  /**
+   * Notes in the order they are stacked, from the top. Notes left out come
+   * after these, in the order of where they are now (from the top, then from
+   * the left): no note is left out of the column. Unknown ids are ignored.
+   */
+  order?: NoteId[];
+}
+
+/** Space between two notes in `computeStackLayout`, unless given */
+const STACK_GAP = 16;
+
+/**
+ * Compute a single column of notes: one under the other, all at the same
+ * left edge, and all as wide as `width` when given. Meant for a narrow
+ * screen, where the notes are read from the top like a page.
+ *
+ * Pure function: does not touch the DOM. Returns a placement for every note.
+ * The notes are stacked by the `height` they are given: a note whose height
+ * follows its width (autoSize, foldable) has to be measured at the new width
+ * first, which `WemaBoard.stackNotes()` does.
+ */
+export function computeStackLayout(notes: LayoutNote[], options: StackLayoutOptions = {}): NotePlacement[] {
+  if (notes.length === 0) return [];
+
+  const byId = new Map(notes.map((n) => [n.id, n]));
+  const ordered: LayoutNote[] = [];
+  for (const id of options.order ?? []) {
+    const note = byId.get(id);
+    // Deleting it also drops an id that is listed twice
+    if (note && byId.delete(id)) ordered.push(note);
+  }
+  // The sort is stable: notes at the same place keep the order they came in
+  ordered.push(...[...byId.values()].sort((a, b) => a.y - b.y || a.x - b.x));
+
+  const x = options.x ?? Math.min(...notes.map((n) => n.x));
+  const gap = options.gap ?? STACK_GAP;
+  let y = options.y ?? Math.min(...notes.map((n) => n.y));
+  return ordered.map((note) => {
+    const placement = { id: note.id, x, y, width: options.width ?? note.width };
+    y += note.height + gap;
+    return placement;
+  });
+}
+
 /**
  * Compute positions that align notes along a specified axis.
  * Pure function: does not touch the DOM. Returns a position for every note,

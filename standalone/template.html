@@ -465,6 +465,8 @@
         });
 
         // ---- Layout buttons ----
+        // The notes glide to where a layout button puts them, so the eye can follow
+        var layoutMove = { duration: 200 };
         var alignButtons = {
           'btn-align-left': 'left',
           'btn-align-center-h': 'center',
@@ -499,21 +501,21 @@
           document.getElementById(id).addEventListener('click', function() {
             var sel = board.getSelection();
             if (sel.length >= 2) {
-              board.alignNotes(sel, alignButtons[id]);
+              board.alignNotes(sel, alignButtons[id], layoutMove);
             }
           });
         });
 
         btnDistH.addEventListener('click', function() {
           var sel = board.getSelection();
-          if (sel.length >= 3) board.distributeNotes(sel, 'horizontal');
+          if (sel.length >= 3) board.distributeNotes(sel, 'horizontal', layoutMove);
         });
         btnDistV.addEventListener('click', function() {
           var sel = board.getSelection();
-          if (sel.length >= 3) board.distributeNotes(sel, 'vertical');
+          if (sel.length >= 3) board.distributeNotes(sel, 'vertical', layoutMove);
         });
         btnAutoLayout.addEventListener('click', function() {
-          board.autoLayout();
+          board.autoLayout(undefined, layoutMove);
         });
 
         // Layout dropdown toggle

@@ -7,6 +7,9 @@ import type {
   WemaBoardData,
   WemaBoardOptions,
   WemaBatchOptions,
+  WemaNoteMove,
+  WemaMoveOptions,
+  WemaStackOptions,
   WemaViewport,
   WemaViewportMoveOptions,
   WemaCenterOptions,
@@ -18,7 +21,8 @@ import type {
 } from './types.js';
 import { type WemaLabels, resolveLabels } from './labels.js';
 import { EventEmitter } from './events.js';
-import { NoteManager } from './note.js';
+import { NoteManager, type NoteRect } from './note.js';
+import { NoteAnimator, prefersReducedMotion } from './animation.js';
 import { DragManager, DRAG_THRESHOLD } from './drag.js';
 import { SelectionManager } from './selection.js';
 import { EdgeManager } from './edge.js';
@@ -26,8 +30,8 @@ import { AnchorDragManager } from './anchor-drag.js';
 import { ResizeManager } from './resize.js';
 import { EdgeStylePopup } from './edge-popup.js';
 import { NoteStylePopup } from './note-popup.js';
-import { computeAlignment, computeDistribution, computeAutoLayout } from './layout.js';
-import type { NotePosition, NoteAlignment, DistributeDirection } from './layout.js';
+import { computeAlignment, computeDistribution, computeAutoLayout, computeStackLayout } from './layout.js';
+import type { NoteAlignment, DistributeDirection } from './layout.js';
 import { HistoryManager, replayDeltas } from './history.js';
 import type { ReplayCallbacks } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
@@ -49,6 +53,19 @@ const WHEEL_ZOOM_RATE = 0.01;
 /** Largest wheel delta, in pixels, that a single Ctrl + wheel event counts for */
 const WHEEL_ZOOM_MAX_DELTA = 30;
 
+/** Space between a note and the note that quotes it (room for the arrow) */
+const QUOTE_GAP = 80;
+/** Space between a quoting note and a note it is put under */
+const QUOTE_STACK_GAP = 20;
+
+/** Space under the lowest note in the page scroll mode, in screen pixels */
+const PAGE_SCROLL_MARGIN = 24;
+
+/** The keys of a note that say where it is and how large */
+const RECT_KEYS = ['x', 'y', 'width', 'height'] as const;
+
+const rectDiffers = (a: NoteRect, b: NoteRect): boolean => RECT_KEYS.some((key) => a[key] !== b[key]);
+
 /** Where a box [start, end] starts when it sits in the middle of `size` (one axis) */
 const centerInBoard = (start: number, end: number, size: number): number => (size - (end - start)) / 2;
 
@@ -67,6 +84,10 @@ export class WemaBoard {
   private panMargin: number;
   private spaceHeld = false;
   private pointerInside = false;
+  /** Whether the board flows with the page instead of having a view of its own (see setPageScroll) */
+  private pageScroll = false;
+  /** True while a move that may be animated updates its notes: the page does not get shorter meanwhile */
+  private holdsPageHeight = false;
   /** The inline URL input for embeds and the note it belongs to, while it is open */
   private embedInput: { el: HTMLElement; noteId: NoteId } | null = null;
   /** Places the overlays again when one of them, or the board, changes size */
@@ -83,6 +104,7 @@ export class WemaBoard {
   private notePopup: NoteStylePopup;
   private richTextToolbar: RichTextToolbar;
   private historyManager: HistoryManager;
+  private noteAnimator: NoteAnimator;
   private visibilitySuspended = false;
   /** Notes to show, or null to show all (see setNoteFilter) */
   private noteFilter: Set<NoteId> | null = null;
@@ -181,6 +203,7 @@ export class WemaBoard {
       // A measured size is not a note event: redraw the edges and report the data
       onMeasure: (noteId) => {
         this.edgeManager.updateEdgesOf(noteId);
+        this.updatePageHeight();
         this.placeOverlays();
         this.scheduleChange();
       },
@@ -346,6 +369,7 @@ export class WemaBoard {
       labels: this.labels,
       readOnly: this.readOnly,
       viewOnly: this.viewOnly,
+      onQuote: (noteId, html) => this.quoteInNewNote(noteId, html),
     });
 
     // An overlay that grows (a color palette opens in it) or a board that
@@ -361,8 +385,19 @@ export class WemaBoard {
     // Initialize history manager for undo/redo
     this.historyManager = new HistoryManager(this.emitter, this.createReplay('local'));
 
+    this.noteAnimator = new NoteAnimator({
+      noteManager: this.noteManager,
+      onFrame: (noteIds) => this.followShownNotes(noteIds),
+    });
+
     // Update edges in real-time during note drag
-    this.emitter.on('note:update', ({ note }) => {
+    this.emitter.on('note:update', ({ note, prev }) => {
+      if (rectDiffers(note, prev)) {
+        // Moved or resized (a drag, undo, a remote change): the note is where
+        // that put it, at once. A move that animates starts again from there.
+        this.noteAnimator.cancel(note.id);
+        this.updatePageHeight();
+      }
       this.edgeManager.updateEdgesOf(note.id);
     });
 
@@ -534,6 +569,7 @@ export class WemaBoard {
       if (e.button !== 0) return;
       if (this.readOnly) return;
       if (this.pan) return; // this drag pans the board instead
+      if (this.leavesToPage(e)) return;
       // Only start rubberband from empty board area (not notes, anchors, handles, toolbars)
       if ((e.target as HTMLElement).closest(`.wema-note, ${OVERLAY_SELECTOR}`)) return;
 
@@ -543,6 +579,8 @@ export class WemaBoard {
       this.boardEl.setPointerCapture(e.pointerId);
       this.boardEl.addEventListener('pointermove', this.handleRubberBandMove);
       this.boardEl.addEventListener('pointerup', this.handleRubberBandUp);
+      // A touch the browser takes over (to scroll the page) ends like this
+      this.boardEl.addEventListener('pointercancel', this.handleRubberBandUp);
     };
 
     this.handleRubberBandMove = (e: PointerEvent) => {
@@ -555,6 +593,7 @@ export class WemaBoard {
     this.handleRubberBandUp = (e: PointerEvent) => {
       this.boardEl.removeEventListener('pointermove', this.handleRubberBandMove);
       this.boardEl.removeEventListener('pointerup', this.handleRubberBandUp);
+      this.boardEl.removeEventListener('pointercancel', this.handleRubberBandUp);
       try {
         this.boardEl.releasePointerCapture(e.pointerId);
       } catch {
@@ -570,6 +609,12 @@ export class WemaBoard {
     // Registered in the capture phase, so a pan started over a note wins over
     // the note's own drag.
     this.handlePanDown = (e: PointerEvent) => {
+      // In the page scroll mode this press may start nothing here (no note
+      // drag, no resize): the browser does what it does without the board
+      if (this.leavesToPage(e)) {
+        e.stopPropagation();
+        return;
+      }
       if (!this.wantsPan(e)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -632,7 +677,7 @@ export class WemaBoard {
     this.handlePointerLeave = () => { this.pointerInside = false; };
     this.handleSpaceDown = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.ctrlKey || e.metaKey || e.altKey) return;
-      if (!this.pointerInside) return;
+      if (!this.pointerInside || this.pageScroll) return;
       // Space belongs to whatever is being typed in or activated
       if (document.activeElement?.closest(`${TYPING_SELECTOR}, button`)) return;
       e.preventDefault();
@@ -645,6 +690,8 @@ export class WemaBoard {
     this.handlePageChange = () => this.placeOverlays();
 
     this.handleWheel = (e: WheelEvent) => {
+      // The wheel scrolls the page, and Ctrl / Cmd + wheel zooms it
+      if (this.pageScroll) return;
       const target = e.target as HTMLElement;
       // deltaMode: 0 = pixels, 1 = lines, 2 = pages
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.boardEl.clientHeight : 1;
@@ -699,6 +746,8 @@ export class WemaBoard {
     if (this.viewOnly) {
       this.enterViewOnly();
     }
+
+    if (options.pageScroll) this.setPageScroll(true);
   }
 
   /** Clean up all resources */
@@ -722,6 +771,7 @@ export class WemaBoard {
     window.removeEventListener('resize', this.handlePageChange);
     this.boardEl.removeEventListener('wheel', this.handleWheel);
     this.overlayObserver?.disconnect();
+    this.noteAnimator.clear();
     this.noteManager.destroy();
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
@@ -742,8 +792,10 @@ export class WemaBoard {
   addNote(params?: Partial<Omit<WemaNote, 'id'>>): WemaNote {
     if (this.readOnly || this.viewOnly) return undefined as never;
     // Without a position, the note goes near the top-left of what is shown
-    // (not of the board, which may be panned out of view)
-    const origin = this.view.screenToBoard(0, 0);
+    // (not of the board, which may be panned out of view, or in the page
+    // scroll mode scrolled out of the window)
+    const { left, top } = this.pageScroll ? this.boardEl.getBoundingClientRect() : { left: 0, top: 0 };
+    const origin = this.view.screenToBoard(Math.max(-left, 0), Math.max(-top, 0));
     return this.noteManager.addNote({ ...params, x: params?.x ?? origin.x + 100, y: params?.y ?? origin.y + 100 });
   }
 
@@ -793,6 +845,54 @@ export class WemaBoard {
       for (const id of noteIds) this.noteManager.resizeToContent(id);
     });
     this.updateNotePopup();
+  }
+
+  /**
+   * Make a new note that quotes `html` (a part of the text of a note), next
+   * to that note and with an arrow from it. The note and the edge are one
+   * undo step.
+   */
+  private quoteInNewNote(sourceId: NoteId, html: string): void {
+    if (this.readOnly || this.viewOnly) return;
+    // An edit in progress is committed first: it is not part of the quoting
+    this.noteManager.getTextElement(sourceId)?.blur();
+    const source = this.noteManager.getNote(sourceId);
+    if (!source) return;
+
+    const width = source.width;
+    const height = this.defaultNoteHeight;
+    // To the right of the note; in the page scroll mode, where the notes are
+    // a column as wide as the screen, in the same column. Either way below
+    // whatever is there already.
+    const x = this.pageScroll ? source.x : source.x + source.width + QUOTE_GAP;
+    let y = this.pageScroll ? source.y + source.height + QUOTE_STACK_GAP : source.y;
+    const others = this.noteManager.getNotes()
+      .filter((n) => !this.hiddenNoteIds.has(n.id) && n.x < x + width && n.x + n.width > x)
+      .sort((a, b) => a.y - b.y);
+    for (const other of others) {
+      if (other.y < y + height && other.y + other.height > y) y = other.y + other.height + QUOTE_STACK_GAP;
+    }
+
+    // With an origin, the batch commits what is pending first: the edit that
+    // the blur above ended stays an undo step of its own
+    const quote = this.batch(() => {
+      const note = this.noteManager.addNote({
+        x,
+        y,
+        width,
+        height,
+        // An empty line after the quote, to write under it
+        text: `<blockquote>${html}</blockquote><div><br></div>`,
+        color: source.color,
+        autoSize: source.autoSize,
+        foldable: source.foldable,
+      });
+      this.edgeManager.addEdge(sourceId, note.id);
+      return note;
+    }, { origin: 'user' });
+    this.selectionManager.select([quote.id]);
+    this.updateNotePopup();
+    this.revealNotes([quote.id]);
   }
 
   /** Get all notes */
@@ -913,6 +1013,12 @@ export class WemaBoard {
    * without `x` / `y` scales around the origin of the board coordinates.
    */
   setViewport(viewport: Partial<WemaViewport>): void {
+    // Fixed in the page scroll mode: the page is what moves
+    if (this.pageScroll) return;
+    this.applyViewport(viewport);
+  }
+
+  private applyViewport(viewport: Partial<WemaViewport>): void {
     if (!this.view.set(viewport)) return;
 
     // Overlays live in screen space: put them back over what they belong to
@@ -990,6 +1096,10 @@ export class WemaBoard {
    */
   revealNotes(noteIds: NoteId[], options?: WemaViewportMoveOptions): void {
     const padding = options?.padding ?? 24;
+    if (this.pageScroll) {
+      this.scrollPageToNotes(noteIds, padding);
+      return;
+    }
     this.moveToNotes(noteIds, padding, (start, end, size) => {
       if (start < padding) return padding;
       if (end > size - padding) return size - padding - (end - start);
@@ -1068,6 +1178,103 @@ export class WemaBoard {
     return notes.length === 0 ? null : boundingBoxOf(notes);
   }
 
+  // --- Page scroll mode ---
+
+  /**
+   * Turn the page scroll mode on or off (the `pageScroll` option). In this
+   * mode the board has no view of its own: it is as tall as its notes and
+   * flows with the page, which is what scrolls. Meant for a narrow screen,
+   * where the notes are stacked (`stackNotes()`) and read like a page.
+   *
+   * While it is on:
+   * - the viewport is fixed at `{ x: 0, y: 0, zoom: 1 }` (set when the mode
+   *   is entered; it is not put back when the mode is left). `setViewport()`,
+   *   `zoomTo()`, `centerContent()` and `fitToContent()` do nothing, and
+   *   `revealNotes()` scrolls the page instead
+   * - the wheel, a drag of an empty area, the middle button, Space and a
+   *   double click do not move the board: the browser scrolls and zooms the
+   *   page as it does anywhere else
+   * - a touch starts nothing on the board (no note drag, no resize, no
+   *   rubberband), so that a swipe that starts on a note scrolls the page.
+   *   A tap still clicks. The mouse works as usual
+   *
+   * The container must be free to grow with the board (no fixed height).
+   * Display state only: no note/edge event, nothing in the history.
+   */
+  setPageScroll(pageScroll: boolean): void {
+    if (this.pageScroll === pageScroll) return;
+    if (pageScroll) {
+      // A pan in progress would go on moving a board that no longer moves
+      if (this.pan) this.handlePanUp(new PointerEvent('pointercancel', { pointerId: this.pan.pointerId }));
+      this.setSpaceHeld(false);
+      this.applyViewport({ x: 0, y: 0, zoom: 1 });
+    }
+    this.pageScroll = pageScroll;
+    this.boardEl.classList.toggle('wema-page-scroll', pageScroll);
+    // The size of the board is set inline (see the constructor), so the mode is too
+    setStyles(this.boardEl, {
+      height: pageScroll ? '0px' : '100%',
+      minHeight: pageScroll ? '100%' : '',
+      overflow: pageScroll ? 'visible' : 'hidden',
+    });
+    this.updatePageHeight();
+    this.placeOverlays();
+  }
+
+  /** Whether the board is in the page scroll mode */
+  isPageScroll(): boolean {
+    return this.pageScroll;
+  }
+
+  /** In the page scroll mode, make the board as tall as its shown notes (plus a margin) */
+  private updatePageHeight(): void {
+    if (!this.pageScroll) return;
+    // Called for every note that moves: the notes are walked without copying them
+    const bottom = this.noteManager.lowestBottom((id) => !this.hiddenNoteIds.has(id));
+    const height = bottom === null ? 0 : Math.ceil(this.view.boardToScreen(0, bottom).y) + PAGE_SCROLL_MARGIN;
+    // While notes are on their way, some are still drawn below where they
+    // end: the board does not get shorter until they are there (the last
+    // frame of the animation calls this again)
+    const current = parseFloat(this.boardEl.style.height) || 0;
+    if (height < current && (this.holdsPageHeight || this.noteAnimator.isRunning())) return;
+    // An empty board, or one shorter than its container, fills the container (min-height)
+    const value = `${Math.max(height, 0)}px`;
+    if (this.boardEl.style.height !== value) this.boardEl.style.height = value;
+  }
+
+  /**
+   * Whether the page scroll mode leaves this press to the browser: a touch
+   * (it scrolls the page), and any press that would pan the board, which
+   * does not move in this mode. The one place that decides it: the pan
+   * handler stops such a press before it reaches the notes, and the
+   * rubberband handler, which is on the board itself, asks again.
+   */
+  private leavesToPage(e: PointerEvent): boolean {
+    return this.pageScroll && (e.pointerType === 'touch' || this.wantsPan(e));
+  }
+
+  /** Scroll the page (or whatever scrolls the board) just enough to show the given notes */
+  private scrollPageToNotes(noteIds: NoteId[], padding: number): void {
+    const bounds = this.visibleBounds(noteIds);
+    if (!bounds) return;
+    // The browser knows what scrolls and by how much: hand it a box the
+    // size of the notes, for as long as it takes to ask
+    const box = createElement('div');
+    setStyles(box, {
+      position: 'absolute',
+      left: `${bounds.left}px`,
+      top: `${bounds.top}px`,
+      width: `${bounds.right - bounds.left}px`,
+      height: `${bounds.bottom - bounds.top}px`,
+      scrollMargin: `${padding}px`,
+      visibility: 'hidden',
+      pointerEvents: 'none',
+    });
+    this.viewportEl.appendChild(box);
+    box.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    box.remove();
+  }
+
   /** Whether this pointerdown starts a pan rather than a selection or a note drag */
   private wantsPan(e: PointerEvent): boolean {
     const target = e.target as HTMLElement;
@@ -1093,42 +1300,148 @@ export class WemaBoard {
 
   // --- Layout ---
 
-  /** Align selected notes */
-  alignNotes(noteIds: NoteId[], alignment: NoteAlignment): void {
-    if (this.readOnly || this.viewOnly) return;
-    this.applyPositions(computeAlignment(this.getNotesByIds(noteIds), alignment));
+  /**
+   * Move and resize several notes at once. With a `duration`, the notes and
+   * their edges are animated to the new place; a note that is still on its
+   * way from an earlier move goes on from where it is drawn. The data has
+   * the new place from the start: each note emits one `note:update`, and all
+   * of them are one undo step.
+   *
+   * Like `updateNote()`, this works in viewOnly (where a new position is
+   * temporary) and does nothing in readOnly. The height of a note whose
+   * height follows its content (autoSize, foldable) is not set by this.
+   */
+  moveNotes(moves: WemaNoteMove[], options?: WemaMoveOptions): void {
+    if (this.readOnly) return;
+    this.applyMoves(moves, options);
   }
 
-  /** Distribute notes evenly */
-  distributeNotes(noteIds: NoteId[], direction: DistributeDirection): void {
+  /** Align selected notes. Does nothing in readOnly and viewOnly. */
+  alignNotes(noteIds: NoteId[], alignment: NoteAlignment, options?: WemaMoveOptions): void {
     if (this.readOnly || this.viewOnly) return;
-    this.applyPositions(computeDistribution(this.getNotesByIds(noteIds), direction));
+    this.applyMoves(computeAlignment(this.getNotesByIds(noteIds), alignment), options);
   }
 
-  /** Auto-layout the given notes (default: all notes, or the notes shown by the filter) */
-  autoLayout(noteIds?: NoteId[]): void {
+  /** Distribute notes evenly. Does nothing in readOnly and viewOnly. */
+  distributeNotes(noteIds: NoteId[], direction: DistributeDirection, options?: WemaMoveOptions): void {
+    if (this.readOnly || this.viewOnly) return;
+    this.applyMoves(computeDistribution(this.getNotesByIds(noteIds), direction), options);
+  }
+
+  /**
+   * Auto-layout the given notes (default: all notes, or the notes shown by
+   * the filter). Does nothing in readOnly and viewOnly.
+   */
+  autoLayout(noteIds?: NoteId[], options?: WemaMoveOptions): void {
     if (this.readOnly || this.viewOnly) return;
     const targetIds = noteIds ?? this.getNoteFilter() ?? undefined;
     // Wrapped to the shape of the board, so that the result fits it at the
     // largest zoom (a board with no size yet gives NaN: the default shape)
     const aspectRatio = this.boardEl.clientWidth / this.boardEl.clientHeight;
-    this.applyPositions(
+    this.applyMoves(
       computeAutoLayout(this.noteManager.getNotes(), this.edgeManager.getEdges(), {
         noteIds: targetIds,
         aspectRatio,
       }),
+      options,
     );
+  }
+
+  /**
+   * Stack notes in a single column: one under the other, all at the same
+   * left edge, and all as wide as `width` when given (see
+   * `computeStackLayout()` for the options). Meant for a narrow screen.
+   *
+   * Notes that are hidden (by the filter or a collapsed edge) are left where
+   * they are. A note whose height follows its width (autoSize, foldable) is
+   * stacked by the height it has at the new width. Like `moveNotes()`, this
+   * works in viewOnly, does nothing in readOnly, and animates with a
+   * `duration`.
+   */
+  stackNotes(options: WemaStackOptions = {}): void {
+    if (this.readOnly) return;
+    const { noteIds, duration, ...layout } = options;
+    const ids = (noteIds ?? this.noteManager.getNotes().map((n) => n.id))
+      .filter((id) => !this.hiddenNoteIds.has(id));
+    this.animateNotes(ids, duration, () => {
+      // The widths first: they decide the heights the notes are stacked by
+      if (layout.width !== undefined) {
+        this.setNoteRects(ids.map((id) => ({ id, width: layout.width })));
+      }
+      this.setNoteRects(computeStackLayout(this.getNotesByIds(ids), layout));
+    });
   }
 
   private getNotesByIds(noteIds: NoteId[]): WemaNote[] {
     return noteIds.map((id) => this.noteManager.getNote(id)).filter((n) => n != null);
   }
 
-  private applyPositions(positions: NotePosition[]): void {
-    for (const { id, x, y } of positions) {
-      this.noteManager.updateNote(id, { x, y });
+  private applyMoves(moves: WemaNoteMove[], options?: WemaMoveOptions): void {
+    this.animateNotes(moves.map((m) => m.id), options?.duration, () => this.setNoteRects(moves));
+  }
+
+  /** Put notes where the moves say, at once. A note that is there already is not updated. */
+  private setNoteRects(moves: WemaNoteMove[]): void {
+    for (const move of moves) {
+      const note = this.noteManager.getNote(move.id);
+      if (!note) continue;
+      const params: Partial<NoteRect> = {};
+      for (const key of RECT_KEYS) {
+        // A size the note measures from its content is not set: the update
+        // would measure it back, and report a change that is none
+        if (key === 'width' && note.autoSize) continue;
+        if (key === 'height' && (note.autoSize || this.noteManager.hasMeasuredHeight(note.id))) continue;
+        const value = move[key];
+        if (typeof value === 'number' && Number.isFinite(value) && value !== note[key]) params[key] = value;
+      }
+      if (Object.keys(params).length > 0) this.noteManager.updateNote(move.id, params);
     }
+  }
+
+  /**
+   * Run `change`, which moves or resizes the given notes in the model, and
+   * animate them from where they were drawn to where they are now.
+   */
+  private animateNotes(noteIds: NoteId[], duration: number | undefined, change: () => void): void {
+    const animated = typeof duration === 'number' && duration > 0 && Number.isFinite(duration)
+      && !prefersReducedMotion();
+    const from = new Map<NoteId, NoteRect>();
+    for (const id of noteIds) {
+      const shown = this.noteManager.getShownNote(id);
+      if (shown) from.set(id, { x: shown.x, y: shown.y, width: shown.width, height: shown.height });
+    }
+
+    // An update of `change` stops the animation of its note, like any update
+    // of a place does: it starts again below, from where the note was drawn.
+    // Until then no note is on its way, and the page must not get shorter yet.
+    this.holdsPageHeight = true;
+    try {
+      change();
+    } finally {
+      this.holdsPageHeight = false;
+    }
+
+    // The notes that are now drawn somewhere else than the updates left them
+    const redrawn: NoteId[] = [];
+    for (const [id, rect] of from) {
+      const note = this.noteManager.getNote(id);
+      if (animated && note && rectDiffers(rect, note)) {
+        this.noteAnimator.start(id, rect, duration);
+        redrawn.push(id);
+      } else if (this.noteAnimator.cancel(id)) {
+        redrawn.push(id);
+      }
+    }
+    if (redrawn.length > 0) this.followShownNotes(redrawn);
+    else this.updatePageHeight();
     this.updateNotePopup();
+  }
+
+  /** Redraw what follows where notes are drawn: their edges, the overlays, the height of the page */
+  private followShownNotes(noteIds: NoteId[]): void {
+    this.edgeManager.updateEdgesOfNotes(noteIds);
+    this.updatePageHeight();
+    this.placeOverlays();
   }
 
   // --- History ---
@@ -1230,6 +1543,7 @@ export class WemaBoard {
   /** Import board data, replacing all current content (this also clears the note filter) */
   importData(data: WemaBoardData): void {
     this.noteFilter = null;
+    this.noteAnimator.clear();
     this.selectionManager.clear();
     this.edgeManager.clear();
     this.noteManager.renderAll(data.notes);
@@ -1463,7 +1777,7 @@ export class WemaBoard {
   /** Put the embed URL input under its note, below the note popup (call again after the viewport changes) */
   private placeEmbedInput(): void {
     if (!this.embedInput) return;
-    const note = this.noteManager.getNote(this.embedInput.noteId);
+    const note = this.noteManager.getShownNote(this.embedInput.noteId);
     if (!note) return;
     // Next to the note popup, on the far side from the note
     const { box, side } = this.notePopup.boxWith(note.id)
@@ -1588,6 +1902,8 @@ export class WemaBoard {
 
     // Update per-note collapse buttons (edges hidden by the filter get none)
     this.updateNoteCollapseBtns(shownEdges, hiddenNotes);
+
+    this.updatePageHeight();
   }
 
   private dfsHideNotes(

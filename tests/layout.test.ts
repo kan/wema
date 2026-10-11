@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { WemaBoard } from '../src/board';
-import { computeAlignment, computeDistribution, computeAutoLayout } from '../src/layout';
+import { computeAlignment, computeDistribution, computeAutoLayout, computeStackLayout } from '../src/layout';
 import type { LayoutNote } from '../src/layout';
 import type { WemaNote } from '../src/types';
 
@@ -224,6 +224,44 @@ describe('Layout', () => {
 describe('Layout functions (no board)', () => {
   const note = (id: string, x: number, y: number, width = 200, height = 150): LayoutNote =>
     ({ id, x, y, width, height });
+
+  describe('computeStackLayout', () => {
+    it('stacks the notes from the top, then from the left, where they are', () => {
+      const result = computeStackLayout([
+        note('low', 0, 400, 200, 100),
+        note('right', 300, 100, 250, 80),
+        note('left', 50, 100, 150, 60),
+      ]);
+      // At the top-left corner of where the notes are, each with its own width
+      expect(result).toEqual([
+        { id: 'left', x: 0, y: 100, width: 150 },
+        { id: 'right', x: 0, y: 100 + 60 + 16, width: 250 },
+        { id: 'low', x: 0, y: 100 + 60 + 16 + 80 + 16, width: 200 },
+      ]);
+    });
+
+    it('puts the column where the options say, with their width and gap', () => {
+      const result = computeStackLayout(
+        [note('a', 0, 0, 200, 100), note('b', 0, 300, 200, 50)],
+        { x: 20, y: 56, width: 335, gap: 8 },
+      );
+      expect(result).toEqual([
+        { id: 'a', x: 20, y: 56, width: 335 },
+        { id: 'b', x: 20, y: 164, width: 335 },
+      ]);
+    });
+
+    it('follows the given order, and leaves no note out of the column', () => {
+      const notes = [note('a', 0, 0), note('b', 0, 200), note('c', 0, 400), note('d', 0, 600)];
+      const result = computeStackLayout(notes, { order: ['c', 'missing', 'a', 'c'] });
+      expect(result.map((p) => p.id)).toEqual(['c', 'a', 'b', 'd']);
+      expect(result.map((p) => p.y)).toEqual([0, 166, 332, 498]);
+    });
+
+    it('returns nothing for no notes', () => {
+      expect(computeStackLayout([], { x: 10 })).toEqual([]);
+    });
+  });
 
   describe('computeAlignment', () => {
     it('returns a position for every note', () => {

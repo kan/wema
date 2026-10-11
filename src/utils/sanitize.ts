@@ -1,7 +1,7 @@
 /** Allowed tags for rich-text content in notes */
 const ALLOWED_TAGS = new Set([
   'b', 'strong', 'i', 'em', 'u', 's', 'br', 'span',
-  'ul', 'ol', 'li', 'a', 'input', 'img', 'iframe', 'video', 'audio', 'div', 'p',
+  'ul', 'ol', 'li', 'a', 'input', 'img', 'iframe', 'video', 'audio', 'div', 'p', 'blockquote',
 ]);
 
 /** Allowed attributes per tag (in addition to 'class' and 'style' which are global) */

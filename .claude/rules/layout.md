@@ -7,14 +7,24 @@ paths:
 
 # レイアウト関数（DOM 非依存）
 
-`WemaBoard` のレイアウト系メソッドは、次の純粋関数の結果を `updateNote` で反映するだけの薄いラッパー。
+`WemaBoard` のレイアウト系メソッドは、次の純粋関数の結果をボードへ反映するだけの薄いラッパー（反映は `applyMoves()` の 1 か所）。
 関数は `src/layout.ts` にあり、`src/index.ts` から export している（サーバー側で使うため DOM に触れないこと）。
 
 ```typescript
 computeAlignment(notes: LayoutNote[], alignment: NoteAlignment): NotePosition[];
 computeDistribution(notes: LayoutNote[], direction: DistributeDirection): NotePosition[];
 computeAutoLayout(notes: LayoutNote[], edges: LayoutEdge[], options?: { noteIds?: NoteId[]; aspectRatio?: number }): NotePosition[];
+computeStackLayout(notes: LayoutNote[], options?: { x?: number; y?: number; width?: number; gap?: number; order?: NoteId[] }): NotePlacement[];
 ```
+
+結果をボードへ反映する側（`applyMoves()`、アニメーション）の規則は `.claude/rules/move-animation.md` にある。
+
+## `computeStackLayout` の配置の決め方
+
+- 付箋を縦 1 列に積む。返す `NotePlacement` は `NotePosition` に `width` を足した型で、`NotePosition` 自体は変えない（既存の 3 つの関数の戻り値に `width` を混ぜないため）
+- 並び順は、`order` の順、その後ろに残りを「いまの位置の上から順、同じなら左から順」。**`order` に無い付箋を結果から落とさないこと**（利用側が載せ忘れた付箋が、画面から消えるため）。`order` の中の、存在しない ID と 2 回目以降の重複は無視する
+- 列の左上（`x` / `y`）を省略したときは、付箋のある範囲の左上にする（`computeAutoLayout` と同じ考え方）
+- 高さは渡された `height` をそのまま使う。幅を変えると高さが変わる付箋（`autoSize` / `foldable`）は、この関数では測れない。`WemaBoard.stackNotes()` が、幅を当てて測ってから呼ぶ
 
 ## `computeAutoLayout` の配置の決め方
 
