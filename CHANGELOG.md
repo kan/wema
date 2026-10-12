@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.13.2] - 2026-10-13
 
 ### Changed
 
@@ -432,6 +432,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.13.2]: https://github.com/kan/wema/releases/tag/v0.13.2
 [0.13.1]: https://github.com/kan/wema/releases/tag/v0.13.1
 [0.13.0]: https://github.com/kan/wema/releases/tag/v0.13.0
 [0.12.0]: https://github.com/kan/wema/releases/tag/v0.12.0
