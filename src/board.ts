@@ -1296,8 +1296,12 @@ export class WemaBoard {
    * - a note is as wide as `width` (autoSize notes too) and as tall as it
    *   is at that width when its height follows its content (autoSize,
    *   foldable). Other notes keep the height of the data
+   * - the edges are not shown, and none can be drawn from a note: in one
+   *   column they would run behind the notes between their ends. The badge
+   *   of a collapsed edge stays. `addEdge()` and the like still change the
+   *   data
    * - notes can not be dragged or resized. Everything else works: selecting,
-   *   editing, making and deleting notes and edges
+   *   editing, making and deleting notes
    * - a note that the board places itself (a double click, `addNote()`
    *   without a position, a copy, a quote) goes under all the notes in the
    *   data, and so to the end of the column
@@ -1314,6 +1318,11 @@ export class WemaBoard {
     this.stack = stack ? copyStack(stack) : null;
     this.stackedSides.clear(); // another column, or none: the sides are read again
     this.boardEl.classList.toggle('wema-stacked', this.stack !== null);
+    if (this.stack) {
+      // The edges are not shown among stacked notes (style.css): none stays selected
+      this.edgeManager.deselectEdge();
+      this.edgePopup.hide();
+    }
     // All the notes go where this call puts them: one that is on its way
     // from an earlier call starts again from where it is drawn, or stops
     this.restack(this.noteManager.getNotes().map((n) => n.id), options?.duration);

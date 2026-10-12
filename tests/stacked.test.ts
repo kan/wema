@@ -384,6 +384,18 @@ describe('Stacked display', () => {
       expect(boardEl.style.height).toBe('444px');
     });
 
+    it('no edge stays selected among stacked notes (the edges are not shown)', () => {
+      create();
+      const [a, b] = addThree();
+      const edge = board.addEdge(a, b);
+      const internals = board as unknown as { edgeManager: { selectEdge(id: string): void } };
+      internals.edgeManager.selectEdge(edge.id);
+
+      board.setStacked({ x: 0, y: 0 });
+      expect(board.getSelectedEdge()).toBeNull();
+      expect(boardEl.classList.contains('wema-stacked')).toBe(true);
+    });
+
     it('the edges are drawn between the notes where they are drawn', () => {
       create();
       const [a, b] = addThree();

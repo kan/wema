@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **表示だけの縦積み（`setStacked()`）の間、接続線を表示しないようにした。** 縦 1 列では、離れた付箋をつなぐ線が間の付箋の裏を通り、付箋の隙間に切れ端と矢印の頭だけが見えていた。付箋のアンカーも出さない。データは変わらず、`setStacked(null)` で元どおり表示する。折り畳んだ接続線のバッジは、隠れた付箋を開けるように残している
+
 ## [0.13.1] - 2026-10-12
 
 ### Fixed

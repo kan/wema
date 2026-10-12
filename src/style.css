@@ -761,6 +761,15 @@
   visibility: hidden;
 }
 
+/* The edges are not shown among stacked notes: in one column they run behind
+   the notes between their ends, and only bits of them show in the gaps. The
+   badge of a collapsed edge stays, as the way to show its notes again */
+.wema-board.wema-stacked .wema-edges,
+.wema-board.wema-stacked .wema-anchor,
+.wema-board.wema-stacked .wema-note-collapse-btn:not(.wema-note-collapse-badge) {
+  display: none;
+}
+
 /* Rich text floating toolbar */
 .wema-richtext-toolbar {
   position: absolute;
