@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **計測で付箋の大きさが変わったことを知らせる `note:measure` イベントを足した。** 縦に積んだ付箋（`stackNotes()`）は、あとで高さが変わると下の付箋に重なっていた（`foldable` の付箋を開いた、`autoSize` の付箋に入力した）。この変化は `note:update` を出さないので、利用側は積み直すきっかけを取れなかった（#68）
+  - ペイロードは `{ note, prev }`。`prev` は変わる前の付箋
+  - `change` と同じく、きっかけになった処理が終わってから発火する。同じタイミングの変化は、付箋ごとに 1 回だけ発火する
+  - Undo 履歴と `history:commit` には載らない。`change` はこれまでどおり発火する
+  - `updateNote()` の中で大きさが変わったときは `note:update` だけが発火する。ボードの読み込みでは発火しない
+  - 積み直すには、`note:measure` を受けて同じ引数で `stackNotes()` を呼ぶ。位置の変わらない付箋は更新されないので、連鎖しない。手順と注意は README の「高さが変わったときに積み直す」にある
+
 ## [0.12.0] - 2026-10-11
 
 ### Added

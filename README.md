@@ -180,7 +180,7 @@ board.updateNote(noteId, { foldable: true });   // あとから切り替える
 - 行数は、表示上の行で数える。改行がなくても、付箋の幅で折り返して 3 行以上になれば畳む
 - `foldable` の付箋の高さは、表示している内容から決まる（閉じているときは約 3 行分、開いているときは本文の全体）。`height` は wema が計測して書き込む値になり、`updateNote()` やリサイズハンドルで指定できるのは幅だけになる。接続線、整列、自動レイアウトは、その時点の表示の大きさに従う
 - **開いているかどうかは、表示だけの状態。** データには入らない。`note:update` と `history:commit` を出さず、Undo の対象外。ボードを読み込んだ直後は、すべて閉じている。ロックモードと参照モードでも開閉できる
-- 開閉で高さが変わると `change` が発火する。`data` の `height` は、その時点の表示の高さになる
+- 開閉で高さが変わると `note:measure` と `change` が発火する。`change` の `data` の `height` は、その時点の表示の高さになる
 - 本文を編集しているあいだは、閉じている付箋も一時的に開く。フォーカスが外れると元の状態へ戻る
 - `foldable` を `false` に戻すと、高さは本文の全体が収まる値になる（非表示の付箋は計測できないので、そのときの高さのまま残る）
 - `renderNote` で利用側が描いた付箋は畳まない
@@ -382,7 +382,7 @@ window.addEventListener('resize', () => {
 利用側で用意すること:
 
 - **コンテナの高さを固定しない。** ボードはコンテナからはみ出して伸びる（`overflow: visible`）ので、コンテナを `height: auto` にして、ページ（または外側の要素）をスクロールできるようにする
-- 付箋の並べ直しは行わない。縦に積むには `stackNotes()` を呼ぶ
+- 付箋の並べ直しは行わない。縦に積むには `stackNotes()` を呼ぶ。積んだあとに高さが変わる付箋（`autoSize` / `foldable`）があるときは、`note:measure` を受けて積み直す（「レイアウト・整列」の「高さが変わったときに積み直す」）
 - 表示だけの状態で、`note:*` / `edge:*` / `history:commit` / `change` は発火しない
 
 #### レイアウト・整列
@@ -413,6 +413,25 @@ board.stackNotes({ x: 20, y: 56, width: 335, gap: 16, duration: 300 });
 - `moveNotes()` と `stackNotes()` は、`updateNote()` と同じく参照モード（viewOnly）でも働く（位置はモード終了時に元へ戻る。幅と高さは戻らない）。ロックモード（readOnly）では何もしない。`alignNotes()` / `distributeNotes()` / `autoLayout()` は、これまでどおりどちらのモードでも何もしない
 - 大きさが内容で決まる付箋は、その大きさを渡しても変わらない（`autoSize` の付箋の `width` と `height`、`foldable` の付箋の `height`）。`note:update` も出ない。`stackNotes()` は、新しい幅での高さを測ってから積む
 - `stackNotes()` は、非表示の付箋（絞り込み、接続線の折り畳み）を動かさない。`noteIds` で指定しても同じ
+
+##### 高さが変わったときに積み直す
+
+`stackNotes()` は、呼んだ時点の高さで付箋を積む。ボードは積み方を覚えない。あとで高さが変わった付箋は、下の付箋に重なる（`foldable` の付箋を開いた、`autoSize` の付箋に入力した）。`note:measure` を受けて、同じ引数で `stackNotes()` を呼び直す。
+
+```typescript
+const stack = () => board.stackNotes({ x: 20, y: 56, width: 335, gap: 16, duration: 200 });
+
+stack();
+board.on('note:measure', stack);
+```
+
+- `stackNotes()` は、位置の変わらない付箋を更新しない。呼び直しても、`note:measure` と `change` は連鎖しない
+- `duration` を渡すと、下の付箋は新しい位置までアニメーションで動く。高さが変わった付箋そのものは、すぐにその高さになる。開いた直後は、下の付箋が動き終わるまで重なって見える。重なりを見せたくないときは `duration` を省く
+- 入力中は、高さが変わるたびに発火する（行が増えたときなど）。積み直しを間引くかどうかは、利用側で決める
+- **積み直しで動いた付箋は `note:update` を出す。** 通常モードでは、付箋を開いただけで Undo 1 回分が積まれ（Redo できる操作は消える）、Undo すると、下の付箋だけが前の位置へ戻る。開閉は Undo の対象外なので、付箋が重なるか、すき間が空く。入力中も、行が増えるたびに積まれる。参照モード（viewOnly）では位置を履歴に記録しないので、積まれない。読むための画面では、参照モードと組み合わせる
+- 画像の読み込みで付箋の高さが変わっても、`note:measure` は発火しない（wema は、画像の読み込みで付箋を計測し直さない）。大きさの分からない画像を入れる付箋は、積み直しの対象にならない
+- ロックモード（readOnly）では `stackNotes()` が何もしないので、積み直せない。開閉のリンクはロックモードでも働くため、開いた付箋は重なる
+- `order` を省略していても、並び順は変わらない。省略時は「いまの位置の上から順」に積むので、積んである付箋はその順のままになる
 
 同じ計算を DOM なしで行う関数も export している。サーバー側など `WemaBoard` を作れない環境で使える。どれも入力を変更せず、付箋の新しい位置 `{ id, x, y }` の配列を返す（`computeStackLayout()` は幅も入った `{ id, x, y, width }`）。
 
@@ -483,6 +502,7 @@ const wide = computeAutoLayout(data.notes, data.edges, { aspectRatio: 16 / 9 });
 | `note:create` | `{ note, origin }` |
 | `note:update` | `{ note, prev, origin }` |
 | `note:delete` | `{ note, origin }` |
+| `note:measure` | `{ note, prev }` |
 | `note:select` | `{ noteIds }` |
 | `edge:create` | `{ edge, origin }` |
 | `edge:update` | `{ edge, prev, origin }` |
@@ -501,6 +521,7 @@ board.off('change', handler);
 ```
 
 - `note:*` / `edge:*` の `origin` は、このボードでの操作なら `'local'`、`applyRemote()` による変更なら `'remote'`
+- `note:measure` は、大きさが内容で決まる付箋（`autoSize` / `foldable`）の大きさが、`note:update` を伴わずに変わると発火する（入力の途中、`foldable` の開閉、非表示だった付箋の再表示）。`prev` は変わる前の付箋。`change` と同じく、きっかけになった処理が終わってから発火し、同じタイミングの変化は、付箋ごとに 1 回だけ発火する。表示から決まる値の変化なので、Undo 履歴と `history:commit` には載らない。この大きさの変化は、その付箋の次の `note:update` の `prev` に載る。`updateNote()` の中で大きさが変わったときは `note:update` だけが発火し、ボードの読み込み（生成時の `data` と `importData()`）では発火しない
 - `history:commit` は、ユーザー操作 1 回分（Undo 1 回分）が確定するたびに発火する。`origin` は `'user'` / `'undo'` / `'redo'` / `'agent'`
 - `change` の `data` には常に `exportData()` と同じ内容が入る。同じタイミングの変更は 1 回にまとめて発火する
 

@@ -285,6 +285,18 @@ export interface WemaEventMap {
   'note:create': { note: WemaNote; origin: ChangeOrigin };
   'note:update': { note: WemaNote; prev: WemaNote; origin: ChangeOrigin };
   'note:delete': { note: WemaNote; origin: ChangeOrigin };
+  /**
+   * The size of a note that is measured from its content (autoSize, foldable)
+   * changed without a note event: its text is being typed, a foldable note was
+   * opened or closed, a note that was hidden is shown again. Only what is
+   * shown changed, so this is not in the history or in `history:commit`: the
+   * size is reported by the next `note:update` of the note.
+   *
+   * Emitted like `change`, once what measured the note is done, and once per
+   * note for the changes of that moment (`prev` has the size from before the
+   * first of them). Not emitted while a board is loaded.
+   */
+  'note:measure': { note: WemaNote; prev: WemaNote };
   'note:select': { noteIds: NoteId[] };
   'edge:create': { edge: WemaEdge; origin: ChangeOrigin };
   'edge:update': { edge: WemaEdge; prev: WemaEdge; origin: ChangeOrigin };

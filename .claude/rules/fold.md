@@ -25,7 +25,7 @@ paths:
 
 ## 高さ
 
-- `foldable` の付箋の高さは、autoSize の付箋のサイズと同じ「計測する値」。CSS（`.wema-note.wema-foldable` の `height: auto`）が高さを決め、`applyMeasuredSize()` がモデルの `height` へ写す。計測の規則は `.claude/rules/autosize.md` に従う（開閉による高さの変化は `note:update` を出さず、`onMeasure` で接続線の再描画と `change` だけを行う）
+- `foldable` の付箋の高さは、autoSize の付箋のサイズと同じ「計測する値」。CSS（`.wema-note.wema-foldable` の `height: auto`）が高さを決め、`applyMeasuredSize()` がモデルの `height` へ写す。計測の規則は `.claude/rules/autosize.md` に従う（開閉による高さの変化は `note:update` を出さず、`onMeasure` で接続線の再描画と `change` を行い、`note:measure` を出す）
 - 幅は計測しない（autoSize でもある付箋を除く）。リサイズハンドルで変えられるのは幅だけ
 - **表示の状態を決める場所は `applyFold()` の 1 か所で、必ず計測の直前に呼ばれる**（`applyMeasuredSize()` の先頭）。クラスを別の場所で付け外しすると、モデルの `height` と表示がずれる。例外は `openHeight()` だけで、`foldable` を OFF にする直前に、開いた状態の高さを測るためにクラスを外す
 - `applyFold()` は、`foldable` でなく `wema-fold-long` も付いていない付箋では何もしない。`applyMeasuredSize()` はリサイズのドラッグ中の pointermove ごとに、ふつうの付箋でも呼ばれるため

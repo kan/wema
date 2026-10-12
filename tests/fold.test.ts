@@ -286,6 +286,139 @@ describe('foldable notes', () => {
     });
   });
 
+  describe('note:measure', () => {
+    it('reports the size before and after, when a note is opened and closed', async () => {
+      const id = addFoldable(LONG);
+      await flush();
+      const measures = record('note:measure');
+
+      linkOf(id).click();
+      // Reported once the click is done, like `change`
+      expect(measures).toHaveLength(0);
+      await flush();
+      expect(measures).toHaveLength(1);
+      expect(measures[0].note).toMatchObject({ id, height: 220 });
+      expect(measures[0].prev).toMatchObject({ id, height: 100 });
+
+      linkOf(id).click();
+      await flush();
+      expect(measures).toHaveLength(2);
+      expect(measures[1].note.height).toBe(100);
+      expect(measures[1].prev.height).toBe(220);
+    });
+
+    it('is not emitted by an update that measures: that is a note:update', async () => {
+      const note = board.addNote({ text: 'text', width: 200, height: 150 });
+      setLayout(note.id, LONG);
+      await flush();
+      const measures = record('note:measure');
+      const updates = record('note:update');
+
+      board.updateNote(note.id, { foldable: true });
+      await flush();
+      expect(updates).toHaveLength(1);
+      expect(measures).toHaveLength(0);
+    });
+
+    it('is not emitted when the size stays as it is, or is back at what it was', async () => {
+      const id = addFoldable(LONG);
+      await flush();
+      const measures = record('note:measure');
+      contentOf(id).dispatchEvent(new Event('input'));
+      await flush();
+      expect(measures).toHaveLength(0);
+
+      linkOf(id).click();
+      linkOf(id).click();
+      await flush();
+      expect(measures).toHaveLength(0);
+    });
+
+    it('lets the host stack the notes again, so that they do not overlap', async () => {
+      const id = addFoldable(LONG);
+      const below = board.addNote({ x: 0, y: 500, width: 200, height: 80 });
+      const stack = (): void => board.stackNotes({ x: 20, y: 56, gap: 16 });
+      stack();
+      await flush();
+      expect(board.getNote(below.id)?.y).toBe(56 + 100 + 16);
+
+      board.on('note:measure', stack);
+      const changes = record('change');
+      linkOf(id).click();
+      await flush();
+      expect(board.getNote(below.id)?.y).toBe(56 + 220 + 16);
+      // The new height and the new places are one change
+      await flush();
+      expect(changes).toHaveLength(1);
+      expect(changes[0].data.notes.find((n) => n.id === below.id)?.y).toBe(56 + 220 + 16);
+
+      linkOf(id).click();
+      await flush();
+      expect(board.getNote(below.id)?.y).toBe(56 + 100 + 16);
+    });
+
+    it('is emitted once all the notes the board shows again are measured', async () => {
+      const first = addFoldable(LONG);
+      const second = addFoldable(LONG);
+      const below = board.addNote({ x: 0, y: 900, width: 200, height: 80 });
+      const stack = (): void => board.stackNotes({ x: 20, y: 56, gap: 16, order: [first, second, below.id] });
+      stack();
+      await flush();
+      const seen: (number | undefined)[][] = [];
+      board.on('note:measure', () => {
+        seen.push([board.getNote(first)?.height, board.getNote(second)?.height]);
+        stack();
+      });
+
+      board.setNoteFilter([below.id]);
+      setLayout(first, LONG, { open: 260, closed: 130 });
+      setLayout(second, LONG, { open: 260, closed: 140 });
+      await flush();
+      expect(seen).toHaveLength(0);
+
+      board.setNoteFilter(null);
+      await flush();
+      // One event per note, and the first already finds both at their new size
+      expect(seen).toEqual([[130, 140], [130, 140]]);
+      expect(board.getNote(below.id)?.y).toBe(56 + 130 + 16 + 140 + 16);
+    });
+
+    it('is emitted after an undo is replayed, so that what the listener moves is recorded', async () => {
+      const id = addFoldable(LONG);
+      const below = board.addNote({ x: 0, y: 500, width: 200, height: 80 });
+      const parent = board.addNote({ x: 600, y: 0, width: 200, height: 80 });
+      const edge = board.addEdge(parent.id, id);
+      const stack = (): void => board.stackNotes({ noteIds: [id, below.id], x: 20, y: 56, gap: 16 });
+      stack();
+      await flush();
+      board.on('note:measure', stack);
+
+      board.updateEdge(edge!.id, { collapsed: true });
+      await flush();
+      setLayout(id, LONG, { open: 260, closed: 130 });
+      const commits = record('history:commit');
+
+      board.undo();
+      await flush();
+      await flush();
+      expect(board.getNote(below.id)?.y).toBe(56 + 130 + 16);
+      expect(commits.map((c) => c.origin)).toEqual(['undo', 'user']);
+      expect(commits[1].deltas).toEqual([
+        expect.objectContaining({ type: 'note:update', noteId: below.id, after: { y: 56 + 130 + 16 } }),
+      ]);
+    });
+
+    it('is not emitted for a board that was replaced meanwhile', async () => {
+      const id = addFoldable(LONG);
+      await flush();
+      const measures = record('note:measure');
+      linkOf(id).click();
+      board.importData(board.exportData());
+      await flush();
+      expect(measures).toHaveLength(0);
+    });
+  });
+
   describe('turning the flag off', () => {
     it('shows the note as usual, with the height of its whole text', () => {
       const id = addFoldable(LONG);

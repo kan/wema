@@ -21,7 +21,7 @@ import type {
 } from './types.js';
 import { type WemaLabels, resolveLabels } from './labels.js';
 import { EventEmitter } from './events.js';
-import { NoteManager, type NoteRect } from './note.js';
+import { NoteManager, type NoteRect, type NoteSize } from './note.js';
 import { NoteAnimator, prefersReducedMotion } from './animation.js';
 import { DragManager, DRAG_THRESHOLD } from './drag.js';
 import { SelectionManager } from './selection.js';
@@ -112,6 +112,8 @@ export class WemaBoard {
   private hiddenNoteIds = new Set<NoteId>();
   private onImageUpload?: (file: File) => Promise<string>;
   private changePending = false;
+  /** The sizes notes had before they were measured, until `note:measure` reports them */
+  private measuredSizes = new Map<NoteId, NoteSize>();
   private container: HTMLElement;
   /** The texts of the UI (the `labels` and `foldLabels` options over the English ones) */
   private labels: WemaLabels;
@@ -201,10 +203,13 @@ export class WemaBoard {
       defaultColor: options.defaultNoteColor ?? '#FFF9C4',
       readOnly: this.readOnly,
       // A measured size is not a note event: redraw the edges and report the data
-      onMeasure: (noteId) => {
+      onMeasure: (noteId, before) => {
         this.edgeManager.updateEdgesOf(noteId);
         this.updatePageHeight();
         this.placeOverlays();
+        // Before the change, so that what a listener does about the new size
+        // (stacking the notes again) is in the same `change`
+        this.scheduleMeasure(noteId, before);
         this.scheduleChange();
       },
       onLinkClick: options.onLinkClick,
@@ -772,6 +777,7 @@ export class WemaBoard {
     this.boardEl.removeEventListener('wheel', this.handleWheel);
     this.overlayObserver?.disconnect();
     this.noteAnimator.clear();
+    this.measuredSizes.clear();
     this.noteManager.destroy();
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
@@ -1544,6 +1550,7 @@ export class WemaBoard {
   importData(data: WemaBoardData): void {
     this.noteFilter = null;
     this.noteAnimator.clear();
+    this.measuredSizes.clear();
     this.selectionManager.clear();
     this.edgeManager.clear();
     this.noteManager.renderAll(data.notes);
@@ -2016,6 +2023,29 @@ export class WemaBoard {
     for (const edge of edges) {
       if (edge.from === noteId) this.countSubtreeDFS(edge.to, edges, visited);
     }
+  }
+
+  /**
+   * Report a measured size with `note:measure`, once whatever measured it is
+   * done. The listener changes the board (it stacks the notes again), and a
+   * note is measured in the middle of other work: an undo that is replayed,
+   * the end of viewOnly, a text that is about to be committed.
+   */
+  private scheduleMeasure(noteId: NoteId, before: NoteSize): void {
+    // Measured again before it was reported: what counts is the first size
+    if (this.measuredSizes.has(noteId)) return;
+    this.measuredSizes.set(noteId, before);
+    if (this.measuredSizes.size > 1) return;
+    queueMicrotask(() => {
+      const measured = this.measuredSizes;
+      this.measuredSizes = new Map();
+      for (const [id, { width, height }] of measured) {
+        const note = this.noteManager.getNote(id);
+        // Deleted meanwhile, or back at the size it had
+        if (!note || (note.width === width && note.height === height)) continue;
+        this.emitter.emit('note:measure', { note, prev: { ...note, width, height } });
+      }
+    });
   }
 
   private scheduleChange(): void {

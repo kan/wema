@@ -36,6 +36,8 @@ const FOLD_LINES = 2;
 
 /** The position and the size of a note */
 export type NoteRect = Pick<WemaNote, 'x' | 'y' | 'width' | 'height'>;
+/** The size of a note */
+export type NoteSize =Pick<WemaNote, 'width' | 'height'>;
 
 /** Whether the size of a note is measured from what it shows, instead of set */
 function isMeasured(note: WemaNote): boolean {
@@ -65,8 +67,9 @@ interface NoteManagerOptions {
   /**
    * An autoSize note was measured and its size changed in the model without a
    * note event (the size is derived from the content, not a user operation).
+   * `before` is the size it had.
    */
-  onMeasure: (noteId: NoteId) => void;
+  onMeasure: (noteId: NoteId, before: NoteSize) => void;
   /** Handle a click on a link, given its resolved absolute URL. Return true to keep it from opening in a new tab. */
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   /** Let the host draw a note into `container`. Return true when it did (the `renderNote` option). */
@@ -93,14 +96,14 @@ export class NoteManager {
   private defaultColor: string;
   private readOnly: boolean;
   private viewOnly = false;
-  private onMeasure: (noteId: NoteId) => void;
+  private onMeasure: (noteId: NoteId, before: NoteSize) => void;
   private onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   private hostRender?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
    * For notes whose measured size is not yet reported in a note event: the
    * size they had in the last one. The next note:update uses it as `prev`.
    */
-  private unreportedSizeBase = new Map<NoteId, { width: number; height: number }>();
+  private unreportedSizeBase = new Map<NoteId, NoteSize>();
   /**
    * For notes that are animated to their place: where they are drawn for
    * now. The model already has the place they end at (see `setShownRect`).
@@ -457,7 +460,7 @@ export class NoteManager {
     const base = this.unreportedSizeBase.get(noteId) ?? before;
     if (base.width === note.width && base.height === note.height) this.unreportedSizeBase.delete(noteId);
     else this.unreportedSizeBase.set(noteId, base);
-    this.onMeasure(noteId);
+    this.onMeasure(noteId, before);
   }
 
   /**

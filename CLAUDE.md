@@ -359,6 +359,7 @@ interface WemaEventMap {
   'note:create':     { note: WemaNote; origin: ChangeOrigin };
   'note:update':     { note: WemaNote; prev: WemaNote; origin: ChangeOrigin };
   'note:delete':     { note: WemaNote; origin: ChangeOrigin };
+  'note:measure':    { note: WemaNote; prev: WemaNote };  // 計測で大きさが変わった（表示だけ。履歴に載らない）
   'note:select':     { noteIds: NoteId[] };
   'edge:create':     { edge: WemaEdge; origin: ChangeOrigin };
   'edge:update':     { edge: WemaEdge; prev: WemaEdge; origin: ChangeOrigin };

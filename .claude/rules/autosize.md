@@ -10,7 +10,13 @@ paths:
 
 autoSize の付箋の `width` / `height` は、内容と CSS から決まる派生値で、ユーザーの操作ではない。
 
-- 入力中と描画後（`requestAnimationFrame`）の計測は `note:update` を出さない。モデルを更新し、`onMeasure` で接続線の再描画と `change` だけを行う（`NoteManager.measure`）
+- 入力中と描画後（`requestAnimationFrame`）の計測は `note:update` を出さない。モデルを更新し、`onMeasure` で接続線の再描画と `change` を行い、`note:measure` を出す（`NoteManager.measure`）
+- **`note:measure` は表示だけのイベントで、履歴と `history:commit` に載せない**（issue #68）。利用側が、縦に積んだ付箋を積み直すきっかけに使う。出す場所は `WemaBoard.scheduleMeasure()` の 1 か所で、`onMeasure` が計測前の大きさを渡して呼ぶ
+  - **`note:measure` を、計測したその場で（同期で）出さないこと。** リスナーは `stackNotes()` でボードを変える。計測は、Undo / Redo の再生（`withoutRecording()` の中）、参照モードの終了処理、本文を確定する直前の blur、`recomputeVisibility()` のループの途中で起きるので、その場で出すと、リスナーの移動が履歴に載らない、または途中の状態のボードを積み直す。`change` と同じくマイクロタスクで出す
+  - 出すまでのあいだに同じ付箋が何度計測されても 1 回にまとめ、`prev` には最初の計測の前の大きさを入れる。元の大きさへ戻っていたら出さない。`importData()` と `destroy()` は、出す前の分（`measuredSizes`）を捨てる
+  - `scheduleMeasure()` は `scheduleChange()` より先に呼ぶ。リスナーの積み直しが、同じ `change` に入る
+  - `updateNote()` の中の計測（`note:update` に載る）と、読み込みのまとめての計測では出さない。`applyMeasuredSize()` を直接呼ぶ経路に足さないこと
+  - 画像の読み込みでは計測し直していない（`img` の `load` を受ける経路が無い）。読み込みで伸びた付箋は、次の計測までモデルの `height` が古いままで、`note:measure` も出ない（既知の制限）
 - 計測によるサイズの変化は、次の `note:update` の `prev` に計測前の値を入れて報告する（`unreportedSizeBase` / `emitUpdate`）。入力なら blur 時にテキストと同じ 1 件になる
 - 計測するのは autoSize の付箋（幅と高さ）と、`foldable` の付箋（高さだけ。`.claude/rules/fold.md`）。以下の規則は両方に当てはまる
 - 付箋の要素を作った時点で計測する（`renderNote()` の末尾）。データや引数の `width` / `height` は、別のフォントの環境で保存された値や見積もりのことがあり、表示と一致するとは限らない。`note:create` には計測後の値が入る
