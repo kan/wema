@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **付箋のデータを変えずに、縦 1 列に積んで表示できるようにした（`setStacked()` と `stacked` オプション）。** `stackNotes()` は付箋の位置と幅を書き換えるので、保存や同期をしている利用側では、狭い画面で開いただけで、保存してある配置が変わっていた。参照モードでも、幅の変更は残っていた（#69）
+  - `setStacked({ x, y, width, gap, order }, { duration })` — 付箋を縦 1 列に積んで描く。`setStacked(null)` で、データどおりの位置に戻す。`getStacked()` で積み方を読める
+  - `getNote()` / `exportData()` は元の位置と大きさを返す。`note:*` / `history:commit` / `change` は発火しない。ロックモードと参照モードでも切り替えられる
+  - 列が変わるたびに、ボードが積み直す（付箋の作成と削除、絞り込み、`applyRemote()` / `importData()`、`foldable` の開閉、入力の途中）
+  - 高さが内容で決まる付箋（`autoSize` / `foldable`）は、列の幅での高さで描く。データの `height` は、データの幅での高さのまま
+  - 積んでいる間、付箋のドラッグとリサイズはできない。ボードが位置を決める付箋（ダブルクリック、位置を省略した `addNote()`、複製、引用）は、データの上では既存の付箋の一番下に置く
 - **計測で付箋の大きさが変わったことを知らせる `note:measure` イベントを足した。** 縦に積んだ付箋（`stackNotes()`）は、あとで高さが変わると下の付箋に重なっていた（`foldable` の付箋を開いた、`autoSize` の付箋に入力した）。この変化は `note:update` を出さないので、利用側は積み直すきっかけを取れなかった（#68）
   - ペイロードは `{ note, prev }`。`prev` は変わる前の付箋
   - `change` と同じく、きっかけになった処理が終わってから発火する。同じタイミングの変化は、付箋ごとに 1 回だけ発火する

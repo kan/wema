@@ -142,7 +142,9 @@ export class SelectionManager {
     // Select notes that intersect with the rubberband rect
     const rect = { left, top, right: left + width, bottom: top + height };
     const intersecting: NoteId[] = [];
-    for (const note of this.noteManager.getNotes()) {
+    for (const { id } of this.noteManager.getNotes()) {
+      // Where the note is drawn, which is what the rubberband is drawn over
+      const note = this.noteManager.getShownNote(id)!;
       const noteRight = note.x + note.width;
       const noteBottom = note.y + note.height;
       if (

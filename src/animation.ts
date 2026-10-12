@@ -67,9 +67,10 @@ export class NoteAnimator {
     const now = performance.now();
     const moved: NoteId[] = [];
     for (const [id, { from, start, duration }] of this.running) {
-      // The end is read from the model in every frame: a measured note may
-      // get another height on the way
-      const note = this.noteManager.getNote(id);
+      // The end is read in every frame: a measured note may get another
+      // height on the way. It is where the note is placed for the display,
+      // else where the model has it.
+      const note = this.noteManager.getPlacedNote(id);
       const t = (now - start) / duration;
       if (!note || t >= 1) {
         this.running.delete(id);

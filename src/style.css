@@ -612,8 +612,13 @@
 /* max-content, not fit-content: fit-content is limited by the width of the
    containing block, and the viewport layer the notes sit in has none */
 .wema-note.wema-auto-size {
-  width: max-content !important;
   height: auto !important;
+}
+
+/* A note that is placed for the display only (the notes are shown stacked)
+   is as wide as it is placed: its width is the inline one */
+.wema-note.wema-auto-size:not(.wema-note-placed) {
+  width: max-content !important;
   min-width: 80px;
   max-width: 600px;
 }
@@ -744,6 +749,16 @@
 
 .wema-readonly .wema-resize-handle {
   display: none;
+}
+
+/* Stacked notes (`setStacked`) can not be dragged or resized */
+.wema-board.wema-stacked .wema-resize-handle {
+  display: none;
+}
+
+/* The grip keeps its room, so that the notes are as tall as they are otherwise */
+.wema-board.wema-stacked .wema-move-handle {
+  visibility: hidden;
 }
 
 /* Rich text floating toolbar */

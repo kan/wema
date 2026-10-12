@@ -121,6 +121,7 @@ wema/
 │   ├── move.test.ts
 │   ├── note-extension.test.ts
 │   ├── page-scroll.test.ts
+│   ├── stacked.test.ts
 │   ├── rich-text.test.ts
 │   ├── sanitize.test.ts
 │   ├── history.test.ts
@@ -181,6 +182,7 @@ wema/
 | `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
 | `move-animation.md` | 付箋の移動のアニメーション（`moveNotes()` と `duration`） | `src/animation.ts`、`src/note.ts`、`src/board.ts`、`src/edge.ts` |
 | `page-scroll.md` | ページと一緒にスクロールするモード（`pageScroll`） | `src/board.ts`、`src/style.css` |
+| `stacked.md` | データを変えない、表示だけの縦積み（`setStacked()`） | `src/board.ts`、`src/note.ts`、`src/animation.ts`、`src/style.css` |
 | `standalone.md` | スタンドアロン版の責務とビルド | `standalone/`、`scripts/build-standalone.ts` |
 
 ### データの流れ
@@ -292,6 +294,10 @@ class WemaBoard {
   setPageScroll(pageScroll: boolean): void;  // ボードが付箋の高さまで伸び、表示位置は { x: 0, y: 0, zoom: 1 } に固定
   isPageScroll(): boolean;
 
+  // 表示だけの縦積み（データは変えない。イベントも履歴も出さない。列が変わるたびにボードが積み直す）
+  setStacked(stack: { x?: number; y?: number; width?: number; gap?: number; order?: NoteId[] } | null, options?: { duration?: number }): void;  // 積んでいる間、ドラッグとリサイズはできない
+  getStacked(): StackLayoutOptions | null;
+
   // レイアウト（options.duration を渡すと、付箋と接続線が新しい位置までアニメーションする）
   moveNotes(moves: { id: NoteId; x?: number; y?: number; width?: number; height?: number }[], options?: { duration?: number }): void;  // viewOnly でも通る
   alignNotes(noteIds: NoteId[], alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom', options?: { duration?: number }): void;
@@ -344,6 +350,7 @@ interface WemaBoardOptions {
   emptyDrag?: 'select' | 'pan';  // default: 'select'（空いている場所の左ドラッグ。'pan' でパン、ラバーバンド選択は Shift か Ctrl / Cmd + ドラッグ）
   panMargin?: number;          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白。Infinity で無制限）
   pageScroll?: boolean;        // default: false（ページと一緒にスクロールするモードで始める）
+  stacked?: StackLayoutOptions;  // 付箋を縦 1 列に積んだ表示で始める（setStacked() と同じ。データは変えない）
   minZoom?: number;            // default: 0.25
   maxZoom?: number;            // default: 2
 }

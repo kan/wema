@@ -91,6 +91,7 @@ const board = new WemaBoard({
   emptyDrag?: 'select' | 'pan',  // default: 'select'（空いている場所の左ドラッグ。'pan' でパン、選択は Shift か Ctrl / Cmd + ドラッグ）
   panMargin?: number,          // default: 200（操作でパンできる範囲。付箋の外側に見せる余白のピクセル数）
   pageScroll?: boolean,        // default: false（ボードをページと一緒にスクロールさせる。狭い画面向け）
+  stacked?: { x?, y?, width?, gap?, order? },  // 付箋を縦 1 列に積んで表示する（データは変えない）
   minZoom?: number,            // default: 0.25
   maxZoom?: number,            // default: 2
 });
@@ -382,8 +383,52 @@ window.addEventListener('resize', () => {
 利用側で用意すること:
 
 - **コンテナの高さを固定しない。** ボードはコンテナからはみ出して伸びる（`overflow: visible`）ので、コンテナを `height: auto` にして、ページ（または外側の要素）をスクロールできるようにする
-- 付箋の並べ直しは行わない。縦に積むには `stackNotes()` を呼ぶ。積んだあとに高さが変わる付箋（`autoSize` / `foldable`）があるときは、`note:measure` を受けて積み直す（「レイアウト・整列」の「高さが変わったときに積み直す」）
+- 付箋の並べ直しは行わない。縦に積むメソッドは 2 つある。データを変えない `setStacked()`（次の節）と、データごと積む `stackNotes()`。`stackNotes()` で積んだあとに高さが変わる付箋（`autoSize` / `foldable`）があるときは、`note:measure` を受けて積み直す（「レイアウト・整列」の「高さが変わったときに積み直す」）
 - 表示だけの状態で、`note:*` / `edge:*` / `history:commit` / `change` は発火しない
+
+#### データを変えずに縦に積んで表示する（`stacked`）
+
+保存や同期をしているボードで `stackNotes()` を呼ぶと、狭い画面で開いただけで、保存してある配置が縦 1 列に書き換わる。`setStacked()` は、付箋のデータを変えず、描く位置と幅だけを縦 1 列にする。
+
+| メソッド | 説明 |
+|---------|------|
+| `setStacked(stack, options?)` | 付箋を縦 1 列に積んで表示する。`stack` に `null` を渡すと、データどおりの位置に戻す。生成時は `stacked` オプションで指定する |
+| `getStacked()` | 積み方（`setStacked()` に渡した `stack`）。積んでいないときは `null` |
+
+`stack` は `computeStackLayout()` と同じ項目（`x` / `y` / `width` / `gap` / `order`）。`x` と `y` を省略すると 0 になる。`options` は `{ duration }`。
+
+```typescript
+const board = new WemaBoard({ container, data });
+
+const layout = () => {
+  const narrow = window.innerWidth < 768;
+  board.setPageScroll(narrow);
+  board.setStacked(narrow ? { x: 12, y: 12, width: window.innerWidth - 24 } : null);
+};
+layout();
+window.addEventListener('resize', layout);
+```
+
+- **付箋のデータは変わらない。** `getNote()` / `exportData()` は、元の位置と大きさを返す。`note:*` / `history:commit` / `change` は発火せず、Undo 履歴にも積まれない。ロックモードと参照モードでも切り替えられる
+- 並び順は、`order` の順、その後ろにデータの位置の上から順（同じ高さなら左から順）
+- 付箋の幅は `width` になる（`autoSize` の付箋も同じ）。高さが内容で決まる付箋（`autoSize` / `foldable`）は、その幅での高さで描く。データの `height` は、データの幅での高さのまま。高さを固定している付箋は、データの高さのまま描く（幅が狭くなって本文が収まらないときは、付箋の中でスクロールする）
+- **列が変わるたびに、ボードが積み直す。** 付箋の作成と削除、絞り込みと接続線の折り畳み、データの変更（`updateNote()`、`applyRemote()`、`importData()`、Undo）、描いている高さの変化（`foldable` の開閉、入力の途中）が対象。利用側が `note:measure` を受けて呼び直す必要はない
+- 接続線は、描いている位置でつなぐ
+- **付箋のドラッグとリサイズはできない**（マウスでも同じ）。描いている位置とデータの位置が別なので、動かした結果をデータに写せないため。ムーブハンドルとリサイズハンドルは表示しない。選択、本文の編集、付箋と接続線の作成と削除、ポップアップは、通常どおり働く
+- ボードが位置を決める付箋（ダブルクリック、位置を省略した `addNote()`、複製、引用、アンカーから空いている場所へのドロップ）は、データの上では、既存の付箋のある範囲の左下（いちばん下の端の 20px 下）に置く。広い画面で開いたときに他の付箋と重ならず、列では最後に並ぶ。位置を渡した `addNote()` は、その位置をデータに入れる
+- 位置や大きさを変えるメソッド（`moveNotes()` / `stackNotes()` / `alignNotes()` など）は、これまでどおりデータを変える。表示は縦 1 列のままで、結果は `setStacked(null)` のあとに見える
+- `options.duration`（ミリ秒）を渡すと、付箋と接続線が、列へ入るとき（`setStacked(stack, { duration: 300 })`）と列から出るとき（`setStacked(null, { duration: 300 })`）にアニメーションする。アニメーションするのはその呼び出しだけで、ボードによる積み直しはすぐに反映する
+- 表示位置と倍率は変えない。ページスクロールモード（`pageScroll`）とは別に切り替える。狭い画面では、上の例のように両方を使う
+
+`stackNotes()` との使い分け:
+
+| | `stackNotes()` | `setStacked()` |
+|---|---|---|
+| 付箋のデータ | 位置と幅を書き換える | 変えない |
+| イベントと履歴 | `note:update` と `history:commit` が出る（Undo 1 回分） | 出ない |
+| その後の変化 | 追従しない（`note:measure` を受けて呼び直す） | ボードが積み直す |
+| ドラッグとリサイズ | できる | できない |
+| 向いている場面 | 保存しないページ、配置そのものを縦 1 列にしたいとき | 保存や同期をしているボードを、狭い画面で読ませるとき |
 
 #### レイアウト・整列
 
@@ -416,7 +461,7 @@ board.stackNotes({ x: 20, y: 56, width: 335, gap: 16, duration: 300 });
 
 ##### 高さが変わったときに積み直す
 
-`stackNotes()` は、呼んだ時点の高さで付箋を積む。ボードは積み方を覚えない。あとで高さが変わった付箋は、下の付箋に重なる（`foldable` の付箋を開いた、`autoSize` の付箋に入力した）。`note:measure` を受けて、同じ引数で `stackNotes()` を呼び直す。
+`stackNotes()` は、呼んだ時点の高さで付箋を積む。ボードは積み方を覚えない（覚えて積み直すのは、データを変えない `setStacked()`）。あとで高さが変わった付箋は、下の付箋に重なる（`foldable` の付箋を開いた、`autoSize` の付箋に入力した）。`note:measure` を受けて、同じ引数で `stackNotes()` を呼び直す。
 
 ```typescript
 const stack = () => board.stackNotes({ x: 20, y: 56, width: 335, gap: 16, duration: 200 });

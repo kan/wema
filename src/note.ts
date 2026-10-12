@@ -11,6 +11,8 @@ import { isInListItem, indentListItems, outdentListItems, getListType, createLis
 
 /** Class of a note whose size follows its content (the style sheet does the sizing) */
 const AUTO_SIZE_CLASS = 'wema-auto-size';
+/** On a note that is placed for the display only (`placeNotes`): it is as wide as it is placed, autoSize or not */
+const PLACED_CLASS = 'wema-note-placed';
 
 /**
  * A rendered size as a whole number of pixels that is not smaller than the
@@ -37,7 +39,14 @@ const FOLD_LINES = 2;
 /** The position and the size of a note */
 export type NoteRect = Pick<WemaNote, 'x' | 'y' | 'width' | 'height'>;
 /** The size of a note */
-export type NoteSize =Pick<WemaNote, 'width' | 'height'>;
+export type NoteSize = Pick<WemaNote, 'width' | 'height'>;
+
+/** The keys of a note that say where it is and how large */
+export const RECT_KEYS = ['x', 'y', 'width', 'height'] as const;
+
+export const rectDiffers = (a: NoteRect, b: NoteRect): boolean => RECT_KEYS.some((key) => a[key] !== b[key]);
+
+export const rectOf = ({ x, y, width, height }: NoteRect): NoteRect => ({ x, y, width, height });
 
 /** Whether the size of a note is measured from what it shows, instead of set */
 function isMeasured(note: WemaNote): boolean {
@@ -70,6 +79,12 @@ interface NoteManagerOptions {
    * `before` is the size it had.
    */
   onMeasure: (noteId: NoteId, before: NoteSize) => void;
+  /**
+   * A measured note that is placed for the display (`placeNotes`) was
+   * measured: the size it is drawn with may have changed, whether or not
+   * the one in the model did.
+   */
+  onPlacedMeasure: (noteId: NoteId) => void;
   /** Handle a click on a link, given its resolved absolute URL. Return true to keep it from opening in a new tab. */
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   /** Let the host draw a note into `container`. Return true when it did (the `renderNote` option). */
@@ -109,6 +124,13 @@ export class NoteManager {
    * now. The model already has the place they end at (see `setShownRect`).
    */
   private shownRects = new Map<NoteId, NoteRect>();
+  /**
+   * For notes the board lays out for the display only (`setStacked`): where
+   * they are drawn instead of where the model has them. The height is the
+   * one the note has at that width, as read when it was placed.
+   */
+  private placedRects = new Map<NoteId, NoteRect>();
+  private onPlacedMeasure: (noteId: NoteId) => void;
   private labels: WemaLabels;
   /**
    * The foldable notes the user opened. A state of the display only: not in
@@ -131,6 +153,7 @@ export class NoteManager {
     this.defaultColor = options.defaultColor;
     this.readOnly = options.readOnly;
     this.onMeasure = options.onMeasure;
+    this.onPlacedMeasure = options.onPlacedMeasure;
     this.onLinkClick = options.onLinkClick;
     this.hostRender = options.hostRender;
     this.labels = options.labels;
@@ -419,15 +442,32 @@ export class NoteManager {
   private applyMeasuredSize(note: WemaNote): boolean {
     const el = this.elements.get(note.id);
     if (!el) return false;
-    // A note on its way to its place is drawn with another width for now:
-    // what is measured is the size it has at the width of the model
-    const shown = this.shownRects.get(note.id);
-    if (!shown || shown.width === note.width) return this.readMeasuredSize(note, el);
+    // Nothing to measure and nothing to fold (this runs for every key typed
+    // in any note): the note is not laid out again for it
+    if (!isMeasured(note) && !el.classList.contains(FOLD_LONG_CLASS)) return false;
+    return this.atModelWidth(note, el, () => this.readMeasuredSize(note, el));
+  }
+
+  /**
+   * Run `read` with the note laid out at the width the model has for it. A
+   * note on its way to its place, or placed for the display, is drawn with
+   * another width for now: what is measured for the model is the size it
+   * has at its own.
+   */
+  private atModelWidth<T>(note: WemaNote, el: HTMLElement, read: () => T): T {
+    const placed = el.classList.contains(PLACED_CLASS);
+    const shown = this.shownRects.get(note.id) ?? this.placedRects.get(note.id);
+    if (!placed && (!shown || shown.width === note.width)) return read();
+    el.classList.remove(PLACED_CLASS);
     el.style.width = `${note.width}px`;
     try {
-      return this.readMeasuredSize(note, el);
+      return read();
     } finally {
-      el.style.width = `${shown.width}px`;
+      if (shown) el.style.width = `${shown.width}px`;
+      el.classList.toggle(PLACED_CLASS, placed);
+      // Open or closed is decided by the length of the text, which is another
+      // one at the width the note is drawn with
+      if (placed) this.applyFold(note, el);
     }
   }
 
@@ -454,7 +494,13 @@ export class NoteManager {
     const note = this.notes.get(noteId);
     if (!note) return;
     const before = { width: note.width, height: note.height };
-    if (!this.applyMeasuredSize(note)) return;
+    const changed = this.applyMeasuredSize(note);
+    // Placed for the display, the note may be drawn with another height now,
+    // whatever the size in the model did
+    const placed = this.placedRects.get(noteId);
+    const el = placed && this.elements.get(noteId);
+    if (placed && el && this.heightAtWidth(note, el, placed.width) !== placed.height) this.onPlacedMeasure(noteId);
+    if (!changed) return;
     // Back at the size of the last note event (a note opened and closed
     // again): nothing is left to report
     const base = this.unreportedSizeBase.get(noteId) ?? before;
@@ -476,6 +522,11 @@ export class NoteManager {
     return !!this.notes.get(id)?.foldable && !this.isHostDrawn(id);
   }
 
+  /** Whether the style sheet, not the model, decides how tall a note is drawn */
+  private isSizedByContent(note: WemaNote): boolean {
+    return !!note.autoSize || this.hasMeasuredHeight(note.id);
+  }
+
   /**
    * Resize a note once to the size its content takes: the size it would have
    * as an autoSize note. `autoSize` itself is not changed, so the note keeps
@@ -489,11 +540,16 @@ export class NoteManager {
     if (!note || !el || note.autoSize) return;
 
     // Lay the note out as an autoSize note for a moment, and read the result
-    el.classList.add(AUTO_SIZE_CLASS);
-    const style = getComputedStyle(el);
-    const width = wholePixels(el.offsetWidth, style.width);
-    const height = wholePixels(el.offsetHeight, style.height);
-    el.classList.remove(AUTO_SIZE_CLASS);
+    const { width, height } = this.atModelWidth(note, el, () => {
+      el.classList.add(AUTO_SIZE_CLASS);
+      const style = getComputedStyle(el);
+      const size = {
+        width: wholePixels(el.offsetWidth, style.width),
+        height: wholePixels(el.offsetHeight, style.height),
+      };
+      el.classList.remove(AUTO_SIZE_CLASS);
+      return size;
+    });
 
     // Not laid out (hidden by a collapsed edge, or detached): nothing to fit to
     if (width === 0 || height === 0) return;
@@ -514,6 +570,7 @@ export class NoteManager {
     this.notes.delete(id);
     this.unreportedSizeBase.delete(id);
     this.shownRects.delete(id);
+    this.placedRects.delete(id);
     this.unfolded.delete(id);
     if (this.editingId === id) this.editingId = null;
     this.emitter.emit('note:delete', { note: { ...note }, origin });
@@ -540,15 +597,117 @@ export class NoteManager {
   }
 
   /**
-   * A note as it is drawn now: the note of the model, except while it is
-   * animated to its place. What is drawn next to a note (its edges) follows
-   * this one.
+   * Draw the notes `ids` where `layout` puts them, for the display only, and
+   * all the others where the model has them (none: all of them). Nothing
+   * changes in the data and nothing is emitted.
+   *
+   * The notes are first drawn `width` wide (their own width without one),
+   * then `layout` gets them with the size they have at that width, and
+   * returns their places. Returns the notes that are drawn somewhere else
+   * than before.
+   */
+  placeNotes(
+    ids: NoteId[],
+    width: number | undefined,
+    layout: (notes: WemaNote[]) => (Pick<WemaNote, 'id'> & Partial<NoteRect>)[],
+  ): NoteId[] {
+    const before = new Map<NoteId, NoteRect>();
+    for (const [id, note] of this.notes) before.set(id, this.placedRects.get(id) ?? rectOf(note));
+
+    const placed = new Set(ids);
+    // No longer placed: drawn as the model has them again, whether or not
+    // that is the same place (an autoSize note takes its own width again)
+    const released = new Set<NoteId>();
+    for (const id of [...this.placedRects.keys()]) {
+      if (placed.has(id)) continue;
+      this.placedRects.delete(id);
+      released.add(id);
+    }
+    // The widths first: they decide the heights the layout works with. Only
+    // a note that gets another width is drawn again here (this runs for every
+    // key typed in a note): the others have the height of their width already.
+    const drawn: { note: WemaNote; el: HTMLElement }[] = [];
+    const widened: { note: WemaNote; el: HTMLElement }[] = [];
+    for (const id of placed) {
+      const note = this.notes.get(id);
+      const el = this.elements.get(id);
+      if (!note || !el) continue;
+      const rect = { ...before.get(id)!, width: width ?? note.width };
+      if (!this.placedRects.has(id) || this.placedRects.get(id)!.width !== rect.width) widened.push({ note, el });
+      this.placedRects.set(id, rect);
+      drawn.push({ note, el });
+    }
+    for (const { note, el } of widened) this.applyStyles(el, note);
+    for (const { note, el } of widened) this.applyFold(note, el);
+
+    const sized = drawn.map(({ note, el }) => {
+      const rect = this.placedRects.get(note.id)!;
+      rect.height = this.heightAtWidth(note, el, rect.width);
+      return { ...note, width: rect.width, height: rect.height };
+    });
+    for (const place of layout(sized)) {
+      const rect = this.placedRects.get(place.id);
+      if (!rect) continue;
+      if (place.x !== undefined) rect.x = place.x;
+      if (place.y !== undefined) rect.y = place.y;
+    }
+
+    const changed: NoteId[] = [];
+    for (const [id, note] of this.notes) {
+      const rect = this.placedRects.get(id) ?? note;
+      const was = before.get(id)!;
+      if (!rectDiffers(rect, was) && !released.has(id)) continue;
+      changed.push(id);
+      const el = this.elements.get(id);
+      if (el) this.applyStyles(el, note);
+    }
+    return changed;
+  }
+
+  /**
+   * How tall a note is drawn at `width`, the width it is placed with: the
+   * height of the model, unless the style sheet sizes the note. A note on
+   * its way to its place is drawn with another width for now, and is laid
+   * out at `width` for as long as it takes to read its height.
+   */
+  private heightAtWidth(note: WemaNote, el: HTMLElement, width: number): number {
+    if (!this.isSizedByContent(note)) return note.height;
+    const shown = this.shownRects.get(note.id);
+    // 0: the note is not laid out
+    if (!shown || shown.width === width) return el.offsetHeight || note.height;
+    el.style.width = `${width}px`;
+    // Open or closed is decided by the length of the text at that width
+    this.applyFold(note, el);
+    const height = el.offsetHeight || note.height;
+    el.style.width = `${shown.width}px`;
+    return height;
+  }
+
+  /**
+   * A note where it is drawn when nothing moves: where it is placed for the
+   * display (`placeNotes`), else the note of the model. An animation ends here.
+   */
+  getPlacedNote(id: NoteId): WemaNote | undefined {
+    const note = this.notes.get(id);
+    if (!note) return undefined;
+    return { ...note, ...this.placedRects.get(id) };
+  }
+
+  /** All the notes where they are drawn when nothing moves (see `getPlacedNote`) */
+  getPlacedNotes(): WemaNote[] {
+    return Array.from(this.notes.values(), (note) => ({ ...note, ...this.placedRects.get(note.id) }));
+  }
+
+  /**
+   * A note as it is drawn now: where it is placed (`getPlacedNote`), except
+   * while it is animated to its place. What is drawn next to a note (its
+   * edges) follows this one.
    */
   getShownNote(id: NoteId): WemaNote | undefined {
     const note = this.notes.get(id);
     if (!note) return undefined;
     const shown = this.shownRects.get(id);
-    if (!shown) return { ...note };
+    if (!shown) return this.getPlacedNote(id);
     const rect = { ...shown };
     // The style sheet sizes a measured note: its size on the way is the one
     // it is laid out with (0 when it is not laid out: keep the given one)
@@ -570,7 +729,8 @@ export class NoteManager {
     let bottom: number | null = null;
     for (const note of this.notes.values()) {
       if (!counts(note.id)) continue;
-      bottom = Math.max(bottom ?? -Infinity, note.y + note.height);
+      const rect = this.placedRects.get(note.id) ?? note;
+      bottom = Math.max(bottom ?? -Infinity, rect.y + rect.height);
     }
     return bottom;
   }
@@ -731,6 +891,7 @@ export class NoteManager {
     this.notes.clear();
     this.unreportedSizeBase.clear();
     this.shownRects.clear();
+    this.placedRects.clear();
     this.unfolded.clear();
     this.editingId = null;
     this.zCounter = 1;
@@ -984,7 +1145,9 @@ export class NoteManager {
   }
 
   private applyStyles(el: HTMLElement, note: WemaNote): void {
-    const rect = this.shownRects.get(note.id) ?? note;
+    const placed = this.placedRects.get(note.id);
+    const rect = this.shownRects.get(note.id) ?? placed ?? note;
+    el.classList.toggle(PLACED_CLASS, placed !== undefined);
     setStyles(el, {
       left: `${rect.x}px`,
       top: `${rect.y}px`,

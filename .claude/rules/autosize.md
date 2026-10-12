@@ -29,5 +29,6 @@ autoSize の付箋の `width` / `height` は、内容と CSS から決まる派�
 - 内容に合うサイズへ 1 回だけ変える操作（`NoteManager.resizeToContent()`、公開メソッドは `resizeNotesToContent()`）は、付箋の要素へ `wema-auto-size` クラスを一時的に付けて計測し、外してから `updateNote({ width, height })` で確定する。大きさを決める規則は CSS の `.wema-note.wema-auto-size` の 1 か所だけにあり、JavaScript 側に同じ規則（最大幅など）を書かない
   - 確定する値は整数に切り上げる（`wholePixels()`）。`offsetWidth` は丸めた値なので、内容より小数ピクセルだけ狭い幅を固定すると、最後の語が折り返す
 - 計測値が 0 のとき（折り畳みで非表示、DOM から外れている）は無視する
+- 付箋がモデルと違う幅で描かれているあいだ（アニメーションの途中、表示だけの縦積み）も、モデルに入れるのはモデルの幅で測った大きさ（`atModelWidth()`。`.claude/rules/stacked.md`）
 - `updateNoteElement` が表示内容を描き直すのは text を変える更新のときだけ。モデルの text とブラウザが正規化した innerHTML は一致しないことがあり、移動のたびに描き直すと画像や埋め込みが再読み込みされる
 - **`prev` と `note` が同値の `note:update` を出さないこと。** 1 文字ごとに履歴が積まれる、または差分が履歴に残らない原因になる（#51）

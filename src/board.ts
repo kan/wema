@@ -21,7 +21,7 @@ import type {
 } from './types.js';
 import { type WemaLabels, resolveLabels } from './labels.js';
 import { EventEmitter } from './events.js';
-import { NoteManager, type NoteRect, type NoteSize } from './note.js';
+import { NoteManager, RECT_KEYS, rectDiffers, rectOf, type NoteRect, type NoteSize } from './note.js';
 import { NoteAnimator, prefersReducedMotion } from './animation.js';
 import { DragManager, DRAG_THRESHOLD } from './drag.js';
 import { SelectionManager } from './selection.js';
@@ -31,7 +31,7 @@ import { ResizeManager } from './resize.js';
 import { EdgeStylePopup } from './edge-popup.js';
 import { NoteStylePopup } from './note-popup.js';
 import { computeAlignment, computeDistribution, computeAutoLayout, computeStackLayout } from './layout.js';
-import type { NoteAlignment, DistributeDirection } from './layout.js';
+import type { NoteAlignment, DistributeDirection, StackLayoutOptions } from './layout.js';
 import { HistoryManager, replayDeltas } from './history.js';
 import type { ReplayCallbacks } from './history.js';
 import { RichTextToolbar } from './rich-text.js';
@@ -61,10 +61,15 @@ const QUOTE_STACK_GAP = 20;
 /** Space under the lowest note in the page scroll mode, in screen pixels */
 const PAGE_SCROLL_MARGIN = 24;
 
-/** The keys of a note that say where it is and how large */
-const RECT_KEYS = ['x', 'y', 'width', 'height'] as const;
+/**
+ * Space between the notes of the data and a note made while they are shown
+ * stacked (`setStacked`), which goes under all of them
+ */
+const STACKED_NEW_NOTE_GAP = 20;
 
-const rectDiffers = (a: NoteRect, b: NoteRect): boolean => RECT_KEYS.some((key) => a[key] !== b[key]);
+/** A copy that shares nothing with what the host holds */
+const copyStack = (stack: StackLayoutOptions): StackLayoutOptions =>
+  (stack.order ? { ...stack, order: [...stack.order] } : { ...stack });
 
 /** Where a box [start, end] starts when it sits in the middle of `size` (one axis) */
 const centerInBoard = (start: number, end: number, size: number): number => (size - (end - start)) / 2;
@@ -88,6 +93,10 @@ export class WemaBoard {
   private pageScroll = false;
   /** True while a move that may be animated updates its notes: the page does not get shorter meanwhile */
   private holdsPageHeight = false;
+  /** How the notes are shown stacked, or null when they are shown where the data has them (see setStacked) */
+  private stack: StackLayoutOptions | null = null;
+  /** Whether the notes are to be stacked again once what changed them is done */
+  private restackPending = false;
   /** The inline URL input for embeds and the note it belongs to, while it is open */
   private embedInput: { el: HTMLElement; noteId: NoteId } | null = null;
   /** Places the overlays again when one of them, or the board, changes size */
@@ -110,6 +119,8 @@ export class WemaBoard {
   private noteFilter: Set<NoteId> | null = null;
   /** Notes currently hidden by a collapsed edge or by the filter */
   private hiddenNoteIds = new Set<NoteId>();
+  /** The edges that may get a collapse button on their note: those the filter shows (see recomputeVisibility) */
+  private buttonEdges: WemaEdge[] = [];
   private onImageUpload?: (file: File) => Promise<string>;
   private changePending = false;
   /** The sizes notes had before they were measured, until `note:measure` reports them */
@@ -212,6 +223,7 @@ export class WemaBoard {
         this.scheduleMeasure(noteId, before);
         this.scheduleChange();
       },
+      onPlacedMeasure: () => this.scheduleRestack(),
       onLinkClick: options.onLinkClick,
       hostRender: options.renderNote,
       labels: this.labels,
@@ -231,13 +243,15 @@ export class WemaBoard {
       emitter: this.emitter,
     });
 
-    const isLocked = () => this.readOnly;
     const isRestricted = () => this.readOnly || this.viewOnly;
+    // Stacked notes are not drawn where the data has them: there is no place
+    // in the data that a drag or a resize of what is drawn would stand for
+    const isFixed = () => this.stack !== null;
 
     this.dragManager = new DragManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
-      getReadOnly: isLocked,
+      getReadOnly: () => this.readOnly || isFixed(),
       getSelection: () => this.selectionManager.getSelection(),
       toBoardPoint: (clientX, clientY) => this.view.clientToBoard(clientX, clientY),
       onDragStart: () => {
@@ -266,21 +280,23 @@ export class WemaBoard {
       getReadOnly: isRestricted,
       toBoardPoint: (clientX, clientY) => this.view.clientToBoard(clientX, clientY),
       onDropOnEmpty: (x, y, fromNoteId) => {
-        const newNote = this.noteManager.addNote({
+        const newNote = this.noteManager.addNote(this.newNotePlace({
           x: x - this.defaultNoteWidth / 2,
           y: y - this.defaultNoteHeight / 2,
-        });
+        }));
         this.edgeManager.addEdge(fromNoteId, newNote.id, {
           fromAnchor: 'auto',
           toAnchor: 'auto',
         });
+        // Stacked, the note is at the end of the column, not where it was dropped
+        if (this.stack) this.revealNotes([newNote.id]);
       },
     });
 
     this.resizeManager = new ResizeManager({
       boardEl: this.boardEl,
       noteManager: this.noteManager,
-      getReadOnly: isRestricted,
+      getReadOnly: () => isRestricted() || isFixed(),
       toBoardPoint: (clientX, clientY) => this.view.clientToBoard(clientX, clientY),
       onResizeStart: () => { this.historyManager.beginBatch(); },
       onResizeEnd: () => { this.historyManager.endBatch(); },
@@ -320,8 +336,7 @@ export class WemaBoard {
         const note = this.noteManager.getNote(noteId);
         if (!note) return;
         const newNote = this.noteManager.addNote({
-          x: note.x + 20,
-          y: note.y + 20,
+          ...this.newNotePlace({ x: note.x + 20, y: note.y + 20 }),
           width: note.width,
           height: note.height,
           text: note.text,
@@ -331,6 +346,8 @@ export class WemaBoard {
         });
         this.selectionManager.select([newNote.id]);
         this.notePopup.show(newNote.id);
+        // Stacked, the copy is at the end of the column, not next to the note
+        if (this.stack) this.revealNotes([newNote.id]);
       },
       onDelete: (noteId) => {
         this.deleteNote(noteId);
@@ -404,6 +421,8 @@ export class WemaBoard {
         this.updatePageHeight();
       }
       this.edgeManager.updateEdgesOf(note.id);
+      // Its place in the column, or the height it takes there, may be another now
+      this.scheduleRestack();
     });
 
     // What viewOnly restores on exit must follow the remote state
@@ -454,7 +473,10 @@ export class WemaBoard {
 
       const createsNote = !this.readOnly && !this.viewOnly && (options.createOnDblClick ?? true);
       if (createsNote) {
-        this.addNote(this.view.clientToBoard(e.clientX, e.clientY));
+        // Stacked, the point of the click is no place in the data: the note
+        // goes to the end of the column
+        const note = this.addNote(this.newNotePlace(this.view.clientToBoard(e.clientX, e.clientY)));
+        if (this.stack) this.revealNotes([note.id]);
         return;
       }
 
@@ -753,6 +775,7 @@ export class WemaBoard {
     }
 
     if (options.pageScroll) this.setPageScroll(true);
+    if (options.stacked) this.setStacked(options.stacked);
   }
 
   /** Clean up all resources */
@@ -778,6 +801,7 @@ export class WemaBoard {
     this.overlayObserver?.disconnect();
     this.noteAnimator.clear();
     this.measuredSizes.clear();
+    this.restackPending = false;
     this.noteManager.destroy();
     this.dragManager.destroy();
     this.anchorDragManager.destroy();
@@ -802,7 +826,22 @@ export class WemaBoard {
     // scroll mode scrolled out of the window)
     const { left, top } = this.pageScroll ? this.boardEl.getBoundingClientRect() : { left: 0, top: 0 };
     const origin = this.view.screenToBoard(Math.max(-left, 0), Math.max(-top, 0));
-    return this.noteManager.addNote({ ...params, x: params?.x ?? origin.x + 100, y: params?.y ?? origin.y + 100 });
+    const place = this.newNotePlace({ x: origin.x + 100, y: origin.y + 100 });
+    return this.noteManager.addNote({ ...params, x: params?.x ?? place.x, y: params?.y ?? place.y });
+  }
+
+  /**
+   * Where a note that the board places itself goes in the data: at `shown`,
+   * a place picked from what is shown, unless the notes are stacked. What is
+   * shown then says nothing about the data, and the note goes under all the
+   * notes of the data: it overlaps none of them where the board is shown as
+   * it is, and it comes last in the column.
+   */
+  private newNotePlace(shown: { x: number; y: number }): { x: number; y: number } {
+    const notes = this.stack ? this.noteManager.getNotes() : [];
+    if (notes.length === 0) return shown;
+    const box = boundingBoxOf(notes);
+    return { x: box.left, y: box.bottom + STACKED_NEW_NOTE_GAP };
   }
 
   /** Update an existing note */
@@ -870,7 +909,7 @@ export class WemaBoard {
     // To the right of the note; in the page scroll mode, where the notes are
     // a column as wide as the screen, in the same column. Either way below
     // whatever is there already.
-    const x = this.pageScroll ? source.x : source.x + source.width + QUOTE_GAP;
+    let x = this.pageScroll ? source.x : source.x + source.width + QUOTE_GAP;
     let y = this.pageScroll ? source.y + source.height + QUOTE_STACK_GAP : source.y;
     const others = this.noteManager.getNotes()
       .filter((n) => !this.hiddenNoteIds.has(n.id) && n.x < x + width && n.x + n.width > x)
@@ -878,6 +917,8 @@ export class WemaBoard {
     for (const other of others) {
       if (other.y < y + height && other.y + other.height > y) y = other.y + other.height + QUOTE_STACK_GAP;
     }
+    // Stacked, the notes are not shown where the data has them: no place next to the note
+    ({ x, y } = this.newNotePlace({ x, y }));
 
     // With an origin, the batch commits what is pending first: the edit that
     // the blur above ended stays an undo step of its own
@@ -1179,7 +1220,10 @@ export class WemaBoard {
   /** Bounding box, in board coordinates, of the shown notes among `noteIds` (default: all) */
   private visibleBounds(noteIds?: NoteId[]): Box | null {
     const ids = noteIds ? new Set(noteIds) : null;
-    const notes = this.noteManager.getNotes()
+    // Where the notes are drawn, which is not where the data has them while
+    // they are stacked (a note made just now is put in the column first)
+    this.flushRestack();
+    const notes = this.noteManager.getPlacedNotes()
       .filter((note) => (!ids || ids.has(note.id)) && !this.hiddenNoteIds.has(note.id));
     return notes.length === 0 ? null : boundingBoxOf(notes);
   }
@@ -1225,6 +1269,81 @@ export class WemaBoard {
     });
     this.updatePageHeight();
     this.placeOverlays();
+  }
+
+  // --- Stacked display ---
+
+  /**
+   * Show the notes stacked in a single column (see `computeStackLayout()`
+   * for the options; `x` and `y` are 0 unless given), or where the data has
+   * them again (null). Only what is drawn changes: the notes of the data
+   * (`getNote()`, `exportData()`, the events, the history) keep their place
+   * and their size. Meant for a narrow screen, on a board whose data is
+   * saved or synced, which `stackNotes()` would change.
+   *
+   * While the notes are stacked:
+   * - the board stacks them again whenever the column changes: a note is
+   *   made, deleted, hidden or shown, its data changes (also by
+   *   `applyRemote()` and `importData()`), or the height it is drawn with
+   *   does (a foldable note is opened, a text is typed)
+   * - a note is as wide as `width` (autoSize notes too) and as tall as it
+   *   is at that width when its height follows its content (autoSize,
+   *   foldable). Other notes keep the height of the data
+   * - notes can not be dragged or resized. Everything else works: selecting,
+   *   editing, making and deleting notes and edges
+   * - a note that the board places itself (a double click, `addNote()`
+   *   without a position, a copy, a quote) goes under all the notes in the
+   *   data, and so to the end of the column
+   * - what moves or resizes notes in the data (`moveNotes()`, `stackNotes()`,
+   *   undo) still does: it shows once the notes are no longer stacked
+   *
+   * `options.duration` animates the notes to the column, or back out of it
+   * (this call only: the board stacks them again at once). Display state
+   * only: no note/edge event, no `change`, nothing in the history. Works in
+   * readOnly and viewOnly.
+   */
+  setStacked(stack: StackLayoutOptions | null, options?: WemaMoveOptions): void {
+    if (!stack && !this.stack) return;
+    this.stack = stack ? copyStack(stack) : null;
+    this.boardEl.classList.toggle('wema-stacked', this.stack !== null);
+    // All the notes go where this call puts them: one that is on its way
+    // from an earlier call starts again from where it is drawn, or stops
+    this.restack(this.noteManager.getNotes().map((n) => n.id), options?.duration);
+  }
+
+  /** How the notes are shown stacked (what `setStacked()` was given), or null when they are not */
+  getStacked(): StackLayoutOptions | null {
+    return this.stack ? copyStack(this.stack) : null;
+  }
+
+  /**
+   * Put the shown notes in the column again, or all of them back where the
+   * data has them. `moved` are the notes this is a move of its own for (see
+   * `animateNotes()`); a note that is on its way and not among them goes on
+   * to where it is placed now.
+   */
+  private restack(moved: NoteId[] = [], duration?: number): void {
+    this.restackPending = false;
+    const stack = this.stack;
+    const ids = stack ? this.noteManager.getNotes().filter((n) => !this.hiddenNoteIds.has(n.id)).map((n) => n.id) : [];
+    let placed: NoteId[] = [];
+    this.animateNotes(moved, duration, () => {
+      placed = this.noteManager.placeNotes(ids, stack?.width, (shown) => computeStackLayout(shown, { x: 0, y: 0, ...stack }));
+      return placed;
+    });
+    // The side an edge leaves a note at follows where the notes are drawn
+    if (placed.length > 0) this.updateNoteCollapseBtns();
+  }
+
+  /** Stack the notes again once what is changing them is done (many notes may change at once) */
+  private scheduleRestack(): void {
+    if (!this.stack || this.restackPending) return;
+    this.restackPending = true;
+    queueMicrotask(() => this.flushRestack());
+  }
+
+  private flushRestack(): void {
+    if (this.restackPending) this.restack();
   }
 
   /** Whether the board is in the page scroll mode */
@@ -1405,40 +1524,44 @@ export class WemaBoard {
   }
 
   /**
-   * Run `change`, which moves or resizes the given notes in the model, and
-   * animate them from where they were drawn to where they are now.
+   * Run `change`, which moves or resizes the given notes in the model or
+   * places them for the display, and animate them from where they were drawn
+   * to where they are now. `change` returns the notes it drew somewhere else
+   * without a note:update (which redraws what follows a note by itself).
    */
-  private animateNotes(noteIds: NoteId[], duration: number | undefined, change: () => void): void {
+  private animateNotes(noteIds: NoteId[], duration: number | undefined, change: () => NoteId[] | void): void {
     const animated = typeof duration === 'number' && duration > 0 && Number.isFinite(duration)
       && !prefersReducedMotion();
     const from = new Map<NoteId, NoteRect>();
     for (const id of noteIds) {
       const shown = this.noteManager.getShownNote(id);
-      if (shown) from.set(id, { x: shown.x, y: shown.y, width: shown.width, height: shown.height });
+      if (shown) from.set(id, rectOf(shown));
     }
 
     // An update of `change` stops the animation of its note, like any update
     // of a place does: it starts again below, from where the note was drawn.
     // Until then no note is on its way, and the page must not get shorter yet.
+    let placed: NoteId[] = [];
     this.holdsPageHeight = true;
     try {
-      change();
+      placed = change() ?? [];
     } finally {
       this.holdsPageHeight = false;
     }
 
     // The notes that are now drawn somewhere else than the updates left them
-    const redrawn: NoteId[] = [];
+    const redrawn = new Set(placed);
     for (const [id, rect] of from) {
-      const note = this.noteManager.getNote(id);
+      // Where the note ends: where it is placed for the display, else in the model
+      const note = this.noteManager.getPlacedNote(id);
       if (animated && note && rectDiffers(rect, note)) {
         this.noteAnimator.start(id, rect, duration);
-        redrawn.push(id);
+        redrawn.add(id);
       } else if (this.noteAnimator.cancel(id)) {
-        redrawn.push(id);
+        redrawn.add(id);
       }
     }
-    if (redrawn.length > 0) this.followShownNotes(redrawn);
+    if (redrawn.size > 0) this.followShownNotes([...redrawn]);
     else this.updatePageHeight();
     this.updateNotePopup();
   }
@@ -1908,8 +2031,12 @@ export class WemaBoard {
     this.edgeManager.applyVisibility(hiddenEdges);
 
     // Update per-note collapse buttons (edges hidden by the filter get none)
-    this.updateNoteCollapseBtns(shownEdges, hiddenNotes);
+    this.buttonEdges = shownEdges;
+    this.updateNoteCollapseBtns();
 
+    // A note that is hidden has no place in the column, one that is shown
+    // again or new gets one
+    this.scheduleRestack();
     this.updatePageHeight();
   }
 
@@ -1933,14 +2060,17 @@ export class WemaBoard {
    * Update per-side collapse/expand buttons on each note.
    * Each side button controls only edges exiting from that side.
    */
-  private updateNoteCollapseBtns(edges: WemaEdge[], hiddenNotes: Set<NoteId>): void {
+  private updateNoteCollapseBtns(): void {
     type Side = 'top' | 'right' | 'bottom' | 'left';
+    const hiddenNotes = this.hiddenNoteIds;
 
     // Group outgoing edges by (from-note, resolved side)
     const outgoingBySide = new Map<NoteId, Map<Side, WemaEdge[]>>();
-    for (const edge of edges) {
-      const fromNote = this.noteManager.getNote(edge.from);
-      const toNote = this.noteManager.getNote(edge.to);
+    for (const edge of this.buttonEdges) {
+      // The side an edge is drawn from: by where the notes are placed for
+      // the display, which is where the model has them unless they are stacked
+      const fromNote = this.noteManager.getPlacedNote(edge.from);
+      const toNote = this.noteManager.getPlacedNote(edge.to);
       if (!fromNote || !toNote) continue;
 
       const side: Side = edge.fromAnchor === 'auto'
@@ -1990,7 +2120,7 @@ export class WemaBoard {
 
         if (allCollapsed) {
           // Badge mode: show hidden subtree count for this side's edges
-          const count = this.countSubtreeFromEdges(sideEdges, edges);
+          const count = this.countSubtreeFromEdges(sideEdges, this.buttonEdges);
           btn.className = 'wema-note-collapse-btn wema-note-collapse-badge';
           btn.dataset.side = side;
           btn.textContent = String(count);

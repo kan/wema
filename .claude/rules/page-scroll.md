@@ -7,7 +7,7 @@ paths:
 
 # ページと一緒にスクロールするモード（`pageScroll`）
 
-`pageScroll` オプションと `setPageScroll()` で入るモード（issue #63）。ボードは自分の表示領域を持たず、付箋の高さまで伸びて、ページの一部として流れる。狭い画面で、付箋を縦に積んで（`stackNotes()`）ページのように読ませるために使う。
+`pageScroll` オプションと `setPageScroll()` で入るモード（issue #63）。ボードは自分の表示領域を持たず、付箋の高さまで伸びて、ページの一部として流れる。狭い画面で、付箋を縦に積んで（データを変えない `setStacked()` か、データごと積む `stackNotes()`）ページのように読ませるために使う。
 
 ## 状態
 
@@ -43,7 +43,8 @@ paths:
 ## 利用側の前提
 
 - コンテナの高さを固定しないこと。ボードは `overflow: visible` で、コンテナからはみ出して伸びる
-- 付箋の並べ直しは行わない。積むのは `stackNotes()`
+- 付箋の並べ直しは行わない。積むのは `setStacked()`（`.claude/rules/stacked.md`）か `stackNotes()`
+- ボードの高さは、描いている位置から決める（`lowestBottom()` は、`setStacked()` で置いた位置があればそれを読む）
 
 ## テスト
 

@@ -100,7 +100,8 @@ export class AnchorDragManager {
   private onPointerMove(e: PointerEvent): void {
     if (!this.dragging || !this.fromNoteId || !this.fromAnchor || !this.tempPath) return;
 
-    const fromNote = this.noteManager.getNote(this.fromNoteId);
+    // Where the note is drawn: the line starts at the anchor that was pressed
+    const fromNote = this.noteManager.getShownNote(this.fromNoteId);
     if (!fromNote) return;
 
     const point = this.toBoardPoint(e.clientX, e.clientY);

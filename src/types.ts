@@ -249,6 +249,12 @@ export interface WemaBoardOptions {
    * `setPageScroll()`, which also says what the mode changes.
    */
   pageScroll?: boolean;
+  /**
+   * Show the notes stacked in a single column from the start, without
+   * changing their data. Switch at runtime with `setStacked()`, which also
+   * says what it changes.
+   */
+  stacked?: StackLayoutOptions;
   /** Smallest zoom (default: 0.25) */
   minZoom?: number;
   /** Largest zoom (default: 2) */
