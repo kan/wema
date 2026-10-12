@@ -121,6 +121,11 @@ export class WemaBoard {
   private hiddenNoteIds = new Set<NoteId>();
   /** The edges that may get a collapse button on their note: those the filter shows (see recomputeVisibility) */
   private buttonEdges: WemaEdge[] = [];
+  /**
+   * While the notes are stacked: the side each edge last left its note from
+   * with both its notes in the column (see updateNoteCollapseBtns)
+   */
+  private stackedSides = new Map<EdgeId, 'top' | 'right' | 'bottom' | 'left'>();
   private onImageUpload?: (file: File) => Promise<string>;
   private changePending = false;
   /** The sizes notes had before they were measured, until `note:measure` reports them */
@@ -417,7 +422,9 @@ export class WemaBoard {
       if (rectDiffers(note, prev)) {
         // Moved or resized (a drag, undo, a remote change): the note is where
         // that put it, at once. A move that animates starts again from there.
-        this.noteAnimator.cancel(note.id);
+        // Not while the notes are stacked: where the model has a note is not
+        // where it is drawn then, and one on its way into the column goes on.
+        if (!this.stack) this.noteAnimator.cancel(note.id);
         this.updatePageHeight();
       }
       this.edgeManager.updateEdgesOf(note.id);
@@ -1305,6 +1312,7 @@ export class WemaBoard {
   setStacked(stack: StackLayoutOptions | null, options?: WemaMoveOptions): void {
     if (!stack && !this.stack) return;
     this.stack = stack ? copyStack(stack) : null;
+    this.stackedSides.clear(); // another column, or none: the sides are read again
     this.boardEl.classList.toggle('wema-stacked', this.stack !== null);
     // All the notes go where this call puts them: one that is on its way
     // from an earlier call starts again from where it is drawn, or stops
@@ -1488,7 +1496,7 @@ export class WemaBoard {
     const { noteIds, duration, ...layout } = options;
     const ids = (noteIds ?? this.noteManager.getNotes().map((n) => n.id))
       .filter((id) => !this.hiddenNoteIds.has(id));
-    this.animateNotes(ids, duration, () => {
+    this.animateNotes(this.movedOnScreen(ids), duration, () => {
       // The widths first: they decide the heights the notes are stacked by
       if (layout.width !== undefined) {
         this.setNoteRects(ids.map((id) => ({ id, width: layout.width })));
@@ -1502,7 +1510,20 @@ export class WemaBoard {
   }
 
   private applyMoves(moves: WemaNoteMove[], options?: WemaMoveOptions): void {
-    this.animateNotes(moves.map((m) => m.id), options?.duration, () => this.setNoteRects(moves));
+    this.animateNotes(this.movedOnScreen(moves.map((m) => m.id)), options?.duration, () => this.setNoteRects(moves));
+  }
+
+  /**
+   * The notes among `noteIds` that a move of their data is a move on screen
+   * for: all of them, and none while the notes are stacked. Stacked, where
+   * the data has a note is not where it is drawn, and one that is on its way
+   * into the column must neither stop nor start again for it. What the move
+   * changes in the column (a width the column leaves to the notes, a height,
+   * the order) shows when the column is laid out again, which follows the
+   * note:update, at once: the `duration` of the move is not used.
+   */
+  private movedOnScreen(noteIds: NoteId[]): NoteId[] {
+    return this.stack ? [] : noteIds;
   }
 
   /** Put notes where the moves say, at once. A note that is there already is not updated. */
@@ -2073,9 +2094,22 @@ export class WemaBoard {
       const toNote = this.noteManager.getPlacedNote(edge.to);
       if (!fromNote || !toNote) continue;
 
-      const side: Side = edge.fromAnchor === 'auto'
-        ? resolveAutoAnchor(fromNote, toNote)
-        : edge.fromAnchor;
+      // Stacked, a note that is hidden has no place in the column, and where
+      // the model has it says nothing about the side. The edge keeps the
+      // side it had when both its notes were in the column, which is where
+      // its button was before the note was hidden (downwards, as the edges
+      // of a column mostly go, for one that was never seen there).
+      let side: Side;
+      if (edge.fromAnchor !== 'auto') {
+        side = edge.fromAnchor;
+      } else if (this.stack === null) {
+        side = resolveAutoAnchor(fromNote, toNote);
+      } else if (this.noteManager.isPlaced(edge.from) && this.noteManager.isPlaced(edge.to)) {
+        side = resolveAutoAnchor(fromNote, toNote);
+        this.stackedSides.set(edge.id, side);
+      } else {
+        side = this.stackedSides.get(edge.id) ?? 'bottom';
+      }
 
       let noteMap = outgoingBySide.get(edge.from);
       if (!noteMap) { noteMap = new Map(); outgoingBySide.set(edge.from, noteMap); }

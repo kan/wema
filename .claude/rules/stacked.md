@@ -38,8 +38,9 @@ paths:
 ## 幅と計測
 
 - 置いた付箋の要素には `wema-note-placed` クラスが付く（`applyStyles()`）。`autoSize` の付箋は、CSS の `width: max-content !important` が外れ、インラインの幅になる（`style.css` の `.wema-note.wema-auto-size:not(.wema-note-placed)`）
-- **モデルの `width` / `height` は、モデルの幅で測った値のまま保つ。** `atModelWidth()` が、クラスを外して幅をモデルの値へ差し替えてから測り、戻す。`applyMeasuredSize()` と `resizeToContent()` はここを通る。計測の経路を足すときも通す
-  - 戻したあとに `applyFold()` を呼び直す。`foldable` の「長い」の判定は幅で変わるので、表示の状態（`wema-fold-long` / `wema-folded`）を、描いている幅のものにするため
+- **モデルの `width` / `height` は、モデルの幅で測った値のまま保つ。** `atModelWidth()` が、クラスを外して幅をモデルの値へ差し替えてから測り、戻す。`applyMeasuredSize()`、`resizeToContent()`、`openHeight()`（`foldable` を OFF にするときの高さ）はここを通る。計測の経路を足すときも通す。通さないと、列の幅での高さがモデルに入り、`note:update` と履歴に載る
+  - `atModelWidth()` は、幅を戻したあとに `applyFold()` を呼び直す。`foldable` の「長い」の判定は幅で変わるので、表示の状態（`wema-fold-long` / `wema-folded`）を、描いている幅のものにするため
+- **要素の大きさを読むのは、スタイルシートが大きさを決める付箋だけ**（`isSizedByContent()`。`applyMeasuredSize()`、`readMeasuredSize()`、`getShownNote()`、`heightAtWidth()` が見る）。利用側が描いた `foldable` の付箋は、要素にインラインの高さがそのまま出る。置いているあいだ、その値は置いたときの高さなので、モデルへ読み戻すと `updateNote({ height })` や `applyRemote()` の高さを取り消す。`isMeasured()`（`foldable` というフラグだけを見る）に戻さないこと。`openHeight()` も、利用側が描いた付箋では測らない
 - 列の計算に使う高さは、`placeNotes()` が「幅を当てる → 高さを読む → 位置を決める」の順で読む（`stackNotes()` と同じ 2 段）。高さを計測する付箋は要素から読み、それ以外はモデルの `height` を使う
 
 ## 積み直すきっかけ
@@ -61,6 +62,10 @@ paths:
 - 動いている途中の付箋（`shownRects` がある）の高さは、置く幅に差し替えて読む（`heightAtWidth()`）。途中の幅で読むと、その高さで列が決まり、動き終わっても直らない
 - `placeNotes()` は、列から外した付箋を、位置が変わらなくても描き直す（`released`）。描き直さないと `wema-note-placed` クラスが残り、`autoSize` の付箋が自分の幅に戻らない
 - 接続線の折り畳みボタンの辺（`updateNoteCollapseBtns()`）は、`getPlacedNote()` から決める。積み直しで付箋が動いたら、`restack()` が呼び直す
+  - 積んでいる間、接続線の片方が列に置かれていない（折り畳みで非表示）ときは、両方が列にあったときの辺をそのまま使う（`stackedSides` が覚える。`isPlaced()` で見分ける）。一度も列に並んだことのない接続線は `bottom` にする。置かれていない付箋は `getPlacedNote()` がモデルの位置を返すので、列の位置と混ぜて辺を決めると、折り畳んだ瞬間にバッジが別の辺へ移る
+- **積んでいる間は、モデルの位置や大きさが変わっても、アニメーションをやめない。** モデルの位置は画面に出ていないので、やめると、他のクライアントのドラッグが届くたびに、列へ移動中の付箋が終点へ跳ぶ。止めている場所は 2 つ
+  - `note:update` のリスナー（`this.stack` があれば `cancel()` しない）
+  - データを動かすメソッド（`applyMoves()` と `stackNotes()`）。`movedOnScreen()` を通して、`animateNotes()` に渡す ID を空にする。データを動かすメソッドを足すときも、ここを通す。積んでいる間、これらのメソッドの `duration` は使われない（データの変更で列が変わる分は、続く積み直しで、すぐに反映する）
 
 ## 操作
 

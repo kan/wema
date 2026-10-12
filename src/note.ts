@@ -243,7 +243,7 @@ export class NoteManager {
       // A note made foldable starts closed. One that no longer is keeps the
       // height it has when open: its height is its own again from here on.
       this.unfolded.delete(id);
-      if (!note.foldable && !('height' in params)) note.height = this.openHeight(id) ?? note.height;
+      if (!note.foldable && !('height' in params)) note.height = this.openHeight(note) ?? note.height;
     }
     this.updateNoteElement(note, 'text' in params);
     // What the host draws depends on the text and the meta, not on the position
@@ -427,11 +427,21 @@ export class NoteManager {
    * that opens and closes it, or undefined when the note is not laid out.
    * Leaves the note shown open: the caller applies its state again.
    */
-  private openHeight(id: NoteId): number | undefined {
-    const el = this.elements.get(id);
-    if (!el) return undefined;
-    el.classList.remove(FOLDED_CLASS, FOLD_LONG_CLASS);
-    return el.offsetHeight || undefined;
+  private openHeight(note: WemaNote): number | undefined {
+    const el = this.elements.get(note.id);
+    // A note the host draws was not folded: the height it has is its own
+    // already (and its element may show another, see `readMeasuredSize`)
+    if (!el || this.isHostDrawn(note.id)) return undefined;
+    // The width this update gives the note is not on its element yet (unless
+    // the note is drawn somewhere else than the model has it, which
+    // `atModelWidth` sees to)
+    if (!this.shownRects.has(note.id) && !this.placedRects.has(note.id)) el.style.width = `${note.width}px`;
+    // A height for the model: the one the text has at the width of the model,
+    // not at the width the note is placed with for the display
+    return this.atModelWidth(note, el, () => {
+      el.classList.remove(FOLDED_CLASS, FOLD_LONG_CLASS);
+      return el.offsetHeight || undefined;
+    });
   }
 
   /**
@@ -444,7 +454,7 @@ export class NoteManager {
     if (!el) return false;
     // Nothing to measure and nothing to fold (this runs for every key typed
     // in any note): the note is not laid out again for it
-    if (!isMeasured(note) && !el.classList.contains(FOLD_LONG_CLASS)) return false;
+    if (!this.isSizedByContent(note) && !el.classList.contains(FOLD_LONG_CLASS)) return false;
     return this.atModelWidth(note, el, () => this.readMeasuredSize(note, el));
   }
 
@@ -473,7 +483,11 @@ export class NoteManager {
 
   private readMeasuredSize(note: WemaNote, el: HTMLElement): boolean {
     this.applyFold(note, el);
-    if (!isMeasured(note)) return false;
+    // A foldable note the host draws is not sized by the style sheet: its
+    // element has the height it is given, which is not always the one of the
+    // model (a note placed for the display, or on its way, has another), and
+    // reading it back would undo a height the model was just given
+    if (!this.isSizedByContent(note)) return false;
     // Only an autoSize note has a measured width: a foldable one keeps its own
     const width = note.autoSize ? el.offsetWidth : note.width;
     const height = el.offsetHeight;
@@ -693,6 +707,11 @@ export class NoteManager {
     return { ...note, ...this.placedRects.get(id) };
   }
 
+  /** Whether the note is placed for the display (`placeNotes`), and not drawn where the model has it */
+  isPlaced(id: NoteId): boolean {
+    return this.placedRects.has(id);
+  }
+
   /** All the notes where they are drawn when nothing moves (see `getPlacedNote`) */
   getPlacedNotes(): WemaNote[] {
     return Array.from(this.notes.values(), (note) => ({ ...note, ...this.placedRects.get(note.id) }));
@@ -711,7 +730,7 @@ export class NoteManager {
     const rect = { ...shown };
     // The style sheet sizes a measured note: its size on the way is the one
     // it is laid out with (0 when it is not laid out: keep the given one)
-    const el = isMeasured(note) ? this.elements.get(id) : undefined;
+    const el = this.isSizedByContent(note) ? this.elements.get(id) : undefined;
     if (el) {
       if (note.autoSize) rect.width = el.offsetWidth || rect.width;
       rect.height = el.offsetHeight || rect.height;

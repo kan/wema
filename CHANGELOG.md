@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+表示だけの縦積み（`setStacked()`）で、列の位置や大きさがデータへ入る不具合と、表示が乱れる不具合を直した。
+
+- **積んでいる間に付箋の `foldable` を OFF にすると、列の幅での高さがデータに入っていた。** データの幅が 420px の付箋を幅 351px の列で表示して OFF にすると、351px で折り返したときの高さが保存された。列を抜けても、同期先でも、その高さのまま残った。データの幅で測った高さを入れるようにした
+- **積んでいる間、利用側が描いた（`renderNote`）`foldable` の付箋は、高さの更新が取り消されていた。** `updateNote({ height })` で渡した高さと、`applyRemote()` で届いた高さが、列に置いたときの高さへ書き戻された。同期している利用側では、クライアントの間でデータが食い違った。高さを内容から決めない付箋は、要素の高さを読み戻さないようにした（`foldable` を OFF にするときも同じ）
+- **列へ移動している途中の付箋が、データの位置の変更で終点へ跳んでいた。** `setStacked(stack, { duration })` のアニメーション中に、他のクライアントのドラッグが `applyRemote()` で届く、または `moveNotes()` を呼ぶと、その付箋だけが移動を打ち切った。積んでいる間のデータの位置は画面に出ていないので、移動を続けるようにした
+- **積んでいる間に接続線を折り畳むと、折り畳みのバッジが別の辺へ移っていた。** 下辺のボタンが、折り畳んだ瞬間に右辺などへ出た。隠れた付箋は列に入らないので、辺をデータ上の位置から決めていた。折り畳む前と同じ辺へ出す
+
+縦積みに限らない不具合も 1 件直した。
+
+- **`updateNote(id, { foldable: false, width })` のように、`foldable` の OFF と幅の変更を同時に行うと、変更前の幅で測った高さが入っていた。** 幅を狭めたときは、本文が収まらない高さのまま固定の付箋になった。新しい幅で測るようにした
+
 ## [0.13.0] - 2026-10-12
 
 ### Added

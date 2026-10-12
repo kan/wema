@@ -517,5 +517,142 @@ describe('Stacked display', () => {
       board.setStacked(null);
       expect(shownSide()).toEqual(['right']);
     });
+
+    it('keeps the badge of a collapsed edge on the side its button was on', async () => {
+      create();
+      const a = board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      const b = board.addNote({ x: 600, y: 0, width: 200, height: 100 });
+      const edge = board.addEdge(a.id, b.id);
+      const shownSides = () => ['top', 'right', 'bottom', 'left'].filter((side) =>
+        (noteEl(a.id).querySelector(`.wema-note-collapse-btn[data-side="${side}"]`) as HTMLElement).style.display !== 'none');
+      board.setStacked({ x: 10, y: 10, width: 300, gap: 50 });
+      await flush();
+      expect(shownSides()).toEqual(['bottom']);
+
+      // Hidden, b is no longer in the column: where the data has it (to the
+      // right of a) must not move the badge to another side
+      board.updateEdge(edge.id, { collapsed: true });
+      await flush();
+      expect(shownSides()).toEqual(['bottom']);
+    });
+  });
+
+  describe('what the data must not take from the column', () => {
+    it('keeps the height of the width of the data when a note stops being foldable', async () => {
+      create();
+      const note = board.addNote({ x: 0, y: 0, width: 420, height: 150, text: 'text' });
+      // 60px tall from 400px wide, 100px below
+      setLayout(note.id, (width) => (width >= 400 ? 60 : 100));
+      board.updateNote(note.id, { foldable: true });
+      expect(board.getNote(note.id)!.height).toBe(60);
+      board.setStacked({ x: 0, y: 0, width: 351 });
+      await flush();
+
+      board.updateNote(note.id, { foldable: false });
+
+      // Not the 100px it is drawn with in the column
+      expect(board.getNote(note.id)).toMatchObject({ width: 420, height: 60 });
+    });
+
+    it('takes the height a foldable note the host draws is given', async () => {
+      create({ renderNote: (_note, el) => { el.textContent = 'drawn'; return true; } });
+      const note = board.addNote({ x: 0, y: 0, width: 420, height: 150, foldable: true });
+      // The style sheet leaves the height of such a note to its inline style
+      const el = noteEl(note.id);
+      Object.defineProperty(el, 'offsetWidth', { get: () => parseFloat(el.style.width), configurable: true });
+      Object.defineProperty(el, 'offsetHeight', { get: () => parseFloat(el.style.height), configurable: true });
+      board.setStacked({ x: 0, y: 0, width: 351 });
+      await flush();
+      const updates = record('note:update');
+
+      board.updateNote(note.id, { height: 300 });
+      await flush();
+      expect(board.getNote(note.id)!.height).toBe(300);
+      expect(updates.map((u) => [u.prev.height, u.note.height])).toEqual([[150, 300]]);
+
+      board.applyRemote([{ type: 'note:update', noteId: note.id, before: { height: 300 }, after: { height: 220 } }]);
+      await flush();
+      expect(board.getNote(note.id)!.height).toBe(220);
+      // The column follows
+      expect(parseFloat(el.style.height)).toBe(220);
+    });
+  });
+
+  describe('a note on its way into the column', () => {
+    it('goes on when its data moves', async () => {
+      create();
+      board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      const b = board.addNote({ x: 600, y: 300, width: 200, height: 100 });
+      board.setStacked({ x: 0, y: 0, gap: 10 }, { duration: 300 });
+      vi.advanceTimersByTime(100);
+      const onTheWay = drawn(b.id)[0];
+      expect(onTheWay).toBeGreaterThan(0);
+
+      // Another client drags the note, and a method moves it: its place in
+      // the column stays, so it must not jump to the end of its way
+      board.applyRemote([{ type: 'note:update', noteId: b.id, before: { x: 600 }, after: { x: 640 } }]);
+      expect(drawn(b.id)[0]).toBe(onTheWay);
+      board.moveNotes([{ id: b.id, y: 320 }]);
+      expect(drawn(b.id)[0]).toBe(onTheWay);
+      // With a duration, and through stackNotes(): it does not start again either
+      board.moveNotes([{ id: b.id, y: 330 }], { duration: 300 });
+      board.stackNotes({ noteIds: [b.id], x: 650, y: 340, duration: 300 });
+      expect(drawn(b.id)[0]).toBe(onTheWay);
+      await flush();
+      expect(drawn(b.id)[0]).toBe(onTheWay);
+
+      // There at the time it set out for (300ms after the start), not later
+      vi.advanceTimersByTime(210);
+      expect(drawn(b.id)).toEqual([0, 110, 200]);
+      expect(board.getNote(b.id)).toMatchObject({ x: 650, y: 340 });
+    });
+  });
+
+  describe('a note that stops being foldable', () => {
+    it('is measured at the width the same update gives it', () => {
+      create();
+      const note = board.addNote({ x: 0, y: 0, width: 420, height: 150, text: 'text' });
+      setLayout(note.id, (width) => (width >= 400 ? 60 : 100));
+      board.updateNote(note.id, { foldable: true });
+
+      board.updateNote(note.id, { foldable: false, width: 200 });
+
+      expect(board.getNote(note.id)).toMatchObject({ width: 200, height: 100 });
+    });
+
+    it('keeps the height it is given when the host draws it', async () => {
+      create({ renderNote: (_note, el) => { el.textContent = 'drawn'; return true; } });
+      const note = board.addNote({ x: 0, y: 0, width: 420, height: 150, foldable: true });
+      const el = noteEl(note.id);
+      Object.defineProperty(el, 'offsetWidth', { get: () => parseFloat(el.style.width), configurable: true });
+      Object.defineProperty(el, 'offsetHeight', { get: () => parseFloat(el.style.height), configurable: true });
+      board.setStacked({ x: 0, y: 0, width: 351 });
+      await flush();
+
+      // Both before the column is laid out again: the element still has the old height
+      board.updateNote(note.id, { height: 300 });
+      board.updateNote(note.id, { foldable: false });
+
+      expect(board.getNote(note.id)!.height).toBe(300);
+    });
+  });
+
+  describe('the collapse button of an edge that goes up the column', () => {
+    it('stays on its side when the edge is collapsed', async () => {
+      create();
+      const a = board.addNote({ x: 0, y: 0, width: 200, height: 100 });
+      const b = board.addNote({ x: 600, y: 300, width: 200, height: 100 });
+      // From the lower note to the upper one
+      const edge = board.addEdge(b.id, a.id);
+      const shownSides = () => ['top', 'right', 'bottom', 'left'].filter((side) =>
+        (noteEl(b.id).querySelector(`.wema-note-collapse-btn[data-side="${side}"]`) as HTMLElement).style.display !== 'none');
+      board.setStacked({ x: 10, y: 10, width: 300, gap: 50 });
+      await flush();
+      expect(shownSides()).toEqual(['top']);
+
+      board.updateEdge(edge.id, { collapsed: true });
+      await flush();
+      expect(shownSides()).toEqual(['top']);
+    });
   });
 });
