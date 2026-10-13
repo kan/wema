@@ -85,6 +85,7 @@ const board = new WemaBoard({
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 縦に積んでいる間、付箋の下に利用側の要素を描く
+  noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void },  // default: false（縦に積んでいる間、つながっている付箋を付箋の下に出す）
   labels?: Partial<WemaLabels>,  // 画面の文言（ボタンの説明、接続線のポップアップの見出しなど）。省略したキーは英語
   foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言。labels の readMore / showLess と同じもの
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
@@ -160,7 +161,7 @@ const board = new WemaBoard({
 | `deleteNote(id)` | 付箋を削除 |
 | `getNote(id)` | IDで取得 |
 | `getNotes()` | 全付箋を取得 |
-| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteFooter` オプションで付箋の下に描いた要素を描き直す |
+| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteFooter` オプションで付箋の下に描いた要素を描き直す。`noteLinks` オプションでは、その付箋と、つながっている付箋のボタンを描き直す |
 | `resizeNotesToContent(noteIds)` | 付箋をコンテンツに合うサイズへ 1 回だけ変更する（`autoSize` は変えない） |
 
 #### 長い本文を畳む（`foldable`）
@@ -434,9 +435,64 @@ window.addEventListener('resize', layout);
 | ドラッグとリサイズ | できる | できない |
 | 向いている場面 | 保存しないページ、配置そのものを縦 1 列にしたいとき | 保存や同期をしているボードを、狭い画面で読ませるとき |
 
+##### つながっている付箋を、付箋の下に出す（`noteLinks`）
+
+積んでいる間は接続線が出ない。`noteLinks` を指定すると、接続線の代わりに、つながっている相手を付箋の下に並べる。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  data,
+  labels: jaLabels,
+  stacked: { x: 12, y: 12, width: window.innerWidth - 24 },
+  noteLinks: true,
+});
+```
+
+- 接続線 1 本につき、ボタンを 1 つ出す。中身は、向きの記号、接続線のラベル、相手の付箋の本文の冒頭（文字のある最初の行）
+  - 記号は、その付箋から見た向き。`→` は相手へ向かう矢印、`←` は相手から来る矢印、`↔` は両端の矢印、`―` は矢印のない線
+  - 並び順は、`→`、`←`、`↔`、`―` の順。同じ向きの中では、接続線の順
+- ボタンを押すと、相手の付箋が見える位置へ動かし（`revealNotes()`）、相手を少しの間だけ枠で強調する
+- 相手が非表示（絞り込み、接続線の折り畳み）のボタンは、押せない
+- **描き直しは wema が行う。** 接続線の作成、変更、削除、相手の付箋の本文と `meta` の変更、相手の表示と非表示の変化が対象
+- 表示するのは、`setStacked()` で積んでいる間だけ。付箋のデータは変わらず、イベントと履歴は出ない（下の `renderNoteFooter` と同じ）
+- 既定は OFF
+
+相手の表示名は、`text` で差し替えられる。文字列を返すと、本文の冒頭の代わりに使う。それ以外を返した付箋は、本文の冒頭のままにする。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  noteLinks: {
+    // ページを指す付箋は、ページの表示名で出す
+    text: (peer) => (peer.meta?.page ? pages.get(peer.meta.page)?.title : undefined),
+  },
+});
+
+// 表示名の元（ページの表示名）が変わったら、その付箋を知らせる。
+// その付箋を出している付箋（つながっている相手）のボタンを、wema が描き直す
+board.refreshNote(noteId);
+```
+
+- `text` の戻り値と相手の本文は、文字として入れる（HTML として解釈しない）
+- `text` が空の文字列を返したとき、または例外を投げたときは、本文の冒頭のままにする（例外はコンソールに出す）
+- 本文の冒頭には、付箋に表示されない文字を使わない（`video` / `audio` / `iframe` の代替の文字、`display: none` の要素）
+- 描き直しの間も、キーボードのフォーカスは同じ接続線のボタンに残る
+- 見た目は CSS で変える。クラスは次のとおり
+
+  | クラス | 対象 |
+  |---|---|
+  | `.wema-note-links` | 1 枚の付箋のボタンの並び |
+  | `.wema-note-link` | ボタン 1 つ |
+  | `.wema-note-link-arrow` / `-label` / `-text` | ボタンの中の、向きの記号、接続線のラベル、相手の表示名 |
+  | `.wema-note-link-target` | 押されたボタンの相手の付箋（強調している間だけ付く） |
+
+- 読み上げ用の説明（`aria-label`）と、本文のない付箋の表示は、`labels` の `linkOut` / `linkIn` / `linkBoth` / `linkNone` / `linkLabeled` / `linkEmpty` で変える。日本語は `jaLabels` に入っている
+- ボタンの構造ごと変えたいときは、下の `renderNoteFooter` を使う。両方を渡したときは `renderNoteFooter` が描き、`noteLinks` は何もしない
+
 ##### 付箋の下に利用側の要素を描く（`renderNoteFooter`）
 
-積んでいる間は接続線が出ない。付箋のつながりは、`renderNoteFooter` で付箋の下に描ける。`container` に DOM を作って `true` を返すと、付箋の枠のすぐ下に表示する。それ以外を返した付箋の下には、何も置かない。
+`noteLinks` のボタンでは足りないときは、`renderNoteFooter` で、付箋の下に利用側の DOM を描ける。`container` に DOM を作って `true` を返すと、付箋の枠のすぐ下に表示する。それ以外を返した付箋の下には、何も置かない。
 
 ```typescript
 const board = new WemaBoard({
@@ -486,6 +542,7 @@ board.on('note:visibility', ({ hidden, shown }) => {
 - 呼び出すのは、積み始めたとき（全部の付箋）と、積んでいる間に、付箋を作ったとき、付箋の `text` または `meta` が変わったとき、`refreshNote(id)` を呼んだとき
 - **呼び出しは、きっかけになった処理が終わってから、まとめて行う**（ブラウザが描く前）。同じ付箋は、何度頼んでも 1 回だけ呼ぶ。関数の中から、その付箋の接続線（`getEdgesOf()`）や相手の付箋（`getNote()` / `isNoteHidden()`）を調べられる。生成時の `data` と `stacked` で積んだ付箋も同じで、関数の中で `new WemaBoard()` の戻り値を使える。`importData()` と `applyRemote()` では、接続線を読み込んだあとに呼ぶ。例外は、付箋の画面上の位置を読むメソッド（`revealNotes()` / `centerContent()` / `fitToContent()`）で、呼んだ時点で、頼まれている分を先に描く
 - `container` は、付箋と同じ幅。呼び出すたびに、空にしてから渡す
+  - 中のボタンにフォーカスがある間に描き直すと、ボタンごと作り直すので、フォーカスが外れる。ボタンに `data-wema-focus-key` 属性（そのボタンが何を指すかを表す文字列）を付けておくと、描き直したあと、同じ値のボタンへフォーカスを戻す
 - `container` の中のクリックやタップは、付箋の選択、編集の開始、ボードの操作にならない。中のボタンにフォーカスがあるときのキー入力も、ボードのショートカット（Delete、Undo / Redo）にならない
 - 付箋を選択したときのポップアップは、この要素の下に出す
 - `renderNote` で利用側が描いた付箋の下にも描ける。readOnly / viewOnly でも呼び出す

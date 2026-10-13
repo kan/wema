@@ -6,6 +6,7 @@ import type {
   WemaEdge,
   WemaBoardData,
   WemaBoardOptions,
+  WemaNoteLinksOptions,
   WemaBatchOptions,
   WemaNoteMove,
   WemaMoveOptions,
@@ -26,6 +27,8 @@ import { NoteAnimator, prefersReducedMotion } from './animation.js';
 import { DragManager, DRAG_THRESHOLD } from './drag.js';
 import { SelectionManager } from './selection.js';
 import { EdgeManager } from './edge.js';
+import { computeNoteLinks, drawNoteLinks, peerOf, type FirstLines, type NoteLinkHost } from './note-links.js';
+import { sameFieldValue } from './utils/meta.js';
 import { AnchorDragManager } from './anchor-drag.js';
 import { ResizeManager } from './resize.js';
 import { EdgeStylePopup } from './edge-popup.js';
@@ -119,6 +122,10 @@ export class WemaBoard {
   private noteFilter: Set<NoteId> | null = null;
   /** Notes currently hidden by a collapsed edge or by the filter */
   private hiddenNoteIds = new Set<NoteId>();
+  /** With the `noteLinks` option: draw the links again under the notes connected to the given ones, which show them */
+  private redrawNoteLinkPeers: ((ids: NoteId[]) => void) | null = null;
+  /** With the `noteLinks` option: the first line of each note that a link shows, as read so far */
+  private noteLinkLines: FirstLines = new Map();
   /** The hidden notes as `note:visibility` last reported them */
   private reportedHidden = new Set<NoteId>();
   private visibilityPending = false;
@@ -212,6 +219,32 @@ export class WemaBoard {
     // Mount to container
     this.container.appendChild(this.boardEl);
 
+    // The links to the connected notes under a stacked note (`noteLinks`
+    // option), unless the host draws there itself (`renderNoteFooter`)
+    let noteLinks: WemaNoteLinksOptions | null = null;
+    if (options.noteLinks && !options.renderNoteFooter) noteLinks = options.noteLinks === true ? {} : options.noteLinks;
+    let drawLinks: ((note: WemaNote, container: HTMLElement) => boolean) | undefined;
+    if (noteLinks) {
+      const textOf = noteLinks.text;
+      const linkHost: NoteLinkHost = {
+        labels: this.labels,
+        isHidden: (id) => this.hiddenNoteIds.has(id),
+        reveal: (id) => this.revealNotes([id]),
+        getElement: (id) => this.noteManager.getElement(id),
+      };
+      drawLinks = (note, container) => drawNoteLinks(
+        container,
+        computeNoteLinks(
+          note.id,
+          this.edgeManager.getEdgesOf(note.id),
+          (id) => this.noteManager.getNote(id),
+          textOf,
+          this.noteLinkLines,
+        ),
+        linkHost,
+      );
+    }
+
     // Initialize managers
     this.noteManager = new NoteManager({
       boardEl: this.boardEl,
@@ -234,7 +267,8 @@ export class WemaBoard {
       onPlacedMeasure: () => this.scheduleRestack(),
       onLinkClick: options.onLinkClick,
       hostRender: options.renderNote,
-      hostFooter: options.renderNoteFooter,
+      // The links the board draws under a note itself, else what the host draws there
+      hostFooter: drawLinks ?? options.renderNoteFooter,
       onFooterChange: () => this.scheduleRestack(),
       labels: this.labels,
     });
@@ -455,6 +489,29 @@ export class WemaBoard {
         this.collapsedEdgeSnapshot?.set(edge.id, !!edge.collapsed);
       }
     });
+
+    // The links under a note show its edges and the notes at their other
+    // ends: drawn again when one of those changes. Nothing is asked for
+    // while the notes are not stacked (`requestFooter`).
+    if (noteLinks) {
+      const redraw = (ids: NoteId[]): void => ids.forEach((id) => this.noteManager.requestFooter(id));
+      const redrawPeers = (ids: NoteId[]): void => {
+        // Not stacked, no links are shown: their notes are not even looked up
+        if (!this.stack) return;
+        for (const id of ids) redraw(this.edgeManager.getEdgesOf(id).map((edge) => peerOf(edge, id)));
+      };
+      this.redrawNoteLinkPeers = redrawPeers;
+      const redrawEnds = ({ edge }: { edge: WemaEdge }): void => redraw([edge.from, edge.to]);
+      this.emitter.on('edge:create', redrawEnds);
+      this.emitter.on('edge:update', redrawEnds);
+      this.emitter.on('edge:delete', redrawEnds);
+      this.emitter.on('note:update', ({ note, prev }) => {
+        // What stands for a note comes from its text, or from its meta (the `text` of the option)
+        if (note.text !== prev.text || !sameFieldValue(note.meta, prev.meta)) redrawPeers([note.id]);
+      });
+      this.emitter.on('note:delete', ({ note }) => this.noteLinkLines.delete(note.id));
+      this.emitter.on('note:visibility', ({ hidden, shown }) => redrawPeers([...hidden, ...shown]));
+    }
 
     // Recompute visibility on any structural change
     this.emitter.on('edge:create', () => this.recomputeVisibility());
@@ -878,6 +935,9 @@ export class WemaBoard {
    * option too while the notes are stacked. Use it when what you draw
    * depends on something outside the note's data and that changed.
    * (A change of the note's `text` or `meta` draws it again by itself.)
+   * With the `noteLinks` option, the links under the note are drawn again,
+   * and so are those under the notes it is connected to, which show it:
+   * call this for the note whose `text` of that option changed.
    * Changes nothing in the data: no event, no history. Also works in
    * readOnly and viewOnly.
    */
@@ -885,6 +945,7 @@ export class WemaBoard {
     // The popup offers text formatting only for notes that show their text.
     // It is not rebuilt otherwise: that would drop what the user is typing in it.
     if (this.noteManager.refresh(id)) this.updateNotePopup();
+    this.redrawNoteLinkPeers?.([id]);
   }
 
   /**
@@ -1737,6 +1798,7 @@ export class WemaBoard {
     this.noteFilter = null;
     this.noteAnimator.clear();
     this.measuredSizes.clear();
+    this.noteLinkLines.clear();
     this.selectionManager.clear();
     this.edgeManager.clear();
     this.noteManager.renderAll(data.notes);

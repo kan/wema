@@ -89,6 +89,7 @@ wema/
 │   ├── history.ts            # Undo/Redo 履歴管理 (デルタベース)
 │   ├── edge-popup.ts         # Edge スタイル編集ポップアップ
 │   ├── note-popup.ts         # ノートスタイル編集ポップアップ (単一/複数)
+│   ├── note-links.ts         # 縦積みの間、付箋の下に出す「つながっている付箋」の印 (noteLinks)
 │   ├── events.ts             # イベントシステム
 │   ├── style.css             # デフォルトスタイル
 │   └── utils/
@@ -121,6 +122,7 @@ wema/
 │   ├── move.test.ts
 │   ├── note-extension.test.ts
 │   ├── note-footer.test.ts
+│   ├── note-links.test.ts
 │   ├── page-scroll.test.ts
 │   ├── stacked.test.ts
 │   ├── rich-text.test.ts
@@ -183,7 +185,7 @@ wema/
 | `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
 | `move-animation.md` | 付箋の移動のアニメーション（`moveNotes()` と `duration`） | `src/animation.ts`、`src/note.ts`、`src/board.ts`、`src/edge.ts` |
 | `page-scroll.md` | ページと一緒にスクロールするモード（`pageScroll`） | `src/board.ts`、`src/style.css` |
-| `stacked.md` | データを変えない、表示だけの縦積み（`setStacked()`）と、積んでいる間に付箋の下へ利用側が描く口（`renderNoteFooter`） | `src/board.ts`、`src/note.ts`、`src/animation.ts`、`src/style.css` |
+| `stacked.md` | データを変えない、表示だけの縦積み（`setStacked()`）、積んでいる間に付箋の下へ利用側が描く口（`renderNoteFooter`）、つながっている付箋の印（`noteLinks`） | `src/board.ts`、`src/note.ts`、`src/note-links.ts`、`src/animation.ts`、`src/style.css` |
 | `standalone.md` | スタンドアロン版の責務とビルド | `standalone/`、`scripts/build-standalone.ts` |
 
 ### データの流れ
@@ -346,6 +348,7 @@ interface WemaBoardOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;  // 積んでいる間（setStacked）、true を返した付箋の下に container の中身を表示する。付箋のデータは変えない
+  noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void };  // default: false（積んでいる間、つながっている付箋を付箋の下にボタンで出す。renderNoteFooter があれば、そちらが描く）
   labels?: Partial<WemaLabels>;  // 画面の文言。省略したキーは英語（enLabels）。日本語は jaLabels を渡す。読むのは作成時の 1 回
   foldLabels?: { more?: string; less?: string };  // labels の readMore / showLess と同じ文言。両方あればこちらが優先（default: 'Read more' / 'Show less'）
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）

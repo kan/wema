@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`noteLinks` オプションを追加した。** 表示だけの縦積み（`setStacked()`）の間、接続線の代わりに、つながっている付箋を付箋の下にボタンで並べる（[#71](https://github.com/kan/wema/issues/71)）。0.14.0 の `renderNoteFooter` で利用側が描いていたものを、wema 自身が出せるようにした
+  - ボタンは、向きの記号（`→` `←` `↔` `―`）、接続線のラベル、相手の付箋の本文の冒頭。押すと、相手の付箋が見える位置へ動かし、少しの間だけ強調する。非表示の相手のボタンは押せない
+  - 接続線、相手の本文と `meta`、相手の表示と非表示が変わると、wema が描き直す。利用側がイベントを受けて `refreshNote()` を呼ぶ必要はない
+  - 相手の表示名は `noteLinks: { text }` で差し替えられる。見た目は CSS のクラス（`.wema-note-link` など）、読み上げ用の説明は `labels`（`linkOut` など 6 つのキー）で変える
+  - 既定は OFF。`renderNoteFooter` も渡したときは、`renderNoteFooter` が描く
+
 ## [0.14.0] - 2026-10-13
 
 ### Added

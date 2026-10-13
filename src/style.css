@@ -148,6 +148,78 @@
   padding-right: 28px;
 }
 
+/* The links to the connected notes that the board draws under a stacked
+   note (noteLinks option), in place of the edges that are not shown there */
+.wema-note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+}
+
+/* One link is one line: what does not fit is cut from the text of the other note */
+.wema-note-link {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 28px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 4px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 14px;
+  background: #fff;
+  color: #333;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.wema-note-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wema-note-link-arrow {
+  flex: none;
+  color: var(--wema-anchor-color);
+}
+
+.wema-note-link-label {
+  flex: none;
+  max-width: 8em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #666;
+}
+
+.wema-note-link-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The note a link was pressed for, for a moment: it does not move when it
+   is in view already, and this says which one it is */
+.wema-note.wema-note-link-target {
+  animation: wema-note-link-target 1.4s ease-out;
+}
+
+@keyframes wema-note-link-target {
+  0%, 60% {
+    outline: 3px solid var(--wema-anchor-color);
+    outline-offset: 2px;
+  }
+  100% {
+    outline: 3px solid transparent;
+    outline-offset: 2px;
+  }
+}
+
 /* Rich text content styles */
 .wema-note-content ul,
 .wema-note-content ol {

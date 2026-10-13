@@ -15,7 +15,7 @@ const TAG_ATTRIBUTES: Record<string, Set<string>> = {
 };
 
 /** Tags that should be completely removed (including children) */
-const REMOVE_TAGS = new Set(['script', 'style', 'noscript', 'object', 'embed', 'applet']);
+export const REMOVE_TAGS = new Set(['script', 'style', 'noscript', 'object', 'embed', 'applet']);
 
 /** CSS properties allowed in inline style */
 const ALLOWED_CSS_PROPS = new Set([

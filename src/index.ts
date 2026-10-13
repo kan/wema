@@ -27,6 +27,7 @@ export type {
   WemaEdge,
   WemaBoardData,
   WemaBoardOptions,
+  WemaNoteLinksOptions,
   WemaBatchOptions,
   WemaNoteMove,
   WemaMoveOptions,

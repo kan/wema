@@ -112,6 +112,20 @@ const HOST_DRAWN_CLASS = 'wema-note-host-drawn';
  */
 const HAS_FOOTER_CLASS = 'wema-note-has-footer';
 
+/**
+ * On a control drawn under a note: what it stands for. When what is under
+ * the note is drawn again while the control has the focus, the control with
+ * the same value gets it (the elements themselves are replaced).
+ */
+export const FOCUS_KEY_ATTR = 'data-wema-focus-key';
+
+/** The key of the control in `container` that has the focus, if one has both */
+function focusKeyIn(container: HTMLElement | null): string | undefined {
+  const active = document.activeElement;
+  if (!container || !active || !container.contains(active)) return undefined;
+  return active.getAttribute(FOCUS_KEY_ATTR) ?? undefined;
+}
+
 export class NoteManager {
   private notes = new Map<NoteId, WemaNote>();
   private elements = new Map<NoteId, HTMLElement>();
@@ -366,8 +380,9 @@ export class NoteManager {
    * is not called from here, where a note is being made or updated and the
    * board is not in a state to be asked about (the note has no edges yet,
    * a board that is being made is not in the hands of the host yet).
+   * Also called by the board, for what it draws there itself (`noteLinks`).
    */
-  private requestFooter(id: NoteId): void {
+  requestFooter(id: NoteId): void {
     if (!this.hostFooter || !this.footersShown) return;
     this.staleFooters.add(id);
     this.onFooterChange();
@@ -400,6 +415,9 @@ export class NoteManager {
     this.staleFooters = new Set();
     for (const id of stale) {
       const note = this.notes.get(id);
+      // What is drawn is replaced as a whole: the focus that is on a control
+      // in it goes to the one that takes its place (see `focusKeyIn`)
+      const focused = focusKeyIn(this.footerElement(id));
       const footer = this.emptyFooter(id);
       // A note that was deleted meanwhile has neither
       if (!note || !footer) continue;
@@ -408,11 +426,16 @@ export class NoteManager {
         drawn = this.hostFooter({ ...note }, footer) === true;
       } catch (error) {
         // One note must not keep the others from being drawn and stacked
-        console.error(`Error in renderNoteFooter for note "${id}":`, error);
+        console.error(`Error in renderNoteFooter / noteLinks for note "${id}":`, error);
       }
       if (drawn) {
         this.elements.get(id)?.classList.add(HAS_FOOTER_CLASS);
         this.footerObserver?.observe(footer);
+        if (focused !== undefined) {
+          Array.from(footer.querySelectorAll<HTMLElement>(`[${FOCUS_KEY_ATTR}]`))
+            .find((el) => el.getAttribute(FOCUS_KEY_ATTR) === focused)
+            ?.focus({ preventScroll: true });
+        }
       } else {
         // Drop what a host that did not return true (or threw) left behind
         footer.replaceChildren();

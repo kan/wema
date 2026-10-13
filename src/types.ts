@@ -230,6 +230,27 @@ export interface WemaBoardOptions {
    */
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
+   * While the notes are shown stacked (`setStacked()`, where the edges are
+   * not shown), show under each note the notes it is connected to: one
+   * button per edge, with the direction of the edge, its label, and the
+   * first line of the other note's text. Pressing one brings that note into
+   * view (`revealNotes()`) and marks it for a moment; the button of a note
+   * that is hidden cannot be pressed. Default: off.
+   *
+   * The board draws them again by itself when an edge is made, changed or
+   * deleted, when the text or `meta` of the other note changes, and when it
+   * is hidden or shown. When what `text` returns for a note changes for
+   * another reason, call `refreshNote()` for that note.
+   *
+   * The look is that of the style sheet (`.wema-note-links`,
+   * `.wema-note-link` and its parts `-arrow` / `-label` / `-text`, and
+   * `.wema-note-link-target` on the note that was gone to); the texts read
+   * to a screen reader are in `labels`. Like `renderNoteFooter`, this
+   * changes nothing in the data. With `renderNoteFooter` given too, that
+   * one draws and this option does nothing.
+   */
+  noteLinks?: boolean | WemaNoteLinksOptions;
+  /**
    * Texts of the board's own UI (tooltips, headings of the edge popup, the
    * link under a foldable note). A key left out keeps its English text.
    * Pass `jaLabels` for Japanese. Read once, when the board is created.
@@ -287,6 +308,17 @@ export interface WemaBoardOptions {
   minZoom?: number;
   /** Largest zoom (default: 2) */
   maxZoom?: number;
+}
+
+/** How the notes a note is connected to are shown under it (the `noteLinks` option) */
+export interface WemaNoteLinksOptions {
+  /**
+   * What stands for the note at the other end of `edge`. Return a string to
+   * replace the first line of its text (a title kept in its `meta`, say);
+   * anything else, or a string without text, keeps it. Shown as text, never
+   * as HTML. When it throws, the error is logged and the first line is kept.
+   */
+  text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void;
 }
 
 /**

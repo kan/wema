@@ -8,6 +8,8 @@ paths:
   - "src/style.css"
   - "tests/stacked.test.ts"
   - "tests/note-footer.test.ts"
+  - "src/note-links.ts"
+  - "tests/note-links.test.ts"
 ---
 
 # 表示だけの縦積み（`setStacked()`）
@@ -109,8 +111,34 @@ paths:
 - 非表示の付箋の分も描く（列には入らない）。表示に戻るときに描く形にすると、きっかけが 1 つ増えるため、そうしていない
 - 下辺の折り畳みのバッジは、この要素のある付箋では右端に寄せ、要素の右端を空ける（`style.css` の `.wema-note-has-footer` の規則と、バッジの後ろの `.wema-note-footer` に余白を入れる規則）。中央のままだと、印に重なる。後ろの兄弟を選ぶ規則なので、`.wema-note-footer` は折り畳みのボタンより後ろに置く
 
+## つながっている付箋の印（`noteLinks`）
+
+`noteLinks` オプションで、積んでいる間、付箋の下に、つながっている相手をボタンで並べる（issue #71）。wema-kake が `renderNoteFooter` で描いていたものを、wema が既定で持つ。
+
+- **新しい描画の経路は作っていない。** `renderNoteFooter` と同じ口（`NoteManager` の `hostFooter`）に、ボードが作る関数（コンストラクタの `drawLinks`）を渡しているだけ。表示の切り替え、マイクロタスクでの描画、高さを含めた積み直しは、上の「付箋の下に利用側が描く要素」の規則がそのまま当てはまる。`renderNoteFooter` も渡されたときは、そちらを `hostFooter` にして、`noteLinks` は何もしない
+- 計算と描画は `src/note-links.ts` にある。`computeNoteLinks()`（向き、並び順、相手の表示名。ボードの DOM に触れない）と `drawNoteLinks()`（ボタンの DOM）。ボードへの問い合わせは `NoteLinkHost` で受け取り、`WemaBoard` を import しない
+- 向きは `arrowHeadOf()`（`src/edge.ts`）から決める。接続線の描画（`applyEdgeStyle()`）と同じ関数で、矢印の既定値の決め方を 2 か所に書かない
+- **相手の本文は、文字としてだけ入れる（`textContent`）。** 冒頭の取り出し（`firstLineOf()`）は、`DOMParser` で別の文書として読む。モデルの `text` はサニタイズ前のことがある（`applyRemote()` の値がそのまま入る）ので、`innerHTML` へ入れて読まないこと。切り離した要素でも、`img` の読み込みと `onerror` は動く
+- **描き直しの配線は `board.ts` のコンストラクタの 1 か所**（内部のリスナーを登録している並びにある `if (noteLinks)` の中。描く関数 `drawLinks` を作る `if (noteLinks)` は、`NoteManager` に渡すので、それより前にある）。印に出しているものが変わるきっかけを足したら、リスナーの側に足す
+  - `edge:create` / `edge:update` / `edge:delete`: 両端の付箋
+  - `note:update` で `text` か `meta` が変わったとき: その付箋につながる付箋（`meta` は、利用側の `text` が読むことがあるため。中身で比べる。`sameFieldValue()`）
+  - `refreshNote(id)`: その付箋につながる付箋（`redrawNoteLinkPeers`）。利用側の `text` が返す値の元が、データの外で変わったときのため。利用側に相手の列挙を書かせない
+  - つながる付箋を調べる処理（`redrawPeers`）は、積んでいないときは何もしない（`this.stack` を見る）。絞り込みで数百枚の表示が一度に変わっても、接続線を走査しない
+  - `note:visibility`: 表示が変わった付箋につながる付箋（ボタンの `disabled`）
+  - 付箋の削除は、つながる接続線の `edge:delete` で届く
+  - 頼むのは `NoteManager.requestFooter()`。**`refresh()`（`refreshNote()`）を呼ばないこと。** 利用側が描いた付箋の中身（`renderNote`）まで描き直す
+- 文言（`aria-label`、本文のない付箋の表示）は `labels` の `linkOut` / `linkIn` / `linkBoth` / `linkNone` / `linkLabeled` / `linkEmpty`。向きの記号（`→` など）は言語に依らないので、ソースに直接書いている
+- 相手の強調は、付箋の要素に `wema-note-link-target` クラスを付け、タイマー（`TARGET_MS`。CSS のアニメーションと同じ長さ）で外す。**`animationend` で外す形に戻さないこと。** 利用側が見た目を上書きしてアニメーションが無いとき、強調中に相手が非表示になったとき（届くのは `animationcancel`）にクラスが残り、付箋の中のアニメーションの `animationend`（バブルする）で途中で外れる。見た目は `outline` で、選択中の付箋の `outline` を一時的に上書きする
+- 相手の本文の冒頭は、付箋ごとに覚える（`WemaBoard.noteLinkLines`。本文が同じなら解析し直さない）。1 枚の付箋は、つながる付箋すべての下に出て、どれかが変わるたびに描き直されるため。付箋の削除と `importData()` で消す
+- 本文として読まないタグは、サニタイズが落とすタグ（`REMOVE_TAGS`。`src/utils/sanitize.ts`）と同じにする。別の一覧を持つと、付箋に見えていない文字がボタンに出る。サニタイズが残すが中身を文字として表示しない要素（`NO_TEXT_INSIDE` の `video` / `audio` / `iframe`、`display: none` の要素）も読まない
+- 利用側の `text` は、接続線ごとに `try` で囲む。1 枚の付箋で例外が出ても、他のボタンを消さない。空の文字列は「返さなかった」と同じに扱い、本文の冒頭にする
+- **描き直しでフォーカスを落とさない。** 描き直しは中身を丸ごと作り直す。`drawFooters()` が、フォーカスのある要素の `data-wema-focus-key`（`FOCUS_KEY_ATTR`）を控え、描いたあと、同じ値の要素へフォーカスを戻す。印のボタンは接続線の ID を入れている。共同編集で相手の本文が変わるたびに描き直すので、戻さないと、キーボードで操作している間にフォーカスが `body` へ落ちる。`renderNoteFooter` の利用側も、同じ属性を付ければ使える
+- 既知の制限: 積んでいる間、付箋ごとに `getEdgesOf()` で接続線を全部走査する（付箋 × 接続線）。複製はしないので、数百枚では問題にならない。大きなボードで遅くなったら、付箋から接続線への索引を作る
+- `linkOut` などの文言は関数（`deleteNotes` と同じ形）。JSON から渡した `labels` では差し替わらず、英語のままになる
+
 ## テスト
 
+- `noteLinks` のテストは `tests/note-links.test.ts`（計算、本文の冒頭の取り出し、ボタンと描き直し）
 - `renderNoteFooter` のテストは `tests/note-footer.test.ts`。利用側の関数の中で、`container` の `offsetHeight` を差し替える。描画はマイクロタスクなので、確かめる前に待つ（`settle()`）
 - jsdom はレイアウトを計算しない。`tests/stacked.test.ts` は、付箋の要素の `offsetHeight` を「描いている幅」から決まる値に差し替えて、表示の高さとモデルの高さを分けて確かめる（`setLayout()`）
 - 見た目（`foldable` のリンク、`autoSize` の付箋の幅、ページの高さ、接続線）を変えたら、実ブラウザでも確認する。見るのは、幅 375px での `pageScroll` との併用、`foldable` の開閉、入力中の積み直し、付箋の追加、積んでいる間は接続線とアンカーが出ないこと、`setStacked(null)` で元の配置に戻り接続線も出ること。`renderNoteFooter` を変えたときは、付箋の下の要素と下の付箋が重ならないこと、要素の中のタップで付箋が選択されないこと、折り畳みのバッジが要素に重ならないことも見る

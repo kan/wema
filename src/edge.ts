@@ -9,6 +9,11 @@ const MARKER_PREFIX = 'wema-arrowhead';
 const ARROW_SIZES = [8, 12, 18];
 const DEFAULT_ARROW_SIZE = 12;
 
+/** Which ends of an edge have an arrow: the explicit field, else what the legacy `style` says */
+export function arrowHeadOf(edge: Pick<WemaEdge, 'arrowHead' | 'style'>): ArrowHead {
+  return edge.arrowHead ?? (edge.style === 'arrow' ? 'end' : 'none');
+}
+
 export class EdgeManager {
   private edges = new Map<EdgeId, WemaEdge>();
   private groupElements = new Map<EdgeId, SVGGElement>();
@@ -125,7 +130,12 @@ export class EdgeManager {
 
   /** Get edges connected to a note */
   getEdgesOf(noteId: NoteId): WemaEdge[] {
-    return this.getEdges().filter((e) => e.from === noteId || e.to === noteId);
+    // Only the edges of the note are copied (this is asked for every note at a time)
+    const edges: WemaEdge[] = [];
+    for (const e of this.edges.values()) {
+      if (e.from === noteId || e.to === noteId) edges.push({ ...e });
+    }
+    return edges;
   }
 
   /** Get currently selected edge ID */
@@ -312,7 +322,7 @@ export class EdgeManager {
   private applyEdgeStyle(path: SVGPathElement, edge: WemaEdge): void {
     // Resolve effective values from explicit fields, falling back to legacy style
     const lineStyle: LineStyle = edge.lineStyle ?? (edge.style === 'dashed' ? 'dashed' : 'solid');
-    const arrowHead: ArrowHead = edge.arrowHead ?? (edge.style === 'arrow' ? 'end' : 'none');
+    const arrowHead = arrowHeadOf(edge);
     const strokeWidth = edge.strokeWidth ?? 2;
     const arrowSize = edge.arrowSize ?? DEFAULT_ARROW_SIZE;
 

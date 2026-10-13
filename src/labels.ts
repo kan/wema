@@ -94,6 +94,21 @@ export interface WemaLabels {
   readMore: string;
   /** Link that closes an opened foldable note (shown as text) */
   showLess: string;
+
+  // Links to the connected notes, under a stacked note (the `noteLinks` option).
+  // The first four are read to a screen reader, given the text of the other note.
+  /** An edge that points at the other note */
+  linkOut: (note: string) => string;
+  /** An edge that comes from the other note */
+  linkIn: (note: string) => string;
+  /** An edge with an arrow at both ends */
+  linkBoth: (note: string) => string;
+  /** An edge without an arrow */
+  linkNone: (note: string) => string;
+  /** One of the four above (`link`), for an edge that has a label */
+  linkLabeled: (link: string, label: string) => string;
+  /** Stands for a note without text (shown as text) */
+  linkEmpty: string;
 }
 
 /** The keys of the labels that are plain texts */
@@ -167,6 +182,13 @@ export const enLabels: WemaLabels = {
   deleteImage: 'Delete image',
   readMore: 'Read more',
   showLess: 'Show less',
+
+  linkOut: (note) => `Connects to: ${note}`,
+  linkIn: (note) => `Connected from: ${note}`,
+  linkBoth: (note) => `Connected both ways: ${note}`,
+  linkNone: (note) => `Connected: ${note}`,
+  linkLabeled: (link, label) => `${link} (${label})`,
+  linkEmpty: '(No text)',
 };
 
 /** The Japanese labels */
@@ -235,6 +257,13 @@ export const jaLabels: WemaLabels = {
   deleteImage: '画像を削除',
   readMore: '続きを読む',
   showLess: '折り畳む',
+
+  linkOut: (note) => `つながり先: ${note}`,
+  linkIn: (note) => `つながり元: ${note}`,
+  linkBoth: (note) => `相互のつながり: ${note}`,
+  linkNone: (note) => `つながり: ${note}`,
+  linkLabeled: (link, label) => `${link}（${label}）`,
+  linkEmpty: '（本文なし）',
 };
 
 /**
