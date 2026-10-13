@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.15.1] - 2026-10-13
 
 `noteLinks` のボタンを、利用側の見た目に合わせやすくした（[#72](https://github.com/kan/wema/issues/72)）。
 
@@ -468,6 +468,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.15.1]: https://github.com/kan/wema/releases/tag/v0.15.1
 [0.15.0]: https://github.com/kan/wema/releases/tag/v0.15.0
 [0.14.0]: https://github.com/kan/wema/releases/tag/v0.14.0
 [0.13.2]: https://github.com/kan/wema/releases/tag/v0.13.2
