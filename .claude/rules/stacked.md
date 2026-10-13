@@ -100,7 +100,8 @@ paths:
 - **2 つの場所の描画は、同じ仕組み（`NoteManager` の `UnderSlot`）を通す。** 描く関数、描いたことを表すクラス、描画待ちの集合、表示するかどうかを、場所ごとに `this.accessory` と `this.footer` が持つ。場所ごとの処理を別々に書き足さないこと。全部の場所に行う処理は `this.slots` を回す（`hasUnder()`、`drawUnder()`、`clear()`、`destroy()`、要素の作成）。何か描いてある付箋の `.wema-note-under` は `drawnUnder()` で取る。違いは `shown` だけ（`accessory` は常に `true`、`footer` は `setFootersShown()` が切り替える）
 - **積んでいないとき、この領域は場所を取らない。** 列の計算（`placeNotes()` が `layout` に渡す高さ）に入るのは、列に置いた付箋の分だけ。積んでいないときは、下の付箋やボードに重なる。そのため `.wema-note-under` と `.wema-note-accessory` は `pointer-events: none` にして、`.wema-note-accessory` に直接入れた要素だけがポインタを受ける（`style.css`）。**`.wema-note-accessory` を `pointer-events: auto` に戻さないこと。** 付箋の下の幅いっぱいの帯が、下の付箋へのクリックを止める
   - `.wema-note-accessory` を横並びの入れ物（`display: flex`）にしているのも同じ理由。利用側が自前の行で包むと、その行が幅いっぱいにポインタを受ける
-  - **ホバーや選択で `.wema-note-under` の高さが変わる CSS を、README の例に書かないこと。** 積んでいる間は `underObserver` から積み直しが走り、列がポインタの下で動く。例は `visibility` で切り替えている。`opacity` も勧めない（透明な要素がポインタを受けて、下の付箋へのクリックを止める）
+  - **積んでいる間、ホバーで `.wema-note-under` の高さが変わる CSS を、README の例に書かないこと。** `underObserver` から積み直しが走り、列がポインタの下で動く。隠し方は一長一短なので、README には両方を書いている。`visibility: hidden` は列が動かないが、見えていない付箋の下にも間隔が空く。`display: none` は間隔が空かないが、出すと列が動くので、選択やボタンの押下でだけ出す（wema-kake は後者）。`opacity` は勧めない（透明な要素がポインタを受けて、下の付箋へのクリックを止める）
+  - **付箋の縁に重ねる形（負の `margin-top`）を、README で勧めないこと。** 右に寄せた要素が右下のリサイズハンドル（16×16）を覆い、押せなくなる。幅の狭い付箋では、下辺のアンカーも覆う（wema-kake で起きた）。間隔は `padding-top` で空けてもらう
 - **高さは、積んでいるかどうかに依らず、描いた付箋すべての分を `underHeights` に持つ。** 高さの出どころを `underHeights` の 1 つにするため。読んで入れるのは `keepUnderHeight()`（利用側が描いたあとの `drawUnder()`、`underObserver`、`setFootersShown(false)`）と、`placeNotes()`（置く幅での高さ）。**DOM から高さをその場で読む処理を、使う側に足さないこと**（付箋のポップアップはフレームごとに位置を決めるので、毎フレームの強制レイアウトになる）
   - 積んでいないときも、`getPlacedBoxes()`（`revealNotes()` などの範囲）、`lowestBottom()`（ページの高さ）、`getShownBox()`（付箋のポップアップ）は、この高さを含める。場所を取らないのは、列の計算だけ
   - `placeNotes()` は、列から外した付箋の高さを消さない（印は積んでいなくても出ている）。幅が変わって高さが変わった分は、`underObserver` が直す

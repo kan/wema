@@ -283,7 +283,7 @@ board.refreshNoteAccessory(noteId);
 - `noteLinks`、`renderNoteFooter`、`renderNote` と一緒に使える。`renderNote` で利用側が描いた付箋にも置ける
 - `container` は、要素を横に並べる入れ物（`display: flex`、折り返しあり、間隔 4px）。並べ方は、`.wema-note-accessory` に CSS を書いて変える。右に寄せるなら `justify-content: flex-end`
   - 付箋の下辺の中央には、折り畳みのボタンとアンカーが出る。要素は左右のどちらかに寄せるとよい
-  - 付箋の縁に少しかけるには、入れた要素に負の `margin-top` を付ける
+  - 付箋との間隔は、`.wema-note-accessory` の `padding-top` で空ける。負の `margin-top` で付箋の縁に重ねると、右下のリサイズハンドルや下辺のアンカーを要素が覆い、押せなくなる
 - **ポインタを受けるのは、`container` に直接入れた要素だけ。** 要素の無い部分は、クリックを下の付箋やボードへ通す。要素を自前の行で包むと、その行が幅いっぱいにクリックを受けるので、包むなら行に `pointer-events: none`、中の要素に `pointer-events: auto` を指定する
 - 中の要素のクリック、押下、キー入力は、付箋の選択、ドラッグ、編集、ボードのショートカットにならない
 - **ホバー中と選択中は、CSS で見分けられる。** `container` は付箋の要素（`.wema-note`）の中にあり、選択中の付箋には `wema-note-selected` クラスが付く（このクラス名は変えない）
@@ -295,7 +295,10 @@ board.refreshNoteAccessory(noteId);
   .wema-note-selected .wema-note-accessory .author { visibility: visible; }
   ```
 
-  - 切り替えは `visibility` で行う。`display: none` で切り替えると、要素の高さが変わる。積んでいる間は、その分だけ列が積み直され、付箋がポインタの下で動く。`opacity` で透明にした要素は、見えないままクリックを受けて、下の付箋の操作を止める
+  - **積んでいる間は、ホバーで領域の高さを変えない。** 高さを変えると、wema が列を積み直すので、ポインタの下で付箋が動く。隠し方は 2 つあり、どちらにも向き不向きがある
+    - `visibility: hidden`（上の例）: 隠していても高さを取る。ホバーで出しても列は動かない。そのかわり、積んでいる間は、何も見えていない付箋の下にも、その分の間隔が空く
+    - `display: none`: 隠している間は高さを取らないので、間隔は空かない。出すと列が動くので、積んでいる間は、ホバーでは出さず、付箋を選んだときやボタンを押したときだけ出す
+  - `opacity` で透明にした要素は、見えないままクリックを受けて、下の付箋の操作を止める。隠す目的には使わない
 
 - 呼び出すのは、付箋を作ったとき（`importData()`、`applyRemote()`、Undo での復活を含む）、付箋の `text` または `meta` が変わったとき、`refreshNote(id)` か `refreshNoteAccessory(id)` を呼んだとき。readOnly / viewOnly でも呼ぶ
 - **呼び出しは、きっかけになった処理が終わってから、まとめて行う**（ブラウザが描く前）。同じ付箋は、何度頼んでも 1 回だけ呼ぶ。関数の中で、`new WemaBoard()` の戻り値や、利用側が持つ値を読める。数が届くたびに `refreshNoteAccessory()` を呼んで構わない
