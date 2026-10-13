@@ -127,32 +127,65 @@
   display: block;
 }
 
-/* Where the host draws under a note (renderNoteFooter option): outside the
-   box of the note, which keeps its size. Shown while the notes are stacked,
-   where the column leaves room for it. */
-.wema-note-footer {
-  display: none;
+/* Where the host draws under a note: outside the box of the note, which
+   keeps its size. It holds the accessories (renderNoteAccessory option) and,
+   under them, the footer (renderNoteFooter option). A flow root, so that it
+   is as tall as what is in it, margins included: the column leaves that
+   much room. */
+.wema-note-under {
+  display: flow-root;
   position: absolute;
   top: 100%;
   left: 0;
   width: 100%;
   box-sizing: border-box;
+  /* Where it shows nothing, it is not in the way of what is under it: not
+     stacked, it lies over the board and the notes below */
+  pointer-events: none;
 }
 
-.wema-board.wema-stacked .wema-note-has-footer > .wema-note-footer {
+/* The accessories: shown whether the notes are stacked or not. A row the
+   host puts its things in, one next to the other: only those take the
+   pointer, not the row (a row of the host's own around them would take it
+   over the whole width). */
+.wema-note-accessory {
+  display: none;
+}
+
+.wema-note-has-accessory > .wema-note-under > .wema-note-accessory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.wema-note-accessory > * {
+  pointer-events: auto;
+}
+
+/* The footer: shown while the notes are stacked, where the column leaves
+   room for it */
+.wema-note-footer {
+  display: none;
+  pointer-events: auto;
+}
+
+.wema-board.wema-stacked .wema-note-has-footer > .wema-note-under > .wema-note-footer {
   display: block;
 }
 
 /* The badge of a collapsed edge that leaves the note downwards is under the
-   note as well: it goes to the right end, where the footer leaves it room
-   (the badge is 22px wide; the buttons come before the footer in the note) */
-.wema-board.wema-stacked .wema-note-has-footer > .wema-note-collapse-badge[data-side="bottom"] {
+   note as well: it goes to the right end, where what is under the note
+   leaves it room (the badge is 22px wide; the buttons come before
+   `.wema-note-under` in the note) */
+.wema-board.wema-stacked .wema-note-has-footer > .wema-note-collapse-badge[data-side="bottom"],
+.wema-board.wema-stacked .wema-note-has-accessory > .wema-note-collapse-badge[data-side="bottom"] {
   left: auto;
   right: 0;
   transform: none;
 }
 
-.wema-board.wema-stacked .wema-note-collapse-badge[data-side="bottom"] ~ .wema-note-footer {
+.wema-board.wema-stacked .wema-note-collapse-badge[data-side="bottom"] ~ .wema-note-under {
   padding-right: 28px;
 }
 

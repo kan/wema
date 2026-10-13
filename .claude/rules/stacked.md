@@ -8,6 +8,7 @@ paths:
   - "src/style.css"
   - "tests/stacked.test.ts"
   - "tests/note-footer.test.ts"
+  - "tests/note-accessory.test.ts"
   - "src/note-links.ts"
   - "tests/note-links.test.ts"
 ---
@@ -54,9 +55,9 @@ paths:
 - `recomputeVisibility()` の末尾（`scheduleRestack()`）。付箋の作成と削除、絞り込み、折り畳み、`importData()` はここを通る。非表示の付箋は列に入れず、`placedRects` からも外す
 - `note:update` のリスナー（`scheduleRestack()`）。データの位置や大きさ、本文が変わると、列の順番や高さが変わる
 - `onPlacedMeasure`（`scheduleRestack()`）。`NoteManager.measure()` が、置いてある付箋を計測して、描いている高さが `placedRects` の値と違ったときに呼ぶ。**モデルの大きさが変わったかどうかでは判定しない。** 描いている幅での高さだけが変わることがあるため（`onMeasure` は、モデルの大きさが変わったときしか呼ばれない）
-- `onFooterChange`（`scheduleRestack()`）。付箋の下に利用側が描く要素を描き直すとき、またはその高さが変わったとき（下の「付箋の下に利用側が描く要素」）
+- `onUnderChange`（`scheduleRestack()`）。付箋の下に利用側が描く要素を描き直すとき、またはその高さが変わったとき（下の「付箋の下に利用側が描く要素」）
 
-`scheduleRestack()` はマイクロタスクで 1 回にまとめる（`applyRemote()` や `batch()` で多くの付箋が一度に変わるため。その場で積み直すと、付箋を N 枚足すたびに全体を N 回積み直す）。描く前に済むので、積み直す前の状態は表示されない。**描いている位置をその場で読む処理は、先に `flushRestack()` を呼ぶ**（`visibleBounds()` が呼んでいる。作ったばかりの付箋へ `revealNotes()` するとき、列に入る前の位置を読まないため）。
+`scheduleRestack()` はマイクロタスクで 1 回にまとめる（`applyRemote()` や `batch()` で多くの付箋が一度に変わるため。その場で積み直すと、付箋を N 枚足すたびに全体を N 回積み直す）。描く前に済むので、積み直す前の状態は表示されない。**描いている位置をその場で読む処理は、先に `flushPending()` を呼ぶ**（`visibleBounds()` が呼んでいる。作ったばかりの付箋へ `revealNotes()` するとき、列に入る前の位置を読まないため）。
 
 - `placeNotes()` が描き直す（`applyStyles()` と `applyFold()`）のは、新しく置く付箋と、置く幅が変わる付箋だけ。入力のたびに呼ばれるので、全部の付箋を描き直さない。それ以外の付箋は高さを読むだけにして、読み書きを交互にしない。本文が変わった付箋の `foldable` の表示は、計測（`atModelWidth()`）が直している
 
@@ -86,30 +87,48 @@ paths:
   - アンカーは積んでいる間は隠しているので、アンカーからのドロップは、いまは画面の操作では起きない。アンカーを再び出すときのために、`newNotePlace()` を通す処理は残している
 - `moveNotes()` / `stackNotes()` / `alignNotes()` / Undo は、これまでどおりデータを変える。表示は列のままで、`note:update` から積み直しが走る
 
-## 付箋の下に利用側が描く要素（`renderNoteFooter`）
+## 付箋の下に利用側が描く要素（`renderNoteAccessory` と `renderNoteFooter`）
 
-積んでいる間は接続線が出ないので、利用側（wema-kake）が、付箋の下に「つながっている相手」の印を描く（issue #70）。wema は中身を解釈しない。
+付箋の枠の下に、利用側が描く場所が 2 つある。wema は、どちらの中身も解釈しない。
 
-- 描画先は、付箋の要素の直下の `.wema-note-footer`。`position: absolute; top: 100%` で、付箋の枠の外側に出る。付箋の要素の `offsetHeight` には入らない
-- **この要素の高さを、付箋の高さ（モデルの `height`、`placedRects` の `height`）に足さないこと。** 足すと、`getPlacedNote()` を読む接続線、ポップアップ、ラバーバンドの当たり判定がずれ、モデルに入れば `note:update` と履歴に載る。高さは `footerHeights` に別に持ち、足すのは 3 か所だけ。`placeNotes()` が `layout` に渡す高さ（下の付箋をこの要素の下から始める）、`lowestBottom()`（ページの高さ）、`withFooter()`（`getPlacedBoxes()` と `getShownBox()` が通す。前者は `visibleBounds()` が読み、`revealNotes()` などの範囲にこの要素を含める）。付箋が画面で占める範囲を読む処理を足すときは `getPlacedBoxes()` / `getShownBox()`、付箋そのものの隣に描くもの（接続線、当たり判定）は `getPlacedNote()` / `getShownNote()` を使う
-- 利用側が描いたかどうかは、付箋の要素の `wema-note-has-footer` クラスだけが持つ（`renderNote` の `wema-note-host-drawn` と同じ持ち方）。`true` を返さなかったときは、中身を消してクラスを外す
-- `.wema-note-footer` は、`renderNoteFooter` を渡したボードの付箋にだけ作る。`footerElement()` は、無ければ `null` を返す
-- **表示するのは積んでいる間だけ**（`NoteManager.footersShown`。`setStacked()` が `setFootersShown()` で切り替える）。積んでいない間は、利用側の関数を呼ばず、中身も消す。積み始めたときに、全部の付箋を描く
-- **利用側の関数を、頼まれたその場で（同期で）呼ばないこと。** 呼ぶ場所は `NoteManager.drawFooters()` の 1 か所で、呼び出すのは `WemaBoard.flushRestack()` だけ。頼む側（`requestFooter()`。付箋の要素を作ったとき、`text` または `meta` を変える更新、`refresh()`）は、`staleFooters` に入れて `scheduleRestack()` を頼むだけにする
+| 場所 | オプション | 表示するとき | 用途 |
+|---|---|---|---|
+| `.wema-note-accessory`（上） | `renderNoteAccessory`（issue #73） | 常に（積んでいても、いなくても） | 印、ボタン、数（作者の印、「いいね」） |
+| `.wema-note-footer`（下） | `renderNoteFooter`（issue #70）、または `noteLinks` | 積んでいる間だけ | 接続線の代わりに出す「つながっている相手」 |
+
+- 2 つは、付箋の要素の直下の `.wema-note-under` に入る（上から `.wema-note-accessory`、`.wema-note-footer`）。`.wema-note-under` は `position: absolute; top: 100%` で、付箋の枠の外側に出る。付箋の要素の `offsetHeight` には入らない。`display: flow-root` なので、中の要素の余白（負の余白を含む）まで含めた高さになる
+- **2 つの場所の描画は、同じ仕組み（`NoteManager` の `UnderSlot`）を通す。** 描く関数、描いたことを表すクラス、描画待ちの集合、表示するかどうかを、場所ごとに `this.accessory` と `this.footer` が持つ。場所ごとの処理を別々に書き足さないこと。全部の場所に行う処理は `this.slots` を回す（`hasUnder()`、`drawUnder()`、`clear()`、`destroy()`、要素の作成）。何か描いてある付箋の `.wema-note-under` は `drawnUnder()` で取る。違いは `shown` だけ（`accessory` は常に `true`、`footer` は `setFootersShown()` が切り替える）
+- **積んでいないとき、この領域は場所を取らない。** 列の計算（`placeNotes()` が `layout` に渡す高さ）に入るのは、列に置いた付箋の分だけ。積んでいないときは、下の付箋やボードに重なる。そのため `.wema-note-under` と `.wema-note-accessory` は `pointer-events: none` にして、`.wema-note-accessory` に直接入れた要素だけがポインタを受ける（`style.css`）。**`.wema-note-accessory` を `pointer-events: auto` に戻さないこと。** 付箋の下の幅いっぱいの帯が、下の付箋へのクリックを止める
+  - `.wema-note-accessory` を横並びの入れ物（`display: flex`）にしているのも同じ理由。利用側が自前の行で包むと、その行が幅いっぱいにポインタを受ける
+  - **ホバーや選択で `.wema-note-under` の高さが変わる CSS を、README の例に書かないこと。** 積んでいる間は `underObserver` から積み直しが走り、列がポインタの下で動く。例は `visibility` で切り替えている。`opacity` も勧めない（透明な要素がポインタを受けて、下の付箋へのクリックを止める）
+- **高さは、積んでいるかどうかに依らず、描いた付箋すべての分を `underHeights` に持つ。** 高さの出どころを `underHeights` の 1 つにするため。読んで入れるのは `keepUnderHeight()`（利用側が描いたあとの `drawUnder()`、`underObserver`、`setFootersShown(false)`）と、`placeNotes()`（置く幅での高さ）。**DOM から高さをその場で読む処理を、使う側に足さないこと**（付箋のポップアップはフレームごとに位置を決めるので、毎フレームの強制レイアウトになる）
+  - 積んでいないときも、`getPlacedBoxes()`（`revealNotes()` などの範囲）、`lowestBottom()`（ページの高さ）、`getShownBox()`（付箋のポップアップ）は、この高さを含める。場所を取らないのは、列の計算だけ
+  - `placeNotes()` は、列から外した付箋の高さを消さない（印は積んでいなくても出ている）。幅が変わって高さが変わった分は、`underObserver` が直す
+  - 高さを読むのは、まとめて描いたあとの 1 回にする（`drawUnder()` と `setFootersShown(false)`。書き込みと読み取りを付箋ごとに交互にしない）
+- **この要素の高さを、付箋の高さ（モデルの `height`、`placedRects` の `height`）に足さないこと。** 足すと、`getPlacedNote()` を読む接続線、ポップアップ、ラバーバンドの当たり判定がずれ、モデルに入れば `note:update` と履歴に載る。高さ（2 つの場所の合計。`.wema-note-under` の高さ）は `underHeights` に別に持ち、足すのは 4 か所だけ。`placeNotes()` が `layout` に渡す高さ（下の付箋をこの要素の下から始める）、`lowestBottom()`（ページの高さ）、`getPlacedBoxes()`（`visibleBounds()` が読み、`revealNotes()` などの範囲にこの要素を含める）、`getShownBox()`（付箋のポップアップ）。付箋が画面で占める範囲を読む処理を足すときは `getPlacedBoxes()` / `getShownBox()`、付箋そのものの隣に描くもの（接続線、当たり判定）は `getPlacedNote()` / `getShownNote()` を使う
+- 利用側が描いたかどうかは、付箋の要素のクラスだけが持つ（`wema-note-has-accessory` と `wema-note-has-footer`。`renderNote` の `wema-note-host-drawn` と同じ持ち方）。`true` を返さなかったときは、中身を消してクラスを外す
+- `.wema-note-under` と中の要素は、オプションを渡したボードの付箋にだけ作る（渡した場所の分だけ）。`underElement()` と `slotElement()` は、無ければ `null` を返す
+- **`.wema-note-footer` を表示するのは積んでいる間だけ**（`footer.shown`。`setStacked()` が `setFootersShown()` で切り替える）。積んでいない間は、利用側の関数を呼ばず、中身も消す。積み始めたときに、全部の付箋を描く。`.wema-note-accessory` は、積んでいるかどうかに依らず描く
+- **利用側の関数を、頼まれたその場で（同期で）呼ばないこと。** 呼ぶ場所は `NoteManager.drawSlot()` の 1 か所（`drawUnder()` が 2 つの場所の分を呼ぶ）で、`drawUnder()` を呼び出すのは `WemaBoard.flushPending()` だけ。頼む側は、場所の `stale` に入れて `onUnderChange` を呼ぶだけにする（`requestSlot()`）
+  - 頼むのは、付箋の要素を作ったとき、`text` または `meta` を変える更新、`refresh()`（`requestUnder()` が 2 つの場所とも頼む）。`.wema-note-accessory` だけを頼む口が `requestAccessory()`（`refreshNoteAccessory()`）、`.wema-note-footer` だけを頼む口が `requestFooter()`（`noteLinks` の配線）
+  - **`onUnderChange` は、積んでいなくてもマイクロタスクを予約する**（`queueFlush()`）。`.wema-note-accessory` は積んでいないときも描くため。**`onUnderChange` で `scheduleRestack()` を呼ばないこと。** 描き直しを頼まれただけで列全体を積み直すことになる（「いいね」の数が届くたびに、全付箋の高さを読む）。積み直すかどうかは、描いたあとに高さが変わったかどうかで決める
+  - 無い付箋の ID での依頼は、`requestSlot()` が捨てる。利用側の関数が、描いている最中の付箋をもう一度頼んだ分も捨てる（`slot.drawing`。捨てないと、描くたびに次の描画が予約されて止まらない）
+  - マイクロタスクを予約済みかどうかは `flushQueued` が持つ。`restackPending`（列が古い）とは別の状態で、1 つにまとめない（`restack()` と `importData()` が `restackPending` だけを下ろすので、まとめると、予約済みなのに予約し直す経路ができる）
   - 利用側の関数は、ボードに問い合わせる（`getEdgesOf()`、`isNoteHidden()`）。その場で呼ぶと、コンストラクタの中では利用側が `new WemaBoard()` の戻り値をまだ持っておらず、`importData()` と `applyRemote()` の途中では接続線がまだ無い
-  - 描画待ちは `staleFooters` が持ち、`restackPending`（列が古い）とは別。`flushRestack()` は、`restackPending` が下りていても `drawFooters()` を呼び、何か描いたら積み直す。`setStacked()` が直接呼ぶ `restack()` が `restackPending` を下ろしても、頼んであった描画は行われる。**`flushRestack()` の先頭に `if (!this.restackPending) return` を足さないこと**
-  - `flushRestack()` は、描く前に `restackPending` を下ろす。利用側の関数の中から `refreshNote()` を呼ばれた分は、次の回に描く
-  - 例外は、描いている位置をその場で読む処理（`visibleBounds()`）。先に `flushRestack()` を呼ぶので、利用側が `revealNotes()` などを呼んだ時点で描く
-- 高さが変わったら積み直す。きっかけは 3 つ。描き直し（`drawFooters()` のあとは必ず `restack()`）、置く幅の変更（`sizesAtWidth()` が、付箋の高さと一緒に、置く幅での高さを読む）、利用側が自分で中身を書き換えたときやフォントの読み込み（`footerObserver`。`ResizeObserver` で、`footerHeights` と違う高さになったら `onFooterChange`）
-- この要素の中の `pointerdown` / `click` / `dblclick` / `keydown` は、要素で伝播を止める。付箋の選択や、空いている場所への操作として扱わない。`keydown` を止めるのは、中のボタンにフォーカスがあるときの Delete で、選択中の付箋を消さないため
+  - 描画待ちは場所ごとの `stale` が持ち、`restackPending`（列が古い）とは別。`flushPending()` は、`restackPending` が下りていても `drawUnder()` を呼び、積んでいる間に、描いたものの高さが変わっていたら積み直す（`drawUnder()` の戻り値。高さが同じなら積み直さない）。`setStacked()` が直接呼ぶ `restack()` が `restackPending` を下ろしても、頼んであった描画は行われる。**`flushPending()` の先頭に `if (!this.restackPending) return` を足さないこと**
+  - 積んでいないときに高さが変わった分（`.wema-note-accessory`）では、積み直さない。場所を取らないので、ページの高さとポップアップ類の位置だけを直す（`followUnder()`。`underObserver` の通知も、ここを通る）
+  - `flushPending()` は、描く前に `restackPending` を下ろす。利用側の関数の中から `refreshNote()` を呼ばれた分は、次の回に描く
+  - 例外は、積んでいる間の、描いている位置をその場で読む処理（`visibleBounds()`）。先に `flushPending()` を呼ぶので、利用側が `revealNotes()` などを呼んだ時点で描く。**積んでいないときは、ここで `flushPending()` を呼ばないこと。** 描いても付箋の位置は変わらないのに、利用側の関数が、呼び出しの途中（ホイールやパンの操作中を含む）で走る
+- 積んでいる間、高さが変わったら積み直す。きっかけは 3 つ。描き直して高さが変わったとき（`drawUnder()` が `true` を返す）、置く幅の変更（`sizesAtWidth()` が、付箋の高さと一緒に、置く幅での `.wema-note-under` の高さを読む）、利用側が自分で中身を書き換えたときやフォントの読み込み（`underObserver`。`ResizeObserver` で、`.wema-note-under` が `underHeights` と違う高さになったら、`underHeights` を直して `onUnderResize`。ボードの `followUnder()` が、積んでいれば積み直しを予約する）
+- この要素の中の `pointerdown` / `click` / `dblclick` / `keydown` は、`.wema-note-under` で伝播を止める（2 つの場所とも）。付箋の選択や、空いている場所への操作として扱わない。`keydown` を止めるのは、中のボタンにフォーカスがあるときの Delete で、選択中の付箋を消さないため
 - 付箋のポップアップは `getShownBox()`（`getShownNote()` にこの要素の高さを足した箱）の下に出す。`getShownNote()` に戻すと、ポップアップが利用側の描いたリンクを覆う
-- 本文の入力の確定（`syncNoteContent()`）も、`text` が変わったら `requestFooter()` を呼ぶ。`applyParams()` を通らない経路なので、別に呼んでいる
-- `footerObserver` は、動いている途中の付箋（`shownRects` がある）の通知を捨てる（途中の幅での高さのため）。動き終わったとき（`setShownRect(id, null)`）に `observe()` し直して、その時点の高さを確かめる。し直さないと、移動中に利用側が中身を書き換えた分を取りこぼす
-- `NoteManager.destroy()` は、`footersShown` を下ろして `staleFooters` を消す。残っているマイクロタスクの `flushRestack()` が、破棄したボードで利用側の関数を呼ばないため
+- 本文の入力の確定（`syncNoteContent()`）も、`text` が変わったら `requestUnder()` を呼ぶ。`applyParams()` を通らない経路なので、別に呼んでいる
+- `underObserver` は、動いている途中の付箋（`shownRects` がある）の通知を捨てる（途中の幅での高さのため）。動き終わったとき（`setShownRect(id, null)`）に `observe()` し直して、その時点の高さを確かめる。し直さないと、移動中に利用側が中身を書き換えた分を取りこぼす
+- `NoteManager.destroy()` は、2 つの場所の `shown` を下ろして `stale` を消す。残っているマイクロタスクの `flushPending()` が、破棄したボードで利用側の関数を呼ばないため
 - `updateNoteCollapseBtns()` は、ボタンを隠すとき `wema-note-collapse-badge` クラスも外す。CSS がクラスでバッジを見分けているので、残すと、バッジが無いのにこの要素の右端が空く
 - 既知の制限: 上辺のバッジ（列で上の付箋へ向かう接続線の折り畳み）は、1 つ上の付箋のこの要素に重なる。README に書いてある
 - 非表示の付箋の分も描く（列には入らない）。表示に戻るときに描く形にすると、きっかけが 1 つ増えるため、そうしていない
-- 下辺の折り畳みのバッジは、この要素のある付箋では右端に寄せ、要素の右端を空ける（`style.css` の `.wema-note-has-footer` の規則と、バッジの後ろの `.wema-note-footer` に余白を入れる規則）。中央のままだと、印に重なる。後ろの兄弟を選ぶ規則なので、`.wema-note-footer` は折り畳みのボタンより後ろに置く
+- 下辺の折り畳みのバッジは、この要素のある付箋では右端に寄せ、要素の右端を空ける（`style.css` の `.wema-note-has-footer` / `.wema-note-has-accessory` の規則と、バッジの後ろの `.wema-note-under` に余白を入れる規則。どちらも積んでいる間だけ）。中央のままだと、印に重なる。後ろの兄弟を選ぶ規則なので、`.wema-note-under` は折り畳みのボタンより後ろに置く。積んでいないときは寄せない（下辺の中央に、折り畳みのボタンとアンカーが出る。利用側に、要素を左右へ寄せてもらう。README に書いてある）
 
 ## つながっている付箋の印（`noteLinks`）
 
@@ -134,13 +153,13 @@ paths:
 - 相手の本文の冒頭は、付箋ごとに覚える（`WemaBoard.noteLinkLines`。本文が同じなら解析し直さない）。1 枚の付箋は、つながる付箋すべての下に出て、どれかが変わるたびに描き直されるため。付箋の削除と `importData()` で消す
 - 本文として読まないタグは、サニタイズが落とすタグ（`REMOVE_TAGS`。`src/utils/sanitize.ts`）と同じにする。別の一覧を持つと、付箋に見えていない文字がボタンに出る。サニタイズが残すが中身を文字として表示しない要素（`NO_TEXT_INSIDE` の `video` / `audio` / `iframe`、`display: none` の要素）も読まない
 - 利用側の `text` は、接続線ごとに `try` で囲む。1 枚の付箋で例外が出ても、他のボタンを消さない。空の文字列は「返さなかった」と同じに扱い、本文の冒頭にする
-- **描き直しでフォーカスを落とさない。** 描き直しは中身を丸ごと作り直す。`drawFooters()` が、フォーカスのある要素の `data-wema-focus-key`（`FOCUS_KEY_ATTR`）を控え、描いたあと、同じ値の要素へフォーカスを戻す。印のボタンは接続線の ID を入れている。共同編集で相手の本文が変わるたびに描き直すので、戻さないと、キーボードで操作している間にフォーカスが `body` へ落ちる。`renderNoteFooter` の利用側も、同じ属性を付ければ使える
+- **描き直しでフォーカスを落とさない。** 描き直しは中身を丸ごと作り直す。`drawSlot()` が、フォーカスのある要素の `data-wema-focus-key`（`FOCUS_KEY_ATTR`）を控え、描いたあと、同じ値の要素へフォーカスを戻す。印のボタンは接続線の ID を入れている。共同編集で相手の本文が変わるたびに描き直すので、戻さないと、キーボードで操作している間にフォーカスが `body` へ落ちる。`renderNoteFooter` の利用側も、同じ属性を付ければ使える
 - 既知の制限: 積んでいる間、付箋ごとに `getEdgesOf()` で接続線を全部走査する（付箋 × 接続線）。複製はしないので、数百枚では問題にならない。大きなボードで遅くなったら、付箋から接続線への索引を作る
 - `linkOut` などの文言は関数（`deleteNotes` と同じ形）。JSON から渡した `labels` では差し替わらず、英語のままになる
 
 ## テスト
 
 - `noteLinks` のテストは `tests/note-links.test.ts`（計算、本文の冒頭の取り出し、ボタンと描き直し）
-- `renderNoteFooter` のテストは `tests/note-footer.test.ts`。利用側の関数の中で、`container` の `offsetHeight` を差し替える。描画はマイクロタスクなので、確かめる前に待つ（`settle()`）
+- `renderNoteAccessory` のテストは `tests/note-accessory.test.ts`、`renderNoteFooter` のテストは `tests/note-footer.test.ts`。高さは `.wema-note-under`（`container` の親）の `offsetHeight` を差し替えて決める（列が読むのは、2 つの場所を合わせた高さのため）。描画はマイクロタスクなので、確かめる前に待つ（`settle()`）
 - jsdom はレイアウトを計算しない。`tests/stacked.test.ts` は、付箋の要素の `offsetHeight` を「描いている幅」から決まる値に差し替えて、表示の高さとモデルの高さを分けて確かめる（`setLayout()`）
 - 見た目（`foldable` のリンク、`autoSize` の付箋の幅、ページの高さ、接続線）を変えたら、実ブラウザでも確認する。見るのは、幅 375px での `pageScroll` との併用、`foldable` の開閉、入力中の積み直し、付箋の追加、積んでいる間は接続線とアンカーが出ないこと、`setStacked(null)` で元の配置に戻り接続線も出ること。`renderNoteFooter` を変えたときは、付箋の下の要素と下の付箋が重ならないこと、要素の中のタップで付箋が選択されないこと、折り畳みのバッジが要素に重ならないことも見る

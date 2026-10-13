@@ -100,6 +100,8 @@ export class WemaBoard {
   private stack: StackLayoutOptions | null = null;
   /** Whether the notes are to be stacked again once what changed them is done */
   private restackPending = false;
+  /** Whether what is pending (what the host draws under the notes, the column) is about to be seen to (see queueFlush) */
+  private flushQueued = false;
   /** The inline URL input for embeds and the note it belongs to, while it is open */
   private embedInput: { el: HTMLElement; noteId: NoteId } | null = null;
   /** Places the overlays again when one of them, or the board, changes size */
@@ -272,7 +274,11 @@ export class WemaBoard {
       hostRender: options.renderNote,
       // The links the board draws under a note itself, else what the host draws there
       hostFooter: drawLinks ?? options.renderNoteFooter,
-      onFooterChange: () => this.scheduleRestack(),
+      hostAccessory: options.renderNoteAccessory,
+      // Drawn once what asked for it is done, stacked or not; the column
+      // leaves room for it
+      onUnderChange: () => this.queueFlush(),
+      onUnderResize: () => this.followUnder(),
       labels: this.labels,
     });
 
@@ -934,8 +940,9 @@ export class WemaBoard {
   }
 
   /**
-   * Call the `renderNote` option for a note again, and the `renderNoteFooter`
-   * option too while the notes are stacked. Use it when what you draw
+   * Call the `renderNote` option for a note again, with the
+   * `renderNoteAccessory` option, and the `renderNoteFooter` option too
+   * while the notes are stacked. Use it when what you draw
    * depends on something outside the note's data and that changed.
    * (A change of the note's `text` or `meta` draws it again by itself.)
    * With the `noteLinks` option, the links under the note are drawn again,
@@ -949,6 +956,16 @@ export class WemaBoard {
     // It is not rebuilt otherwise: that would drop what the user is typing in it.
     if (this.noteManager.refresh(id)) this.updateNotePopup();
     this.redrawNoteLinkPeers?.([id]);
+  }
+
+  /**
+   * Call the `renderNoteAccessory` option for a note again, and nothing
+   * else: use it when only what you draw there changed (a count that
+   * arrives often, say). Like `refreshNote()`, it changes nothing in the
+   * data, and works in readOnly and viewOnly.
+   */
+  refreshNoteAccessory(id: NoteId): void {
+    this.noteManager.requestAccessory(id);
   }
 
   /**
@@ -1305,13 +1322,17 @@ export class WemaBoard {
 
   /**
    * Bounding box, in board coordinates, of the shown notes among `noteIds`
-   * (default: all), with what the host drew under them (`renderNoteFooter`)
+   * (default: all), with what the column left room for under them (what the
+   * host drew there: `renderNoteAccessory`, `renderNoteFooter`)
    */
   private visibleBounds(noteIds?: NoteId[]): Box | null {
     const ids = noteIds ? new Set(noteIds) : null;
     // Where the notes are drawn, which is not where the data has them while
-    // they are stacked (a note made just now is put in the column first)
-    this.flushRestack();
+    // they are stacked (a note made just now is put in the column first).
+    // Not stacked, nothing is seen to here: what the host is yet to draw
+    // under the notes moves none of them, and it is not called from here,
+    // in the middle of whatever asked for a place on screen.
+    if (this.stack) this.flushPending();
     const notes = this.noteManager.getPlacedBoxes()
       .filter((note) => (!ids || ids.has(note.id)) && !this.hiddenNoteIds.has(note.id));
     return notes.length === 0 ? null : boundingBoxOf(notes);
@@ -1405,9 +1426,9 @@ export class WemaBoard {
       this.edgeManager.deselectEdge();
       this.edgePopup.hide();
     }
-    // What the host draws under the notes is shown in the column only. It is
-    // drawn once this call is done (see flushRestack), and the notes are
-    // stacked again with it then.
+    // The footers the host draws under the notes are shown in the column
+    // only. They are drawn once this call is done (see flushPending), and
+    // the notes are stacked again with them then.
     this.noteManager.setFootersShown(this.stack !== null);
     // All the notes go where this call puts them: one that is on its way
     // from an earlier call starts again from where it is drawn, or stops
@@ -1440,24 +1461,58 @@ export class WemaBoard {
 
   /** Stack the notes again once what is changing them is done (many notes may change at once) */
   private scheduleRestack(): void {
-    if (!this.stack || this.restackPending) return;
+    if (!this.stack) return;
     this.restackPending = true;
-    queueMicrotask(() => this.flushRestack());
+    this.queueFlush();
   }
 
   /**
-   * Do what is pending for the column: let the host draw under the notes
-   * that are due (`renderNoteFooter` option), then put the notes in the
-   * column again. The one place the host draws from: once what asked for it
-   * is done (by then the board is made, and the edges of a note are
-   * loaded), or earlier when a place on screen is read (`visibleBounds()`).
+   * See to what is pending once what asked for it is done: what the host
+   * draws under the notes, and the column. Asked for many times, it is done
+   * once.
    */
-  private flushRestack(): void {
+  private queueFlush(): void {
+    if (this.flushQueued) return;
+    this.flushQueued = true;
+    queueMicrotask(() => {
+      this.flushQueued = false;
+      this.flushPending();
+    });
+  }
+
+  /**
+   * Do what is pending: let the host draw under the notes that are due
+   * (`renderNoteAccessory` and `renderNoteFooter` options), then put the
+   * notes in the column again. The one place the host draws from: once what
+   * asked for it is done (by then the board is made, and the edges of a
+   * note are loaded), or earlier when a place on screen is read
+   * (`visibleBounds()`).
+   */
+  private flushPending(): void {
     // What the host asks for while it draws (`refreshNote()`) is done the next time
     const pending = this.restackPending;
     this.restackPending = false;
-    // Drawn also when the column was laid out meanwhile (`setStacked()`)
-    if (this.noteManager.drawFooters() || pending) this.restack();
+    // Drawn also when the column was laid out meanwhile (`setStacked()`).
+    // The column is laid out again only when what was drawn is as tall as
+    // it was no longer: a count that changes under a note moves nothing.
+    const resized = this.noteManager.drawUnder();
+    if (pending || (resized && this.stack)) this.restack();
+    else if (resized) this.followUnder();
+  }
+
+  /**
+   * What is under a note is as tall as it was no longer. Stacked, the
+   * column leaves room for it: the notes are stacked again. Not stacked, it
+   * takes no room: only the height of the page, and what is put next to a
+   * note (the popup of a selected one), follow it.
+   */
+  private followUnder(): void {
+    if (this.stack) {
+      this.scheduleRestack();
+      return;
+    }
+    this.updatePageHeight();
+    this.placeOverlays();
   }
 
   /** Whether the board is in the page scroll mode */

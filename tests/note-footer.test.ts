@@ -19,8 +19,9 @@ describe('What the host draws under a note (renderNoteFooter)', () => {
     const chip = document.createElement('button');
     chip.textContent = `under ${note.id}`;
     el.appendChild(chip);
-    // jsdom does no layout: the element is as tall as the host says
-    Object.defineProperty(el, 'offsetHeight', { get: () => heights.get(note.id) ?? 0, configurable: true });
+    // jsdom does no layout: what is under the note (the element that holds
+    // the footer) is as tall as the host says
+    Object.defineProperty(el.parentElement, 'offsetHeight', { get: () => heights.get(note.id) ?? 0, configurable: true });
     return true;
   };
 
@@ -54,7 +55,7 @@ describe('What the host draws under a note (renderNoteFooter)', () => {
   };
 
   const noteEl = (id: string) => container.querySelector(`[data-note-id="${id}"]`) as HTMLElement;
-  const footerEl = (id: string) => noteEl(id).querySelector(':scope > .wema-note-footer') as HTMLElement;
+  const footerEl = (id: string) => noteEl(id).querySelector(':scope > .wema-note-under > .wema-note-footer') as HTMLElement;
   const isDrawn = (id: string) => noteEl(id).classList.contains('wema-note-has-footer');
   const top = (id: string) => parseFloat(noteEl(id).style.top);
 
@@ -214,7 +215,7 @@ describe('What the host draws under a note (renderNoteFooter)', () => {
     it('needs the option: a board without it makes no element under its notes', () => {
       board = new WemaBoard({ container });
       const note = board.addNote();
-      expect(container.querySelector(`[data-note-id="${note.id}"] > .wema-note-footer`)).toBeNull();
+      expect(container.querySelector(`[data-note-id="${note.id}"] .wema-note-under`)).toBeNull();
       board.setStacked(STACK);
       board.refreshNote(note.id);
     });

@@ -230,6 +230,36 @@ export interface WemaBoardOptions {
    */
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
+   * Put small things of your own next to a note: a badge, a button, a
+   * count. `container` is an empty element just under the note, outside its
+   * box and as wide as the note: fill it and return true. Return anything
+   * else to put nothing there.
+   *
+   * Unlike `renderNoteFooter`, it is shown whether the notes are stacked or
+   * not, and both can be used together, also with `noteLinks`. Where the
+   * notes are not stacked it takes no room: it may lie over a note below,
+   * or under one that is in front of its own note (it is part of its note,
+   * and as far in front), and lets the clicks through where it shows
+   * nothing. Stacked
+   * (`setStacked()`), the column leaves room for it, above the footer.
+   *
+   * The note itself is not changed: its size, the data, the events and the
+   * history know nothing of it. A press, a click or a key in it does not
+   * select the note and starts nothing on the board. What you put in it is
+   * not sanitized. It is inside the element of the note, so your style
+   * sheet can show things only for a note that is hovered or selected
+   * (`.wema-note:hover`, `.wema-note-selected`).
+   *
+   * Called for a note that is created, whose `text` or `meta` changes, or
+   * that `refreshNote()` or `refreshNoteAccessory()` is called for, also in
+   * readOnly and viewOnly and for a note `renderNote` draws. Like
+   * `renderNoteFooter`, not from inside what asks for it: the notes that
+   * are due are drawn together once that is done (before the browser
+   * paints), each of them once. Asking for a note from inside the call that
+   * draws it (`refreshNoteAccessory()`) does nothing.
+   */
+  renderNoteAccessory?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  /**
    * While the notes are shown stacked (`setStacked()`, where the edges are
    * not shown), show under each note the notes it is connected to: one
    * button per edge, with the direction of the edge, its label, and the

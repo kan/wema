@@ -145,7 +145,7 @@ describe('The links under a stacked note (noteLinks)', () => {
     for (let i = 0; i < 4; i++) await Promise.resolve();
   };
   const noteEl = (id: string) => container.querySelector(`[data-note-id="${id}"]`) as HTMLElement;
-  const linksOf = (id: string) => [...noteEl(id).querySelectorAll<HTMLButtonElement>(':scope > .wema-note-footer .wema-note-link')];
+  const linksOf = (id: string) => [...noteEl(id).querySelectorAll<HTMLButtonElement>(':scope > .wema-note-under > .wema-note-footer .wema-note-link')];
   /** What the links of a note show: the text of each */
   const shown = (id: string) => linksOf(id).map((link) => link.textContent);
 
@@ -374,7 +374,7 @@ describe('The links under a stacked note (noteLinks)', () => {
     create({ renderNoteFooter: (_note, el) => { el.textContent = 'mine'; return true; } });
     await settle();
     expect(container.querySelector('.wema-note-link')).toBeNull();
-    expect(noteEl('a').querySelector(':scope > .wema-note-footer')!.textContent).toBe('mine');
+    expect(noteEl('a').querySelector(':scope > .wema-note-under > .wema-note-footer')!.textContent).toBe('mine');
   });
 
   it('changes nothing in the data, and emits nothing', async () => {

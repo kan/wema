@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`renderNoteAccessory` オプションを追加した。** 付箋の本文はそのままに、付箋のすぐ下（枠の外側）へ、利用側の小さな要素（印、ボタン、数）を並べられる（[#73](https://github.com/kan/wema/issues/73)）。作者の印や「いいね」のように、付箋のデータの外にあるものを付箋の近くで見せるために使う
+  - 縦に積んでいても、いなくても表示する。積んでいないときは場所を取らず、積んでいる間は列がその高さを空ける。`noteLinks`、`renderNoteFooter`、`renderNote` と一緒に使える
+  - 付箋のデータ（`width` / `height`）は変わらず、`note:update` / `note:measure` / `history:commit` / `change` も発火しない
+  - 中の要素の操作は、付箋の選択やボードの操作にならない。要素の無い部分は、クリックを下へ通す
+  - 付箋を選択したときのポップアップ、`revealNotes()` などの範囲、`pageScroll` のページの高さは、この要素を付箋の一部として扱う
+- **`refreshNoteAccessory(id)` を追加した。** `renderNoteAccessory` で描いた要素だけを描き直す。数が届くたびに呼んでも、`renderNote` と付箋の下のボタンは描き直さない。`refreshNote(id)` は、この要素も描き直す
+
+### Changed
+
+- **付箋の下に描いた要素（`noteLinks` / `renderNoteFooter`）を描き直しても、高さが変わらなければ、列を積み直さないようにした。** これまでは、描き直すたびに全部の付箋の高さを読んで積み直していた
+- **選択中の付箋の要素に付く `wema-note-selected` クラスを、公開の約束にした。** 利用側の CSS で、選択中だけ見せるものを書ける。クラス名はこれまでと同じ
+- **付箋の下に利用側が描く要素（`.wema-note-footer`）を、新しい要素 `.wema-note-under` の中へ移した。** `renderNoteAccessory` の要素と上下に並べるため。`.wema-note-footer` というクラス名と、その中身は変わらない。`.wema-note > .wema-note-footer` のように、付箋の直下の子として選んでいた CSS は、`.wema-note-footer` だけで選ぶ形に直す必要がある
+
 ## [0.15.1] - 2026-10-13
 
 `noteLinks` のボタンを、利用側の見た目に合わせやすくした（[#72](https://github.com/kan/wema/issues/72)）。

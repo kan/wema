@@ -84,6 +84,7 @@ const board = new WemaBoard({
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
+  renderNoteAccessory?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋のすぐ下に、利用側の小さな要素（印やボタン）を並べる
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 縦に積んでいる間、付箋の下に利用側の要素を描く
   noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void, padding?: number },  // default: false（縦に積んでいる間、つながっている付箋を付箋の下に出す）
   labels?: Partial<WemaLabels>,  // 画面の文言（ボタンの説明、接続線のポップアップの見出しなど）。省略したキーは英語
@@ -161,7 +162,7 @@ const board = new WemaBoard({
 | `deleteNote(id)` | 付箋を削除 |
 | `getNote(id)` | IDで取得 |
 | `getNotes()` | 全付箋を取得 |
-| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteFooter` オプションで付箋の下に描いた要素を描き直す。`noteLinks` オプションでは、その付箋と、つながっている付箋のボタンを描き直す |
+| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteAccessory` / `renderNoteFooter` オプションで付箋の下に描いた要素を描き直す。`noteLinks` オプションでは、その付箋と、つながっている付箋のボタンを描き直す |
 | `resizeNotesToContent(noteIds)` | 付箋をコンテンツに合うサイズへ 1 回だけ変更する（`autoSize` は変えない） |
 
 #### 長い本文を畳む（`foldable`）
@@ -243,6 +244,71 @@ board.refreshNote(noteId);
 - `renderNote` が例外を投げたときは、コンソールにエラーを出し、その付箋をふつうの付箋として表示する。付箋の作成や `importData()` は止まらない
 - `refreshNote()` はデータを変えない。イベントも履歴も出さない
 
+#### 付箋に利用側の小さな要素を並べる（`renderNoteAccessory`）
+
+付箋の本文はそのままにして、付箋のすぐ下に、印やボタンを置ける。作者の印、「いいね」のボタンと数のように、付箋のデータの外にあるものを付箋の近くで見せるために使う。`container` に DOM を入れて `true` を返すと表示する。それ以外を返した付箋には、何も置かない。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  renderNoteAccessory: (note, el) => {
+    const info = infoOf(note.id);          // 利用側が、付箋の id ごとに持っている値
+    if (!info) return false;               // 何も置かない
+    if (info.byAgent) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'AI';
+      el.append(badge);
+    }
+    const like = document.createElement('button');
+    like.dataset.wemaFocusKey = 'like';    // 描き直しても、フォーカスを残す
+    like.textContent = `♥ ${info.likes}`;
+    like.addEventListener('click', () => sendLike(note.id));
+    el.append(like);
+    return true;
+  },
+});
+
+// 「いいね」の数が届いたら、この領域だけを描き直す
+board.refreshNoteAccessory(noteId);
+```
+
+| メソッド | 説明 |
+|---------|------|
+| `refreshNoteAccessory(id)` | `renderNoteAccessory` で描いた要素だけを描き直す。`renderNote` と、付箋の下のボタン（`noteLinks` / `renderNoteFooter`）は描き直さない。無い付箋の ID を渡しても、何もしない |
+
+- **置く場所は、付箋の枠のすぐ下（外側）。** 幅は付箋と同じ。付箋の箱の大きさは変わらない
+- **付箋のデータは変わらない。** `width` / `height`、`getNote()`、`exportData()` は、この要素の有無で変わらない。`note:update` / `note:measure` / `history:commit` / `change` も発火しない
+- **縦に積んでいても、いなくても表示する。** 積んでいないときは場所を取らないので、下の付箋に重なることがある。積んでいる間（`setStacked()`）は、列がこの要素の高さを空ける。`noteLinks` / `renderNoteFooter` の要素は、この要素の下に並ぶ
+- `noteLinks`、`renderNoteFooter`、`renderNote` と一緒に使える。`renderNote` で利用側が描いた付箋にも置ける
+- `container` は、要素を横に並べる入れ物（`display: flex`、折り返しあり、間隔 4px）。並べ方は、`.wema-note-accessory` に CSS を書いて変える。右に寄せるなら `justify-content: flex-end`
+  - 付箋の下辺の中央には、折り畳みのボタンとアンカーが出る。要素は左右のどちらかに寄せるとよい
+  - 付箋の縁に少しかけるには、入れた要素に負の `margin-top` を付ける
+- **ポインタを受けるのは、`container` に直接入れた要素だけ。** 要素の無い部分は、クリックを下の付箋やボードへ通す。要素を自前の行で包むと、その行が幅いっぱいにクリックを受けるので、包むなら行に `pointer-events: none`、中の要素に `pointer-events: auto` を指定する
+- 中の要素のクリック、押下、キー入力は、付箋の選択、ドラッグ、編集、ボードのショートカットにならない
+- **ホバー中と選択中は、CSS で見分けられる。** `container` は付箋の要素（`.wema-note`）の中にあり、選択中の付箋には `wema-note-selected` クラスが付く（このクラス名は変えない）
+
+  ```css
+  /* 作者の名前は、ホバーか選択のときだけ見せる */
+  .wema-note-accessory .author { visibility: hidden; }
+  .wema-note:hover .wema-note-accessory .author,
+  .wema-note-selected .wema-note-accessory .author { visibility: visible; }
+  ```
+
+  - 切り替えは `visibility` で行う。`display: none` で切り替えると、要素の高さが変わる。積んでいる間は、その分だけ列が積み直され、付箋がポインタの下で動く。`opacity` で透明にした要素は、見えないままクリックを受けて、下の付箋の操作を止める
+
+- 呼び出すのは、付箋を作ったとき（`importData()`、`applyRemote()`、Undo での復活を含む）、付箋の `text` または `meta` が変わったとき、`refreshNote(id)` か `refreshNoteAccessory(id)` を呼んだとき。readOnly / viewOnly でも呼ぶ
+- **呼び出しは、きっかけになった処理が終わってから、まとめて行う**（ブラウザが描く前）。同じ付箋は、何度頼んでも 1 回だけ呼ぶ。関数の中で、`new WemaBoard()` の戻り値や、利用側が持つ値を読める。数が届くたびに `refreshNoteAccessory()` を呼んで構わない
+  - 例外: 積んでいる間は、付箋の画面上の位置を読むメソッド（`revealNotes()` / `centerContent()` / `fitToContent()`）が、呼んだ時点で、頼まれている分を先に描く（列の位置が決まらないため）。積んでいないときは、この例外は無い
+- `container` は、呼び出すたびに、空にしてから渡す。`data-wema-focus-key` 属性を付けたボタンは、描き直したあと、同じ値のボタンへフォーカスを戻す
+- **`container` の中身は、wema のサニタイズを通さない。** 他人が書いた文字列（作者の名前など）を出すときは、`innerHTML` ではなく `textContent` を使うこと
+- 付箋を選択したときのポップアップは、この要素の下に出る
+- 重なり順は付箋に従う。手前にある別の付箋（後から触った付箋）の下に隠れることがある。ズームでは、付箋と一緒に拡大、縮小される
+- `revealNotes()` / `centerContent()` / `fitToContent()` と、`pageScroll` のページの高さは、この要素を付箋の一部として扱う
+- 描き直しても、要素の高さが変わらなければ、列の積み直しは起きない
+- `renderNoteAccessory` の中から、描いている付箋に `refreshNoteAccessory()` / `refreshNote()` を呼んでも、何もしない（呼び出しが止まらなくなるのを防ぐため）
+- `renderNoteAccessory` が例外を投げたときは、コンソールにエラーを出し、その付箋には何も置かない
+
 #### 接続線（Edge）
 
 | メソッド | 説明 |
@@ -263,6 +329,8 @@ board.refreshNote(noteId);
 | `getSelection()` | 選択中のIDを取得 |
 
 非表示の付箋（折り畳みや絞り込みで隠れているもの）は選択できない。
+
+選択中の付箋の要素（`.wema-note`）には、`wema-note-selected` クラスが付く。利用側の CSS で、選択中だけ見せるものを書ける（「付箋に利用側の小さな要素を並べる」の例）。
 
 #### 絞り込み
 
@@ -520,6 +588,8 @@ board.refreshNote(noteId);
 ##### 付箋の下に利用側の要素を描く（`renderNoteFooter`）
 
 `noteLinks` のボタンでは足りないときは、`renderNoteFooter` で、付箋の下に利用側の DOM を描ける。`container` に DOM を作って `true` を返すと、付箋の枠のすぐ下に表示する。それ以外を返した付箋の下には、何も置かない。
+
+積んでいないときにも出したい小さな要素（印やボタン）は、`renderNoteAccessory` に描く（「付箋に利用側の小さな要素を並べる」）。両方を渡したときは、`renderNoteAccessory` の要素の下に、この要素が並ぶ。
 
 ```typescript
 const board = new WemaBoard({
