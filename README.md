@@ -85,7 +85,7 @@ const board = new WemaBoard({
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 縦に積んでいる間、付箋の下に利用側の要素を描く
-  noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void },  // default: false（縦に積んでいる間、つながっている付箋を付箋の下に出す）
+  noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void, padding?: number },  // default: false（縦に積んでいる間、つながっている付箋を付箋の下に出す）
   labels?: Partial<WemaLabels>,  // 画面の文言（ボタンの説明、接続線のポップアップの見出しなど）。省略したキーは英語
   foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言。labels の readMore / showLess と同じもの
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
@@ -478,7 +478,28 @@ board.refreshNote(noteId);
 - `text` が空の文字列を返したとき、または例外を投げたときは、本文の冒頭のままにする（例外はコンソールに出す）
 - 本文の冒頭には、付箋に表示されない文字を使わない（`video` / `audio` / `iframe` の代替の文字、`display: none` の要素）
 - 描き直しの間も、キーボードのフォーカスは同じ接続線のボタンに残る
-- 見た目は CSS で変える。クラスは次のとおり
+- 色は CSS 変数で変える（`.wema-board` か、その外側の要素に指定する）
+
+  | 変数 | 対象 | 既定値 |
+  |---|---|---|
+  | `--wema-note-link-background` | ボタンの背景 | `#fff` |
+  | `--wema-note-link-color` | ボタンの文字 | `#333` |
+  | `--wema-note-link-border-color` | ボタンの枠 | `rgba(0, 0, 0, 0.15)` |
+  | `--wema-note-link-label-color` | 接続線のラベル | `#666` |
+  | `--wema-note-link-accent-color` | 向きの記号と、相手の付箋の強調の枠 | `#4A90D9` |
+
+  ```css
+  /* 暗い背景のページに合わせる */
+  .wema-board {
+    --wema-note-link-background: #2a2a2a;
+    --wema-note-link-color: #eee;
+    --wema-note-link-border-color: rgba(255, 255, 255, 0.2);
+    --wema-note-link-label-color: #aaa;
+    --wema-note-link-accent-color: #7ab8ff;
+  }
+  ```
+
+- 色以外（大きさ、角の丸み、並べ方）は、クラスに CSS を書いて変える
 
   | クラス | 対象 |
   |---|---|
@@ -486,6 +507,12 @@ board.refreshNote(noteId);
   | `.wema-note-link` | ボタン 1 つ |
   | `.wema-note-link-arrow` / `-label` / `-text` | ボタンの中の、向きの記号、接続線のラベル、相手の表示名 |
   | `.wema-note-link-target` | 押されたボタンの相手の付箋（強調している間だけ付く） |
+
+- ボタンを押して相手の付箋へ移るとき、付箋の周りに残す余白は `padding` で変える（`revealNotes()` の `padding` と同じ。既定は 24px）。ボードの端に固定表示の見出しなどが重なるときに、広げる
+
+  ```typescript
+  new WemaBoard({ container, noteLinks: { padding: 64 } });
+  ```
 
 - 読み上げ用の説明（`aria-label`）と、本文のない付箋の表示は、`labels` の `linkOut` / `linkIn` / `linkBoth` / `linkNone` / `linkLabeled` / `linkEmpty` で変える。日本語は `jaLabels` に入っている
 - ボタンの構造ごと変えたいときは、下の `renderNoteFooter` を使う。両方を渡したときは `renderNoteFooter` が描き、`noteLinks` は何もしない
@@ -842,6 +869,12 @@ CSS変数でスタイルを調整できる:
   --wema-anchor-color: #4A90D9;
   --wema-edge-color: #555;
   --wema-edge-width: 2px;
+  /* noteLinks のボタン（「つながっている付箋を、付箋の下に出す」） */
+  --wema-note-link-background: #fff;
+  --wema-note-link-color: #333;
+  --wema-note-link-border-color: rgba(0,0,0,0.15);
+  --wema-note-link-label-color: #666;
+  --wema-note-link-accent-color: #4A90D9;
 }
 ```
 

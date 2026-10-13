@@ -128,6 +128,8 @@ paths:
   - 付箋の削除は、つながる接続線の `edge:delete` で届く
   - 頼むのは `NoteManager.requestFooter()`。**`refresh()`（`refreshNote()`）を呼ばないこと。** 利用側が描いた付箋の中身（`renderNote`）まで描き直す
 - 文言（`aria-label`、本文のない付箋の表示）は `labels` の `linkOut` / `linkIn` / `linkBoth` / `linkNone` / `linkLabeled` / `linkEmpty`。向きの記号（`→` など）は言語に依らないので、ソースに直接書いている
+- 色は CSS 変数（`--wema-note-link-background` / `-color` / `-border-color` / `-label-color` / `-accent-color`。`style.css` の先頭）で持つ。**印の色に `--wema-anchor-color` を使わないこと。** アンカーを隠すためにこの変数を `transparent` にする利用側があり、向きの記号と強調が見えなくなる（issue #72。fushihara.net で起きた）。印に色を足すときも、固定値を書かずに変数を足す
+- ボタンを押したときの `revealNotes()` の余白は、`noteLinks.padding` から渡す（数でない値、負の値は渡さず、`revealNotes()` の既定に任せる）
 - 相手の強調は、付箋の要素に `wema-note-link-target` クラスを付け、タイマー（`TARGET_MS`。CSS のアニメーションと同じ長さ）で外す。**`animationend` で外す形に戻さないこと。** 利用側が見た目を上書きしてアニメーションが無いとき、強調中に相手が非表示になったとき（届くのは `animationcancel`）にクラスが残り、付箋の中のアニメーションの `animationend`（バブルする）で途中で外れる。見た目は `outline` で、選択中の付箋の `outline` を一時的に上書きする
 - 相手の本文の冒頭は、付箋ごとに覚える（`WemaBoard.noteLinkLines`。本文が同じなら解析し直さない）。1 枚の付箋は、つながる付箋すべての下に出て、どれかが変わるたびに描き直されるため。付箋の削除と `importData()` で消す
 - 本文として読まないタグは、サニタイズが落とすタグ（`REMOVE_TAGS`。`src/utils/sanitize.ts`）と同じにする。別の一覧を持つと、付箋に見えていない文字がボタンに出る。サニタイズが残すが中身を文字として表示しない要素（`NO_TEXT_INSIDE` の `video` / `audio` / `iframe`、`display: none` の要素）も読まない

@@ -348,7 +348,7 @@ interface WemaBoardOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;  // 積んでいる間（setStacked）、true を返した付箋の下に container の中身を表示する。付箋のデータは変えない
-  noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void };  // default: false（積んでいる間、つながっている付箋を付箋の下にボタンで出す。renderNoteFooter があれば、そちらが描く）
+  noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void; padding?: number };  // default: false（積んでいる間、つながっている付箋を付箋の下にボタンで出す。renderNoteFooter があれば、そちらが描く）
   labels?: Partial<WemaLabels>;  // 画面の文言。省略したキーは英語（enLabels）。日本語は jaLabels を渡す。読むのは作成時の 1 回
   foldLabels?: { more?: string; less?: string };  // labels の readMore / showLess と同じ文言。両方あればこちらが優先（default: 'Read more' / 'Show less'）
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
@@ -399,6 +399,12 @@ interface WemaEventMap {
   --wema-anchor-color: #4A90D9;
   --wema-edge-color: #555;
   --wema-edge-width: 2px;
+  /* noteLinks のボタン */
+  --wema-note-link-background: #fff;
+  --wema-note-link-color: #333;
+  --wema-note-link-border-color: rgba(0,0,0,0.15);
+  --wema-note-link-label-color: #666;
+  --wema-note-link-accent-color: #4A90D9;
 }
 ```
 

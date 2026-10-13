@@ -281,7 +281,7 @@ describe('The links under a stacked note (noteLinks)', () => {
     const [toBeta] = linksOf('a');
 
     toBeta.click();
-    expect(reveal).toHaveBeenCalledWith(['b']);
+    expect(reveal).toHaveBeenCalledWith(['b'], { padding: undefined });
     expect(noteEl('b').classList.contains('wema-note-link-target')).toBe(true);
     expect(board.getSelection()).toEqual([]);
 
@@ -292,6 +292,22 @@ describe('The links under a stacked note (noteLinks)', () => {
     expect(noteEl('b').classList.contains('wema-note-link-target')).toBe(true);
     vi.advanceTimersByTime(400);
     expect(noteEl('b').classList.contains('wema-note-link-target')).toBe(false);
+  });
+
+  it('keeps the space the host asks for around the note a link leads to', async () => {
+    create({ noteLinks: { padding: 60 } });
+    await settle();
+    const reveal = vi.spyOn(board, 'revealNotes');
+    linksOf('a')[0].click();
+    expect(reveal).toHaveBeenCalledWith(['b'], { padding: 60 });
+    board.destroy();
+
+    // Not a distance: the padding of revealNotes() is kept
+    create({ noteLinks: { padding: -1 } });
+    await settle();
+    const again = vi.spyOn(board, 'revealNotes');
+    linksOf('a')[0].click();
+    expect(again).toHaveBeenCalledWith(['b'], { padding: undefined });
   });
 
   it('takes the text for a note from the host, and draws again when its meta changes or the host asks', async () => {

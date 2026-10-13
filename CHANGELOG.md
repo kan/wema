@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+`noteLinks` のボタンを、利用側の見た目に合わせやすくした（[#72](https://github.com/kan/wema/issues/72)）。
+
+### Added
+
+- **`noteLinks` のボタンの色を、CSS 変数で変えられるようにした。** 0.15.0 では固定値だったので、暗い背景のページでは、セレクタごと上書きする必要があった。既定値は 0.15.0 の色と同じ
+  - `--wema-note-link-background`（背景）、`--wema-note-link-color`（文字）、`--wema-note-link-border-color`（枠）
+  - `--wema-note-link-label-color`（接続線のラベル）、`--wema-note-link-accent-color`（向きの記号と、相手の付箋の強調）
+- **`noteLinks: { padding }` を追加した。** ボタンを押して相手の付箋へ移るときの余白（`revealNotes()` の `padding`）を渡せる。ボードの端に固定表示の見出しが重なるページで、付箋が見出しの下に入るのを避けられる
+
+### Changed
+
+- **向きの記号と、相手の付箋の強調の色を、`--wema-anchor-color` から `--wema-note-link-accent-color` に変えた。** アンカーを隠すために `--wema-anchor-color` を `transparent` にしているページで、記号と強調が見えなくなっていた。既定の色は同じ（`#4A90D9`）。`--wema-anchor-color` を変えて記号の色も合わせていた場合は、`--wema-note-link-accent-color` にも同じ色を指定する
+
 ## [0.15.0] - 2026-10-13
 
 ### Added

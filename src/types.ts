@@ -319,6 +319,13 @@ export interface WemaNoteLinksOptions {
    * as HTML. When it throws, the error is logged and the first line is kept.
    */
   text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void;
+  /**
+   * The space kept around the note a link leads to when it is brought into
+   * view, in screen pixels: the `padding` of `revealNotes()` (default: 24).
+   * Make it larger when something of yours covers an edge of the board (a
+   * fixed header, say).
+   */
+  padding?: number;
 }
 
 /**

@@ -7,6 +7,14 @@
   --wema-note-color-text: #333;
   --wema-edge-color: #555;
   --wema-edge-width: 2px;
+  /* The links under a stacked note (noteLinks option). The accent is the
+     sign of the direction and the mark on the note a link leads to: a color
+     of its own, not the one of the anchors (a host may make those invisible) */
+  --wema-note-link-background: #fff;
+  --wema-note-link-color: #333;
+  --wema-note-link-border-color: rgba(0, 0, 0, 0.15);
+  --wema-note-link-label-color: #666;
+  --wema-note-link-accent-color: #4A90D9;
 
   position: relative;
   width: 100%;
@@ -167,10 +175,10 @@
   box-sizing: border-box;
   margin: 0;
   padding: 4px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--wema-note-link-border-color);
   border-radius: 14px;
-  background: #fff;
-  color: #333;
+  background: var(--wema-note-link-background);
+  color: var(--wema-note-link-color);
   font: inherit;
   font-size: 12px;
   line-height: 1.4;
@@ -184,7 +192,7 @@
 
 .wema-note-link-arrow {
   flex: none;
-  color: var(--wema-anchor-color);
+  color: var(--wema-note-link-accent-color);
 }
 
 .wema-note-link-label {
@@ -193,7 +201,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #666;
+  color: var(--wema-note-link-label-color);
 }
 
 .wema-note-link-text {
@@ -211,7 +219,7 @@
 
 @keyframes wema-note-link-target {
   0%, 60% {
-    outline: 3px solid var(--wema-anchor-color);
+    outline: 3px solid var(--wema-note-link-accent-color);
     outline-offset: 2px;
   }
   100% {

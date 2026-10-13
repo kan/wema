@@ -226,10 +226,13 @@ export class WemaBoard {
     let drawLinks: ((note: WemaNote, container: HTMLElement) => boolean) | undefined;
     if (noteLinks) {
       const textOf = noteLinks.text;
+      // Anything but a distance leaves the padding to `revealNotes()`
+      const { padding: given } = noteLinks;
+      const padding = typeof given === 'number' && Number.isFinite(given) && given >= 0 ? given : undefined;
       const linkHost: NoteLinkHost = {
         labels: this.labels,
         isHidden: (id) => this.hiddenNoteIds.has(id),
-        reveal: (id) => this.revealNotes([id]),
+        reveal: (id) => this.revealNotes([id], { padding }),
         getElement: (id) => this.noteManager.getElement(id),
       };
       drawLinks = (note, container) => drawNoteLinks(
