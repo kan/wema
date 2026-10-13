@@ -202,6 +202,34 @@ export interface WemaBoardOptions {
    */
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
+   * Draw something of your own under a note, outside its box, while the
+   * notes are shown stacked (`setStacked()`, where the edges are not shown:
+   * meant for saying what a note is connected to). `container` is an empty
+   * element under the note, as wide as the note: fill it and return true.
+   * Return anything else to put nothing under the note.
+   *
+   * The column leaves room for what you draw: the next note goes under it,
+   * and the notes are stacked again when it gets taller or shorter. The note
+   * itself is not changed: its `height`, the data, the events and the
+   * history know nothing of it. Nothing is drawn while the notes are not
+   * stacked.
+   *
+   * Called for every note when the notes get stacked, and while they are:
+   * for a note that is created, whose `text` or `meta` changes, or that
+   * `refreshNote()` is called for. Not called from inside what asks for it:
+   * the notes that are due are drawn together once that is done (before the
+   * browser paints), each of them once. So the board can be asked about the
+   * note (`getEdgesOf()`, `isNoteHidden()`) from the function, also for the
+   * notes of the `data` the board is made with. The one exception: a method
+   * that reads where the notes are on screen (`revealNotes()`,
+   * `centerContent()`, `fitToContent()`) draws what is due first.
+   *
+   * What you put in `container` is not sanitized. A press or a click in it
+   * does not select the note and starts nothing on the board. Works for
+   * every note, also one that `renderNote` draws, in readOnly and viewOnly.
+   */
+  renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  /**
    * Texts of the board's own UI (tooltips, headings of the edge popup, the
    * link under a foldable note). A key left out keeps its English text.
    * Pass `jaLabels` for Japanese. Read once, when the board is created.
@@ -303,6 +331,16 @@ export interface WemaEventMap {
    * first of them). Not emitted while a board is loaded.
    */
   'note:measure': { note: WemaNote; prev: WemaNote };
+  /**
+   * Notes were hidden (`hidden`) or shown again (`shown`): by the filter
+   * (`setNoteFilter()`), or by an edge that was collapsed or expanded, also
+   * with its badge. A note that is created hidden is in `hidden`; one that
+   * is deleted is in neither. Only what is shown changed: not in the history.
+   *
+   * Emitted like `change`, once what changed it is done, with the notes
+   * that differ from the last time. Not emitted while a board is loaded.
+   */
+  'note:visibility': { hidden: NoteId[]; shown: NoteId[] };
   'note:select': { noteIds: NoteId[] };
   'edge:create': { edge: WemaEdge; origin: ChangeOrigin };
   'edge:update': { edge: WemaEdge; prev: WemaEdge; origin: ChangeOrigin };

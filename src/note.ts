@@ -89,6 +89,13 @@ interface NoteManagerOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;
   /** Let the host draw a note into `container`. Return true when it did (the `renderNote` option). */
   hostRender?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  /** Let the host draw under a note into `container`. Return true when it did (the `renderNoteFooter` option). */
+  hostFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  /**
+   * What the host draws under the notes is to be drawn again, or is as tall
+   * as it was no longer: `drawFooters()` and the column are due
+   */
+  onFooterChange: () => void;
   /** Texts of the UI on a note: the link under a foldable one, the button on a selected image */
   labels: WemaLabels;
 }
@@ -98,6 +105,12 @@ interface NoteManagerOptions {
  * `.wema-note-custom` instead of its text, and the text cannot be edited
  */
 const HOST_DRAWN_CLASS = 'wema-note-host-drawn';
+
+/**
+ * On the element of a note the host drew something under (`renderNoteFooter`
+ * option): `.wema-note-footer` is shown, and the column leaves room for it
+ */
+const HAS_FOOTER_CLASS = 'wema-note-has-footer';
 
 export class NoteManager {
   private notes = new Map<NoteId, WemaNote>();
@@ -131,6 +144,19 @@ export class NoteManager {
    */
   private placedRects = new Map<NoteId, NoteRect>();
   private onPlacedMeasure: (noteId: NoteId) => void;
+  private hostFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;
+  private onFooterChange: () => void;
+  /** Whether the notes show what the host draws under them (`setFootersShown`) */
+  private footersShown = false;
+  /** The notes whose footer is to be drawn, or drawn again, by `drawFooters()` */
+  private staleFooters = new Set<NoteId>();
+  /**
+   * For placed notes with something under them: how tall that was when the
+   * note was placed. Not part of the note: `placedRects` has the note alone.
+   */
+  private footerHeights = new Map<NoteId, number>();
+  /** Tells when what the host drew under a note changes its height by itself (a font that loads, the host's own update) */
+  private footerObserver: ResizeObserver | null = null;
   private labels: WemaLabels;
   /**
    * The foldable notes the user opened. A state of the display only: not in
@@ -156,7 +182,23 @@ export class NoteManager {
     this.onPlacedMeasure = options.onPlacedMeasure;
     this.onLinkClick = options.onLinkClick;
     this.hostRender = options.hostRender;
+    this.hostFooter = options.hostFooter;
+    this.onFooterChange = options.onFooterChange;
     this.labels = options.labels;
+
+    if (this.hostFooter && typeof ResizeObserver !== 'undefined') {
+      this.footerObserver = new ResizeObserver((entries) => {
+        for (const { target } of entries) {
+          const id = target.parentElement?.dataset.noteId;
+          // A note on its way has another width for now: the column has the
+          // height of the width the note ends with
+          if (id === undefined || this.shownRects.has(id)) continue;
+          if ((target as HTMLElement).offsetHeight === (this.footerHeights.get(id) ?? 0)) continue;
+          this.onFooterChange();
+          return;
+        }
+      });
+    }
 
     // Image overlay (size + delete controls)
     this.imageOverlay = createElement('div', 'wema-image-overlay');
@@ -247,7 +289,10 @@ export class NoteManager {
     }
     this.updateNoteElement(note, 'text' in params);
     // What the host draws depends on the text and the meta, not on the position
-    if ('text' in params || 'meta' in params) this.drawByHost(note);
+    if ('text' in params || 'meta' in params) {
+      this.drawByHost(note);
+      this.requestFooter(id);
+    }
     // Measure now when the change can resize a measured note, so the event
     // (and its undo) carries the resulting size
     if ('autoSize' in params || 'foldable' in params || 'text' in params || 'meta' in params
@@ -306,7 +351,84 @@ export class NoteManager {
     if (!note) return false;
     const switched = this.drawByHost(note);
     if (isMeasured(note)) this.measure(id);
+    this.requestFooter(id);
     return switched;
+  }
+
+  /** The element under a note that the host draws into (`renderNoteFooter` option) */
+  private footerElement(id: NoteId): HTMLElement | null {
+    return (this.elements.get(id)?.querySelector(':scope > .wema-note-footer') as HTMLElement | undefined) ?? null;
+  }
+
+  /**
+   * Ask for what the host draws under a note to be drawn, or drawn again.
+   * `drawFooters()` does it, once however often it was asked for: the host
+   * is not called from here, where a note is being made or updated and the
+   * board is not in a state to be asked about (the note has no edges yet,
+   * a board that is being made is not in the hands of the host yet).
+   */
+  private requestFooter(id: NoteId): void {
+    if (!this.hostFooter || !this.footersShown) return;
+    this.staleFooters.add(id);
+    this.onFooterChange();
+  }
+
+  /**
+   * Show what the host draws under the notes (`renderNoteFooter` option), or
+   * nothing. Shown, it is drawn for every note by the next `drawFooters()`.
+   */
+  setFootersShown(shown: boolean): void {
+    if (!this.hostFooter || this.footersShown === shown) return;
+    this.footersShown = shown;
+    if (shown) {
+      this.staleFooters = new Set(this.notes.keys());
+      this.onFooterChange();
+    } else {
+      this.staleFooters.clear();
+      for (const id of this.notes.keys()) this.emptyFooter(id);
+    }
+  }
+
+  /**
+   * Let the host draw under the notes that were asked for (see
+   * `requestFooter`). Returns whether there were any: the column is due then.
+   */
+  drawFooters(): boolean {
+    if (!this.hostFooter || this.staleFooters.size === 0) return false;
+    // What the host asks for while it draws is for the next time
+    const stale = this.staleFooters;
+    this.staleFooters = new Set();
+    for (const id of stale) {
+      const note = this.notes.get(id);
+      const footer = this.emptyFooter(id);
+      // A note that was deleted meanwhile has neither
+      if (!note || !footer) continue;
+      let drawn = false;
+      try {
+        drawn = this.hostFooter({ ...note }, footer) === true;
+      } catch (error) {
+        // One note must not keep the others from being drawn and stacked
+        console.error(`Error in renderNoteFooter for note "${id}":`, error);
+      }
+      if (drawn) {
+        this.elements.get(id)?.classList.add(HAS_FOOTER_CLASS);
+        this.footerObserver?.observe(footer);
+      } else {
+        // Drop what a host that did not return true (or threw) left behind
+        footer.replaceChildren();
+      }
+    }
+    return true;
+  }
+
+  /** Remove what the host drew under a note. Returns the element it draws into. */
+  private emptyFooter(id: NoteId): HTMLElement | null {
+    const footer = this.footerElement(id);
+    if (!footer) return null;
+    footer.replaceChildren();
+    this.elements.get(id)?.classList.remove(HAS_FOOTER_CLASS);
+    this.footerObserver?.unobserve(footer);
+    return footer;
   }
 
   /** Whether the host draws this note (its text is hidden and not editable) */
@@ -513,7 +635,9 @@ export class NoteManager {
     // whatever the size in the model did
     const placed = this.placedRects.get(noteId);
     const el = placed && this.elements.get(noteId);
-    if (placed && el && this.heightAtWidth(note, el, placed.width) !== placed.height) this.onPlacedMeasure(noteId);
+    if (placed && el && this.sizesAtWidth([{ note, el, width: placed.width }])[0].height !== placed.height) {
+      this.onPlacedMeasure(noteId);
+    }
     if (!changed) return;
     // Back at the size of the last note event (a note opened and closed
     // again): nothing is left to report
@@ -576,6 +700,7 @@ export class NoteManager {
     const note = this.notes.get(id);
     if (!note) return;
 
+    this.emptyFooter(id);
     const el = this.elements.get(id);
     if (el) {
       el.remove();
@@ -585,6 +710,7 @@ export class NoteManager {
     this.unreportedSizeBase.delete(id);
     this.shownRects.delete(id);
     this.placedRects.delete(id);
+    this.footerHeights.delete(id);
     this.unfolded.delete(id);
     if (this.editingId === id) this.editingId = null;
     this.emitter.emit('note:delete', { note: { ...note }, origin });
@@ -608,6 +734,13 @@ export class NoteManager {
     const note = this.notes.get(id);
     const el = this.elements.get(id);
     if (note && el) this.applyStyles(el, note);
+    // What the host drew under the note was not watched on the way (see
+    // `footerObserver`): observed again, it is reported as it is now
+    const footer = !rect && el?.classList.contains(HAS_FOOTER_CLASS) ? this.footerElement(id) : null;
+    if (footer && this.footerObserver) {
+      this.footerObserver.unobserve(footer);
+      this.footerObserver.observe(footer);
+    }
   }
 
   /**
@@ -635,6 +768,7 @@ export class NoteManager {
     for (const id of [...this.placedRects.keys()]) {
       if (placed.has(id)) continue;
       this.placedRects.delete(id);
+      this.footerHeights.delete(id);
       released.add(id);
     }
     // The widths first: they decide the heights the layout works with. Only
@@ -654,10 +788,18 @@ export class NoteManager {
     for (const { note, el } of widened) this.applyStyles(el, note);
     for (const { note, el } of widened) this.applyFold(note, el);
 
-    const sized = drawn.map(({ note, el }) => {
+    const sizes = this.sizesAtWidth(
+      drawn.map(({ note, el }) => ({ note, el, width: this.placedRects.get(note.id)!.width })),
+    );
+    const sized = drawn.map(({ note }, i) => {
       const rect = this.placedRects.get(note.id)!;
-      rect.height = this.heightAtWidth(note, el, rect.width);
-      return { ...note, width: rect.width, height: rect.height };
+      const { height, footer } = sizes[i];
+      rect.height = height;
+      if (footer > 0) this.footerHeights.set(note.id, footer);
+      else this.footerHeights.delete(note.id);
+      // The layout leaves room for what the host drew under the note: the
+      // next note goes under that. The note itself is as tall as it was.
+      return { ...note, width: rect.width, height: height + footer };
     });
     for (const place of layout(sized)) {
       const rect = this.placedRects.get(place.id);
@@ -679,22 +821,36 @@ export class NoteManager {
   }
 
   /**
-   * How tall a note is drawn at `width`, the width it is placed with: the
-   * height of the model, unless the style sheet sizes the note. A note on
-   * its way to its place is drawn with another width for now, and is laid
-   * out at `width` for as long as it takes to read its height.
+   * How tall notes are drawn at `width`, the width each is placed with, and
+   * how tall what the host drew under them is there (`footer`, 0 for
+   * nothing). The height is the one of the model, unless the style sheet
+   * sizes the note. A note on its way to its place is drawn with another
+   * width for now, and is laid out at `width` for as long as it takes to
+   * read these: all such notes at once, so that the board is not laid out
+   * again for each of them.
    */
-  private heightAtWidth(note: WemaNote, el: HTMLElement, width: number): number {
-    if (!this.isSizedByContent(note)) return note.height;
-    const shown = this.shownRects.get(note.id);
-    // 0: the note is not laid out
-    if (!shown || shown.width === width) return el.offsetHeight || note.height;
-    el.style.width = `${width}px`;
+  private sizesAtWidth(
+    items: { note: WemaNote; el: HTMLElement; width: number }[],
+  ): { height: number; footer: number }[] {
+    const read = items.map(({ note, el, width }) => {
+      const sized = this.isSizedByContent(note);
+      const footer = el.classList.contains(HAS_FOOTER_CLASS) ? this.footerElement(note.id) : null;
+      const shown = this.shownRects.get(note.id);
+      // Nothing to read from a note that has the height of the model and nothing under it
+      const offWidth = (sized || footer !== null) && shown !== undefined && shown.width !== width;
+      return { note, el, width, sized, footer, restore: offWidth ? shown.width : undefined };
+    });
+    const moving = read.filter((item) => item.restore !== undefined);
+    for (const { el, width } of moving) el.style.width = `${width}px`;
     // Open or closed is decided by the length of the text at that width
-    this.applyFold(note, el);
-    const height = el.offsetHeight || note.height;
-    el.style.width = `${shown.width}px`;
-    return height;
+    for (const { note, el, sized } of moving) if (sized) this.applyFold(note, el);
+    const sizes = read.map(({ note, el, sized, footer }) => ({
+      // 0: the note is not laid out
+      height: (sized && el.offsetHeight) || note.height,
+      footer: footer?.offsetHeight ?? 0,
+    }));
+    for (const { el, restore } of moving) el.style.width = `${restore}px`;
+    return sizes;
   }
 
   /**
@@ -712,9 +868,30 @@ export class NoteManager {
     return this.placedRects.has(id);
   }
 
-  /** All the notes where they are drawn when nothing moves (see `getPlacedNote`) */
-  getPlacedNotes(): WemaNote[] {
-    return Array.from(this.notes.values(), (note) => ({ ...note, ...this.placedRects.get(note.id) }));
+  /**
+   * The room all the notes take when nothing moves: where each is drawn
+   * (see `getPlacedNote`), as tall as the note and what the host drew under
+   * it together. For what has to fit or show all of a note, not for what is
+   * drawn next to the note itself.
+   */
+  getPlacedBoxes(): WemaNote[] {
+    return Array.from(this.notes.values(), (note) => this.withFooter({ ...note, ...this.placedRects.get(note.id) }));
+  }
+
+  /** The note, taller by what the host drew under it */
+  private withFooter(note: WemaNote): WemaNote {
+    const footer = this.footerHeights.get(note.id);
+    return footer ? { ...note, height: note.height + footer } : note;
+  }
+
+  /**
+   * The room a note takes as it is drawn now (see `getShownNote`), with what
+   * the host drew under it: what is put next to all of it (its popup)
+   * follows this one.
+   */
+  getShownBox(id: NoteId): WemaNote | undefined {
+    const note = this.getShownNote(id);
+    return note && this.withFooter(note);
   }
 
   /**
@@ -743,13 +920,16 @@ export class NoteManager {
     return Array.from(this.notes.values()).map((n) => ({ ...n }));
   }
 
-  /** The lowest bottom edge among the notes `counts` accepts, or null when there is none */
+  /**
+   * The lowest bottom edge among the notes `counts` accepts, or null when
+   * there is none. What the host drew under a note counts as part of it.
+   */
   lowestBottom(counts: (id: NoteId) => boolean): number | null {
     let bottom: number | null = null;
     for (const note of this.notes.values()) {
       if (!counts(note.id)) continue;
       const rect = this.placedRects.get(note.id) ?? note;
-      bottom = Math.max(bottom ?? -Infinity, rect.y + rect.height);
+      bottom = Math.max(bottom ?? -Infinity, rect.y + rect.height + (this.footerHeights.get(note.id) ?? 0));
     }
     return bottom;
   }
@@ -815,6 +995,10 @@ export class NoteManager {
   /** Clean up board-level listeners */
   destroy(): void {
     this.boardEl.removeEventListener('click', this.handleImageOverlayDismiss, true);
+    // What was asked of the host and is not drawn yet is not drawn any more
+    this.footersShown = false;
+    this.staleFooters.clear();
+    this.footerObserver?.disconnect();
     this.imageOverlay.remove();
   }
 
@@ -895,6 +1079,8 @@ export class NoteManager {
     if (!current) return;
     const prev = { ...current };
     current.text = contentEl.innerHTML;
+    // Like any change of the text (the note is not one the host draws: it has a text element)
+    if (current.text !== prev.text) this.requestFooter(noteId);
     const resized = this.applyMeasuredSize(current);
     if (current.text !== prev.text || resized || this.unreportedSizeBase.has(noteId)) {
       this.emitUpdate(current, prev);
@@ -911,6 +1097,9 @@ export class NoteManager {
     this.unreportedSizeBase.clear();
     this.shownRects.clear();
     this.placedRects.clear();
+    this.staleFooters.clear();
+    this.footerHeights.clear();
+    this.footerObserver?.disconnect();
     this.unfolded.clear();
     this.editingId = null;
     this.zCounter = 1;
@@ -1132,12 +1321,25 @@ export class NoteManager {
     el.appendChild(foldToggle);
     el.appendChild(anchors);
     el.appendChild(resizeHandle);
+    if (this.hostFooter) {
+      // Where the host draws under the note (`renderNoteFooter` option). It
+      // is outside the box of the note, and a press or a click in it is not
+      // one on the note: it selects nothing and starts nothing.
+      const footer = createElement('div', 'wema-note-footer');
+      // Nor is a key pressed in it (on a button of the host that has the
+      // focus) a shortcut of the board: Delete would remove the selected notes
+      for (const type of ['pointerdown', 'click', 'dblclick', 'keydown'] as const) {
+        footer.addEventListener(type, (e) => e.stopPropagation());
+      }
+      el.appendChild(footer);
+    }
 
     this.applyStyles(el, note);
     this.layerEl.appendChild(el);
     this.elements.set(note.id, el);
     this.applyEditable(note.id);
     this.drawByHost(note);
+    this.requestFooter(note.id);
     // The size of a measured note is the rendered one from the start (and in
     // the note:create that follows). A foldable note starts closed.
     if (measure && isMeasured(note)) this.applyMeasuredSize(note);

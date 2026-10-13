@@ -84,6 +84,7 @@ const board = new WemaBoard({
   onImageUpload?: (file: File) => Promise<string>,  // 画像のアップロード先 URL を返す
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
+  renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 縦に積んでいる間、付箋の下に利用側の要素を描く
   labels?: Partial<WemaLabels>,  // 画面の文言（ボタンの説明、接続線のポップアップの見出しなど）。省略したキーは英語
   foldLabels?: { more?: string, less?: string },  // 畳んだ付箋を開閉するリンクの文言。labels の readMore / showLess と同じもの
   wheelPan?: boolean,          // default: true（ホイールで表示位置を動かす）
@@ -159,7 +160,7 @@ const board = new WemaBoard({
 | `deleteNote(id)` | 付箋を削除 |
 | `getNote(id)` | IDで取得 |
 | `getNotes()` | 全付箋を取得 |
-| `refreshNote(id)` | `renderNote` オプションで描いた付箋を描き直す |
+| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteFooter` オプションで付箋の下に描いた要素を描き直す |
 | `resizeNotesToContent(noteIds)` | 付箋をコンテンツに合うサイズへ 1 回だけ変更する（`autoSize` は変えない） |
 
 #### 長い本文を畳む（`foldable`）
@@ -268,12 +269,14 @@ board.refreshNote(noteId);
 |---------|------|
 | `setNoteFilter(noteIds)` | 指定した付箋だけを表示する。`null` で解除 |
 | `getNoteFilter()` | 表示対象の ID を取得。絞り込んでいなければ `null` |
+| `isNoteHidden(id)` | 付箋が非表示か（絞り込みの対象外、または折り畳んだ接続線の先）。存在しない ID には `false` |
 
 ```typescript
 board.setNoteFilter(matchedIds);  // 一致した付箋だけを残す
 board.setNoteFilter(null);        // 全部表示に戻す
 ```
 
+- 付箋の表示と非表示が変わると、`note:visibility` が発火する（「イベント」の節）。折り畳みのバッジを押して開いたときも発火する
 - 表示対象でない付箋と、その付箋につながる接続線を非表示にする
 - データは変えない。`note:*` / `edge:*` / `history:commit` / `change` は発火せず、Undo 履歴にも積まれない。`exportData()` は全部の付箋と接続線を返す
 - 非表示になった付箋と接続線は選択から外れ、付箋は全選択やラバーバンド選択の対象にもならない
@@ -431,6 +434,67 @@ window.addEventListener('resize', layout);
 | ドラッグとリサイズ | できる | できない |
 | 向いている場面 | 保存しないページ、配置そのものを縦 1 列にしたいとき | 保存や同期をしているボードを、狭い画面で読ませるとき |
 
+##### 付箋の下に利用側の要素を描く（`renderNoteFooter`）
+
+積んでいる間は接続線が出ない。付箋のつながりは、`renderNoteFooter` で付箋の下に描ける。`container` に DOM を作って `true` を返すと、付箋の枠のすぐ下に表示する。それ以外を返した付箋の下には、何も置かない。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  data,
+  stacked: { x: 12, y: 12, width: window.innerWidth - 24 },
+  renderNoteFooter: (note, el) => {
+    const edges = board.getEdgesOf(note.id);
+    if (edges.length === 0) return false;       // 何も置かない
+    for (const edge of edges) {
+      const out = edge.from === note.id;
+      const other = board.getNote(out ? edge.to : edge.from);
+      if (!other) continue;
+      const link = document.createElement('button');
+      link.textContent = (out ? '→ ' : '← ') + summaryOf(other);
+      link.disabled = board.isNoteHidden(other.id);  // 非表示の付箋へは移れない
+      link.addEventListener('click', () => board.revealNotes([other.id]));
+      el.append(link);
+    }
+    return true;
+  },
+});
+
+// 描いた内容の元が変わったら、描き直しを頼む
+const refreshEnds = ({ edge }) => {
+  board.refreshNote(edge.from);
+  board.refreshNote(edge.to);
+};
+board.on('edge:create', refreshEnds);
+board.on('edge:update', refreshEnds);
+board.on('edge:delete', refreshEnds);
+
+const refreshConnected = (id) => {
+  for (const edge of board.getEdgesOf(id)) board.refreshNote(edge.from === id ? edge.to : edge.from);
+};
+board.on('note:update', ({ note, prev }) => {
+  if (note.text !== prev.text) refreshConnected(note.id);
+});
+board.on('note:visibility', ({ hidden, shown }) => {
+  for (const id of [...hidden, ...shown]) refreshConnected(id);
+});
+```
+
+- **表示するのは、`setStacked()` で積んでいる間だけ。** 積んでいない間は、`renderNoteFooter` を呼ばず、描いた要素も消す。付箋どうしの間隔が利用側の配置で決まり、要素の置き場がないため
+- **付箋のデータは変わらない。** 付箋の `height`、`getNote()`、`exportData()` は、この要素の有無で変わらない。`note:update` / `note:measure` / `history:commit` / `change` も発火しない
+- 列は、この要素の高さを含めて積む（下の付箋は、この要素の下から始まる）。`gap` は、この要素と下の付箋の間隔になる。高さが変わると、ボードが積み直す（描き直したとき、幅が変わったとき、利用側が中身を書き換えたとき）。付箋との間隔は、利用側が `container` の中の余白で決める
+- 呼び出すのは、積み始めたとき（全部の付箋）と、積んでいる間に、付箋を作ったとき、付箋の `text` または `meta` が変わったとき、`refreshNote(id)` を呼んだとき
+- **呼び出しは、きっかけになった処理が終わってから、まとめて行う**（ブラウザが描く前）。同じ付箋は、何度頼んでも 1 回だけ呼ぶ。関数の中から、その付箋の接続線（`getEdgesOf()`）や相手の付箋（`getNote()` / `isNoteHidden()`）を調べられる。生成時の `data` と `stacked` で積んだ付箋も同じで、関数の中で `new WemaBoard()` の戻り値を使える。`importData()` と `applyRemote()` では、接続線を読み込んだあとに呼ぶ。例外は、付箋の画面上の位置を読むメソッド（`revealNotes()` / `centerContent()` / `fitToContent()`）で、呼んだ時点で、頼まれている分を先に描く
+- `container` は、付箋と同じ幅。呼び出すたびに、空にしてから渡す
+- `container` の中のクリックやタップは、付箋の選択、編集の開始、ボードの操作にならない。中のボタンにフォーカスがあるときのキー入力も、ボードのショートカット（Delete、Undo / Redo）にならない
+- 付箋を選択したときのポップアップは、この要素の下に出す
+- `renderNote` で利用側が描いた付箋の下にも描ける。readOnly / viewOnly でも呼び出す
+- **`container` の中身は、wema のサニタイズを通さない。** 他人が書いた文字列（相手の付箋の本文を含む）を出すときは、`innerHTML` ではなく `textContent` を使うこと
+- 下向きの接続線を折り畳んだバッジは、この要素のある付箋では、付箋の下の右端に出す。`container` は、右端をバッジの分（28px）だけ空ける
+- 制限: 上向きの接続線（列で上にある付箋へ向かう線）を折り畳んだバッジは、付箋の上の中央に出て、1 つ上の付箋のこの要素の下端に 8px ほど重なる（`gap` が既定の 16px のとき）。重ねたくないときは、`gap` を 24px 以上にするか、`container` の下に余白を入れる
+- `renderNoteFooter` が例外を投げたときは、コンソールにエラーを出し、その付箋の下には何も置かない。他の付箋の描画と積み直しは続ける
+- `revealNotes()` / `centerContent()` / `fitToContent()` は、この要素を付箋の一部として扱う（付箋とこの要素が見える位置へ動かす）
+
 #### レイアウト・整列
 
 | メソッド | 説明 |
@@ -549,6 +613,7 @@ const wide = computeAutoLayout(data.notes, data.edges, { aspectRatio: 16 / 9 });
 | `note:update` | `{ note, prev, origin }` |
 | `note:delete` | `{ note, origin }` |
 | `note:measure` | `{ note, prev }` |
+| `note:visibility` | `{ hidden, shown }` |
 | `note:select` | `{ noteIds }` |
 | `edge:create` | `{ edge, origin }` |
 | `edge:update` | `{ edge, prev, origin }` |
@@ -568,6 +633,7 @@ board.off('change', handler);
 
 - `note:*` / `edge:*` の `origin` は、このボードでの操作なら `'local'`、`applyRemote()` による変更なら `'remote'`
 - `note:measure` は、大きさが内容で決まる付箋（`autoSize` / `foldable`）の大きさが、`note:update` を伴わずに変わると発火する（入力の途中、`foldable` の開閉、非表示だった付箋の再表示）。`prev` は変わる前の付箋。`change` と同じく、きっかけになった処理が終わってから発火し、同じタイミングの変化は、付箋ごとに 1 回だけ発火する。表示から決まる値の変化なので、Undo 履歴と `history:commit` には載らない。この大きさの変化は、その付箋の次の `note:update` の `prev` に載る。`updateNote()` の中で大きさが変わったときは `note:update` だけが発火し、ボードの読み込み（生成時の `data` と `importData()`）では発火しない
+- `note:visibility` は、付箋の表示と非表示が変わると発火する（絞り込み、接続線の折り畳みと展開。折り畳みのバッジを押したときを含む）。`hidden` は非表示になった付箋の ID、`shown` は表示に戻った付箋の ID。非表示の状態で作られた付箋（絞り込み中に `applyRemote()` で届いた付箋など）は `hidden` に入り、削除した付箋はどちらにも入らない。`change` と同じく、きっかけになった処理が終わってから発火し、前回の発火から変わった付箋だけを 1 回で知らせる。表示だけの変化なので、Undo 履歴と `history:commit` には載らない。ボードの読み込み（生成時の `data` と `importData()`）では発火しない。いまの状態は `isNoteHidden(id)` で調べる
 - `history:commit` は、ユーザー操作 1 回分（Undo 1 回分）が確定するたびに発火する。`origin` は `'user'` / `'undo'` / `'redo'` / `'agent'`
 - `change` の `data` には常に `exportData()` と同じ内容が入る。同じタイミングの変更は 1 回にまとめて発火する
 

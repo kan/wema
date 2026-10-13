@@ -18,3 +18,7 @@ paths:
 - 非表示になった付箋と接続線は `recomputeVisibility()` が選択から外す（見えないものを Delete で消せてしまうのを防ぐ）
 - 非表示から表示へ戻した付箋は、`recomputeVisibility()` が `NoteManager.remeasure()` で計測し直す。非表示のあいだはレイアウトされず、autoSize や `foldable` の付箋のサイズを計測できないため
 - 非表示の理由を増やすときも `recomputeVisibility()` に足すこと（DOM の `display` を別の場所で書き換えない）
+- 利用側は、`isNoteHidden(id)` で調べ、`note:visibility`（`{ hidden, shown }`）で変化を受け取る（issue #70）
+  - **`note:visibility` を、`recomputeVisibility()` の中で（同期で）出さないこと。** `recomputeVisibility()` は、`applyRemote()` の付箋と接続線の 1 件ごと、Undo / Redo の再生の途中に呼ばれる。出す場所は `scheduleVisibility()` の 1 か所で、`change` と同じくマイクロタスクで出す
+  - 知らせるのは、前回知らせた集合（`reportedHidden`）との差。途中で隠れて戻った付箋は入らない。削除した付箋は `shown` に入れない。非表示の状態で作られた付箋は `hidden` に入る
+  - `importData()` は、読み込んだあとの集合を `reportedHidden` に入れ、読み込みでは発火させない

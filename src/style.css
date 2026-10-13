@@ -119,6 +119,35 @@
   display: block;
 }
 
+/* Where the host draws under a note (renderNoteFooter option): outside the
+   box of the note, which keeps its size. Shown while the notes are stacked,
+   where the column leaves room for it. */
+.wema-note-footer {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.wema-board.wema-stacked .wema-note-has-footer > .wema-note-footer {
+  display: block;
+}
+
+/* The badge of a collapsed edge that leaves the note downwards is under the
+   note as well: it goes to the right end, where the footer leaves it room
+   (the badge is 22px wide; the buttons come before the footer in the note) */
+.wema-board.wema-stacked .wema-note-has-footer > .wema-note-collapse-badge[data-side="bottom"] {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.wema-board.wema-stacked .wema-note-collapse-badge[data-side="bottom"] ~ .wema-note-footer {
+  padding-right: 28px;
+}
+
 /* Rich text content styles */
 .wema-note-content ul,
 .wema-note-content ol {

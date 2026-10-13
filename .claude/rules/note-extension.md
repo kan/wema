@@ -36,3 +36,4 @@ wema-kake の「子ページの付箋」のために足した 2 つの口（issu
 - 入力を受ける要素（本文、`input` / `textarea` / `select`）の定義は `TYPING_SELECTOR`（`src/utils/dom.ts`）の 1 つ。フォーカスがそこにあるあいだ、ボードはキーボードショートカット（Delete、Undo、Space）とフォーカスを取らない。`NO_DRAG_SELECTOR` もこれに足して組み立てている。入力要素を別の場所で列挙しない
 - `refreshNote()` は、利用側が描くかどうかが切り替わったときだけポップアップを作り直す。毎回作り直すと、ポップアップに入力中の内容（埋め込み URL）が消える
 - `.wema-note-custom` の中身はサニタイズしない。wema が自分で `innerHTML` を入れることはない
+- `refresh()` は、付箋の下の要素（`renderNoteFooter` オプション）の描き直しも頼む。こちらは `renderNote` と違い、その場では呼ばず、積んでいる間だけ描く（`.claude/rules/stacked.md` の「付箋の下に利用側が描く要素」）

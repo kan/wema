@@ -120,6 +120,7 @@ wema/
 │   ├── list.test.ts
 │   ├── move.test.ts
 │   ├── note-extension.test.ts
+│   ├── note-footer.test.ts
 │   ├── page-scroll.test.ts
 │   ├── stacked.test.ts
 │   ├── rich-text.test.ts
@@ -182,7 +183,7 @@ wema/
 | `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
 | `move-animation.md` | 付箋の移動のアニメーション（`moveNotes()` と `duration`） | `src/animation.ts`、`src/note.ts`、`src/board.ts`、`src/edge.ts` |
 | `page-scroll.md` | ページと一緒にスクロールするモード（`pageScroll`） | `src/board.ts`、`src/style.css` |
-| `stacked.md` | データを変えない、表示だけの縦積み（`setStacked()`） | `src/board.ts`、`src/note.ts`、`src/animation.ts`、`src/style.css` |
+| `stacked.md` | データを変えない、表示だけの縦積み（`setStacked()`）と、積んでいる間に付箋の下へ利用側が描く口（`renderNoteFooter`） | `src/board.ts`、`src/note.ts`、`src/animation.ts`、`src/style.css` |
 | `standalone.md` | スタンドアロン版の責務とビルド | `standalone/`、`scripts/build-standalone.ts` |
 
 ### データの流れ
@@ -262,7 +263,7 @@ class WemaBoard {
   deleteNote(id: NoteId): void;
   getNote(id: NoteId): WemaNote | undefined;
   getNotes(): WemaNote[];
-  refreshNote(id: NoteId): void;  // renderNote で描いた付箋を描き直す（データは変えない）
+  refreshNote(id: NoteId): void;  // renderNote で描いた付箋と、renderNoteFooter で描いた要素を描き直す（データは変えない）
   resizeNotesToContent(noteIds: NoteId[]): void;  // 内容に合うサイズへ 1 回だけ変える（autoSize は変えない。Undo 1 回分）
 
   // 接続線
@@ -281,6 +282,7 @@ class WemaBoard {
   // 絞り込み（表示だけを変える。データ・イベント・履歴には影響しない）
   setNoteFilter(noteIds: NoteId[] | null): void;
   getNoteFilter(): NoteId[] | null;
+  isNoteHidden(id: NoteId): boolean;  // 絞り込みの対象外、または折り畳んだ接続線の先。変わると note:visibility が発火する
 
   // 表示位置と倍率（表示だけを変える。viewport:change のみ発火）
   getViewport(): WemaViewport;                 // { x, y, zoom }
@@ -343,6 +345,7 @@ interface WemaBoardOptions {
   onImageUpload?: (file: File) => Promise<string>;  // 指定時は data URL の代わりに返された URL で画像を挿入
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
+  renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;  // 積んでいる間（setStacked）、true を返した付箋の下に container の中身を表示する。付箋のデータは変えない
   labels?: Partial<WemaLabels>;  // 画面の文言。省略したキーは英語（enLabels）。日本語は jaLabels を渡す。読むのは作成時の 1 回
   foldLabels?: { more?: string; less?: string };  // labels の readMore / showLess と同じ文言。両方あればこちらが優先（default: 'Read more' / 'Show less'）
   wheelPan?: boolean;          // default: true（ホイールで表示位置を動かす）
@@ -367,6 +370,7 @@ interface WemaEventMap {
   'note:update':     { note: WemaNote; prev: WemaNote; origin: ChangeOrigin };
   'note:delete':     { note: WemaNote; origin: ChangeOrigin };
   'note:measure':    { note: WemaNote; prev: WemaNote };  // 計測で大きさが変わった（表示だけ。履歴に載らない）
+  'note:visibility': { hidden: NoteId[]; shown: NoteId[] };  // 表示と非表示が変わった付箋（表示だけ。履歴に載らない）
   'note:select':     { noteIds: NoteId[] };
   'edge:create':     { edge: WemaEdge; origin: ChangeOrigin };
   'edge:update':     { edge: WemaEdge; prev: WemaEdge; origin: ChangeOrigin };

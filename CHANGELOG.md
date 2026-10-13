@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`renderNoteFooter` オプションを追加した。** 表示だけの縦積み（`setStacked()`）の間、付箋の下（枠の外側）に、利用側が DOM を描ける。積んでいる間は接続線が出ないので、付箋のつながりを「→ 相手の付箋」のような印で見せるために使う（[#70](https://github.com/kan/wema/issues/70)）
+  - 列は、描いた要素の高さを含めて積む。付箋のデータ（`height`）は変わらず、`note:update` / `note:measure` / `history:commit` / `change` も発火しない
+  - `refreshNote(id)` で描き直す。利用側の関数は、きっかけになった処理が終わってから、付箋ごとに 1 回だけ呼ぶ
+  - 中のクリックやタップは、付箋の選択やボードの操作にならない
+- **`isNoteHidden(id)` を追加した。** 付箋が非表示（絞り込みの対象外、または折り畳んだ接続線の先）かを返す
+- **`note:visibility` イベントを追加した。** 付箋の表示と非表示が変わると、`{ hidden, shown }`（付箋の ID）で知らせる。折り畳みのバッジを押して開いたときも発火する
+
 ## [0.13.2] - 2026-10-13
 
 ### Changed

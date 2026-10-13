@@ -119,6 +119,9 @@ export class WemaBoard {
   private noteFilter: Set<NoteId> | null = null;
   /** Notes currently hidden by a collapsed edge or by the filter */
   private hiddenNoteIds = new Set<NoteId>();
+  /** The hidden notes as `note:visibility` last reported them */
+  private reportedHidden = new Set<NoteId>();
+  private visibilityPending = false;
   /** The edges that may get a collapse button on their note: those the filter shows (see recomputeVisibility) */
   private buttonEdges: WemaEdge[] = [];
   /**
@@ -231,6 +234,8 @@ export class WemaBoard {
       onPlacedMeasure: () => this.scheduleRestack(),
       onLinkClick: options.onLinkClick,
       hostRender: options.renderNote,
+      hostFooter: options.renderNoteFooter,
+      onFooterChange: () => this.scheduleRestack(),
       labels: this.labels,
     });
 
@@ -869,8 +874,9 @@ export class WemaBoard {
   }
 
   /**
-   * Call the `renderNote` option for a note again. Use it when what you draw
-   * in the note depends on something outside the note's data and that changed.
+   * Call the `renderNote` option for a note again, and the `renderNoteFooter`
+   * option too while the notes are stacked. Use it when what you draw
+   * depends on something outside the note's data and that changed.
    * (A change of the note's `text` or `meta` draws it again by itself.)
    * Changes nothing in the data: no event, no history. Also works in
    * readOnly and viewOnly.
@@ -1051,6 +1057,15 @@ export class WemaBoard {
     return this.noteFilter ? Array.from(this.noteFilter) : null;
   }
 
+  /**
+   * Whether a note is not shown: left out by the filter (`setNoteFilter()`),
+   * or behind a collapsed edge. False for a note that does not exist.
+   * `note:visibility` tells when this changes.
+   */
+  isNoteHidden(id: NoteId): boolean {
+    return this.hiddenNoteIds.has(id);
+  }
+
   // --- Viewport ---
 
   /** Get which part of the board is shown */
@@ -1224,13 +1239,16 @@ export class WemaBoard {
     });
   }
 
-  /** Bounding box, in board coordinates, of the shown notes among `noteIds` (default: all) */
+  /**
+   * Bounding box, in board coordinates, of the shown notes among `noteIds`
+   * (default: all), with what the host drew under them (`renderNoteFooter`)
+   */
   private visibleBounds(noteIds?: NoteId[]): Box | null {
     const ids = noteIds ? new Set(noteIds) : null;
     // Where the notes are drawn, which is not where the data has them while
     // they are stacked (a note made just now is put in the column first)
     this.flushRestack();
-    const notes = this.noteManager.getPlacedNotes()
+    const notes = this.noteManager.getPlacedBoxes()
       .filter((note) => (!ids || ids.has(note.id)) && !this.hiddenNoteIds.has(note.id));
     return notes.length === 0 ? null : boundingBoxOf(notes);
   }
@@ -1323,6 +1341,10 @@ export class WemaBoard {
       this.edgeManager.deselectEdge();
       this.edgePopup.hide();
     }
+    // What the host draws under the notes is shown in the column only. It is
+    // drawn once this call is done (see flushRestack), and the notes are
+    // stacked again with it then.
+    this.noteManager.setFootersShown(this.stack !== null);
     // All the notes go where this call puts them: one that is on its way
     // from an earlier call starts again from where it is drawn, or stops
     this.restack(this.noteManager.getNotes().map((n) => n.id), options?.duration);
@@ -1359,8 +1381,19 @@ export class WemaBoard {
     queueMicrotask(() => this.flushRestack());
   }
 
+  /**
+   * Do what is pending for the column: let the host draw under the notes
+   * that are due (`renderNoteFooter` option), then put the notes in the
+   * column again. The one place the host draws from: once what asked for it
+   * is done (by then the board is made, and the edges of a note are
+   * loaded), or earlier when a place on screen is read (`visibleBounds()`).
+   */
   private flushRestack(): void {
-    if (this.restackPending) this.restack();
+    // What the host asks for while it draws (`refreshNote()`) is done the next time
+    const pending = this.restackPending;
+    this.restackPending = false;
+    // Drawn also when the column was laid out meanwhile (`setStacked()`)
+    if (this.noteManager.drawFooters() || pending) this.restack();
   }
 
   /** Whether the board is in the page scroll mode */
@@ -1714,6 +1747,8 @@ export class WemaBoard {
     // What viewOnly restores on exit is now the imported data, not what it replaced
     if (this.viewOnly) this.snapshotForViewOnly();
     this.recomputeVisibility();
+    // Loading is not a change of what is shown: `note:visibility` starts from here
+    this.reportedHidden = new Set(this.hiddenNoteIds);
   }
 
   // --- Events ---
@@ -2031,6 +2066,7 @@ export class WemaBoard {
       }
     }
     this.hiddenNoteIds = hiddenNotes;
+    this.scheduleVisibility();
 
     // What is no longer visible must not stay selected (it could be deleted unseen)
     const selection = this.selectionManager.getSelection();
@@ -2144,6 +2180,9 @@ export class WemaBoard {
         // Hide button when: no edges on this side, note hidden, or read-only
         if (!sideEdges || sideEdges.length === 0 || hiddenNotes.has(note.id) || this.readOnly) {
           btn.style.display = 'none';
+          // No badge any more either: the style sheet goes by the class
+          // (what the host drew under a note leaves room for a badge)
+          btn.classList.remove('wema-note-collapse-badge');
           continue;
         }
 
@@ -2218,6 +2257,27 @@ export class WemaBoard {
         if (!note || (note.width === width && note.height === height)) continue;
         this.emitter.emit('note:measure', { note, prev: { ...note, width, height } });
       }
+    });
+  }
+
+  /**
+   * Report the notes that were hidden or shown again with `note:visibility`,
+   * once whatever changed that is done. Like a measured size, this is
+   * decided in the middle of other work (a change that is replayed, each
+   * note and edge of a remote change), and many times for one change.
+   */
+  private scheduleVisibility(): void {
+    if (this.visibilityPending) return;
+    this.visibilityPending = true;
+    queueMicrotask(() => {
+      this.visibilityPending = false;
+      const before = this.reportedHidden;
+      const now = this.hiddenNoteIds;
+      this.reportedHidden = new Set(now);
+      const hidden = [...now].filter((id) => !before.has(id));
+      // A note that is gone was not shown again
+      const shown = [...before].filter((id) => !now.has(id) && this.noteManager.getNote(id) !== undefined);
+      if (hidden.length > 0 || shown.length > 0) this.emitter.emit('note:visibility', { hidden, shown });
     });
   }
 
