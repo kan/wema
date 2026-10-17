@@ -14,6 +14,8 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 
 **[デモを試す](https://kan.github.io/wema/)**
 
+wema を使った Wiki に [wema-kake](https://github.com/kan/wema-kake)（npm: [`@kanf/wema-kake`](https://www.npmjs.com/package/@kanf/wema-kake)）がある。保存と同期まで含めて付箋のボードを使いたいなら、[wema-kake で Wiki として使う](#wema-kake-で-wiki-として使う)を参照。
+
 ## 使い方
 
 ### スタンドアロン版（最も簡単）
@@ -35,6 +37,33 @@ Web上に付箋を絵馬のように貼って並べる、フレームワーク�
 - 5色のカラーパレット
 - IndexedDB による自動保存
 - JSON エクスポート/インポート
+
+### wema-kake で Wiki として使う
+
+[wema-kake](https://github.com/kan/wema-kake) は、wema を使った Wiki。1 ページが 1 枚のボードで、付箋を置き、線でつなぎ、ページの中に子ページを置いて整理する。Cloudflare Workers の上で動き、複数のブラウザの間で同期し、Claude などの LLM からも MCP で読み書きできる。
+
+![wema-kake のページの画面。付箋と接続線、子ページの付箋が並んでいる](https://raw.githubusercontent.com/kan/wema-kake/main/docs/images/page.png)
+
+wema-kake も npm パッケージ（[`@kanf/wema-kake`](https://www.npmjs.com/package/@kanf/wema-kake)）として配っている。雛形から自分のリポジトリを作り、自分の Worker としてデプロイする。
+
+```sh
+npx @kanf/wema-kake init my-wiki
+cd my-wiki
+npm run dev
+```
+
+デプロイと Cloudflare Access の設定の手順は、wema-kake の [README](https://github.com/kan/wema-kake#readme) にある。
+
+wema はブラウザの中だけで動き、保存先や同期の仕組みを持たない。wema-kake は、そこに次のものを足している。
+
+| wema が受け持つ | wema-kake が足す |
+| --- | --- |
+| 付箋と接続線の表示と編集 | ページという単位と、ページ間のリンク、ページの階層 |
+| Undo / Redo、パンとズーム | サーバーへの保存と、複数のブラウザの間の同期（[リアルタイム同期](#リアルタイム同期)の API を使う） |
+| 変更の内容を表すデータ（デルタ） | 全文検索、画像の保存、認証 |
+| | LLM 向けの MCP サーバーと、その操作の取り消し |
+
+wema を自分のアプリに組み込むときの実例としても読める。
 
 ### npm パッケージ
 
