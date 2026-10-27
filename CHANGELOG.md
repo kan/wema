@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.1] - 2026-10-27
+
+### Changed
+
+- 依存関係の更新（開発依存のみ、ライブラリ実体に影響なし）
+  - undici 8.11.2 → 8.12.3（脆弱性修正、GHSA-4qv8-2p9j-2685 / GHSA-f72v-6w45-q472 / GHSA-xjj6-f33q-929c）
+  - jsdom 30.1.2 → 30.1.3
+  - vitest 5.0.3 → 5.0.5
+  - vite 8.3.4 → 8.3.5
+
 ## [0.16.0] - 2026-10-13
 
 ### Added
@@ -485,6 +495,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.16.1]: https://github.com/kan/wema/releases/tag/v0.16.1
 [0.16.0]: https://github.com/kan/wema/releases/tag/v0.16.0
 [0.15.1]: https://github.com/kan/wema/releases/tag/v0.15.1
 [0.15.0]: https://github.com/kan/wema/releases/tag/v0.15.0
