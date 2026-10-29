@@ -6,6 +6,7 @@ paths:
   - "src/drag.ts"
   - "src/note-popup.ts"
   - "tests/note-extension.test.ts"
+  - "tests/note-decoration.test.ts"
 ---
 
 # 利用側のための付箋の拡張（`meta` と `renderNote`）
@@ -36,4 +37,23 @@ wema-kake の「子ページの付箋」のために足した 2 つの口（issu
 - 入力を受ける要素（本文、`input` / `textarea` / `select`）の定義は `TYPING_SELECTOR`（`src/utils/dom.ts`）の 1 つ。フォーカスがそこにあるあいだ、ボードはキーボードショートカット（Delete、Undo、Space）とフォーカスを取らない。`NO_DRAG_SELECTOR` もこれに足して組み立てている。入力要素を別の場所で列挙しない
 - `refreshNote()` は、利用側が描くかどうかが切り替わったときだけポップアップを作り直す。毎回作り直すと、ポップアップに入力中の内容（埋め込み URL）が消える
 - `.wema-note-custom` の中身はサニタイズしない。wema が自分で `innerHTML` を入れることはない
+- `refresh()` は、`decorateNote` も当て直す（下の節）
 - `refresh()` は、付箋の下の要素（`renderNoteAccessory` と `renderNoteFooter` オプション）の描き直しも頼む。こちらは `renderNote` と違い、その場では呼ばない。`renderNoteFooter` は、積んでいる間だけ描く（`.claude/rules/stacked.md` の「付箋の下に利用側が描く要素」）
+
+## `decorateNote` オプションと `refreshNoteDecoration()`
+
+wema-kake の「古い付箋ほど薄くする」（wema-kake #27）のために足した口。付箋の要素（`.wema-note`）に、利用側の class と inline style を当てる。wema は中身を解釈しない。
+
+- 当てる処理は `NoteManager.decorate()` の 1 か所。呼ぶのは次のとき
+  - 要素を作ったとき（`renderNote()`）
+  - `text` または `meta` を変える更新（`applyParams()` と、入力の確定の `syncNoteContent()`）
+  - `refresh()` と `refreshNoteDecoration()`（`decorate()` / `decorateAll()`）
+- **移動やリサイズのたびに呼ばないこと**（`renderNote` と同じ理由）
+- `renderNote` と同じく、その場で（同期で）呼ぶ。付箋の下の要素のようにマイクロタスクへ回していないのは、戻り値を要素へ当てるだけで、ボードへの問い合わせを前提にしていないため。README に「関数の中で `new WemaBoard()` の戻り値を読まない」と書いてある
+- **前回当てた分は、`decorations`（要素をキーにした `WeakMap`）が持つ。** 当て直すときは、そこにある class と style のプロパティだけを外す。要素ごと消えれば記録も消えるので、削除や `clear()` で片付ける処理は要らない。要素の class や style を見て「利用側が当てたもの」を推測しないこと
+- **wema 自身の class と style は、利用側に当てさせない。** 当てさせると、外すときに wema のものまで外れる。class は `wema-` で始まる名前を捨てる。style は 2 種類を捨てる
+  - wema が付箋の要素へインラインで書くプロパティ（`BOARD_STYLE_PROPERTIES`。`applyStyles()` の `left` / `top` / `width` / `height` / `z-index` と、非表示の `display`）と、それらを一緒に書き換える一括指定（`inset` と `inset-*`、`block-size` / `inline-size`、`all`）。一括指定を通すと、外すときに `removeProperty()` が wema の値まで消す。判定の前に、カスタムプロパティ以外の名前を小文字にする（`setProperty()` は大文字の名前も受け付ける）
+  - `--wema-` で始まるカスタムプロパティ
+- **付箋の要素へインラインで書くプロパティを増やしたら、`BOARD_STYLE_PROPERTIES` にも足す**
+- 例外は捕まえて `console.error` に出し、その付箋には何も当てない（前回の分も外す）。付箋の作成や更新を止めない
+- データは変えない。イベントと履歴は出さない。計測はし直さない（当てた見た目で大きさを変えないことは、利用側の約束として README に書いてある）

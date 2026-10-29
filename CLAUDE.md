@@ -124,6 +124,7 @@ wema/
 │   ├── note-footer.test.ts
 │   ├── note-links.test.ts
 │   ├── note-accessory.test.ts
+│   ├── note-decoration.test.ts
 │   ├── page-scroll.test.ts
 │   ├── stacked.test.ts
 │   ├── rich-text.test.ts
@@ -182,7 +183,7 @@ wema/
 | `sync.md` | `history:commit` / `applyRemote`、履歴の再生、参照モード | `src/history.ts`、`src/board.ts` |
 | `autosize.md` | autoSize の計測と `note:update` | `src/note.ts` |
 | `fold.md` | 長い本文を畳む付箋（`foldable`）と、開閉の状態 | `src/note.ts`、`src/board.ts`、`src/style.css`、`src/resize.ts` |
-| `note-extension.md` | 利用側のデータ（`meta`）と、付箋の中身を利用側が描く口（`renderNote`） | `src/note.ts`、`src/utils/meta.ts`、`src/history.ts` |
+| `note-extension.md` | 利用側のデータ（`meta`）と、付箋の中身を利用側が描く口（`renderNote`）、付箋の要素へ利用側が当てる class と style（`decorateNote`） | `src/note.ts`、`src/utils/meta.ts`、`src/history.ts` |
 | `pointer-and-popup.md` | ドラッグ直後の `click`、ポップアップの DOM 再構築 | `src/drag.ts`、`src/selection.ts`、`src/*-popup.ts` |
 | `edge-path.md` | 接続線のパス計算 | `src/edge.ts`、`src/utils/geometry.ts` |
 | `layout.md` | レイアウト関数（DOM 非依存） | `src/layout.ts` |
@@ -268,8 +269,9 @@ class WemaBoard {
   deleteNote(id: NoteId): void;
   getNote(id: NoteId): WemaNote | undefined;
   getNotes(): WemaNote[];
-  refreshNote(id: NoteId): void;  // renderNote で描いた付箋と、renderNoteAccessory / renderNoteFooter で描いた要素を描き直す（データは変えない）
+  refreshNote(id: NoteId): void;  // renderNote で描いた付箋と、renderNoteAccessory / renderNoteFooter で描いた要素を描き直し、decorateNote を当て直す（データは変えない）
   refreshNoteAccessory(id: NoteId): void;  // renderNoteAccessory で描いた要素だけを描き直す
+  refreshNoteDecoration(id?: NoteId): void;  // decorateNote の class と style を当て直す（id を省くと全付箋。データは変えない）
   resizeNotesToContent(noteIds: NoteId[]): void;  // 内容に合うサイズへ 1 回だけ変える（autoSize は変えない。Undo 1 回分）
 
   // 接続線
@@ -352,6 +354,7 @@ interface WemaBoardOptions {
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void;  // url は解決済みの絶対 URL。true を返すと新しいタブを開かない
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋は、本文の代わりに container の中身を表示する
   renderNoteAccessory?: (note: WemaNote, container: HTMLElement) => boolean | void;  // true を返した付箋の枠のすぐ下に、container の中身（印やボタン）を表示する。積んでいなくても出る。付箋のデータは変えない
+  decorateNote?: (note: WemaNote) => { className?: string; style?: Record<string, string> } | undefined | void;  // 付箋の要素（.wema-note）に利用側の class と style を当てる。前回の分は外してから当てる。付箋のデータは変えない
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void;  // 積んでいる間（setStacked）、true を返した付箋の下に container の中身を表示する。付箋のデータは変えない
   noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void; padding?: number };  // default: false（積んでいる間、つながっている付箋を付箋の下にボタンで出す。renderNoteFooter があれば、そちらが描く）
   labels?: Partial<WemaLabels>;  // 画面の文言。省略したキーは英語（enLabels）。日本語は jaLabels を渡す。読むのは作成時の 1 回

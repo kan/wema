@@ -275,6 +275,7 @@ export class WemaBoard {
       // The links the board draws under a note itself, else what the host draws there
       hostFooter: drawLinks ?? options.renderNoteFooter,
       hostAccessory: options.renderNoteAccessory,
+      hostDecorate: options.decorateNote,
       // Drawn once what asked for it is done, stacked or not; the column
       // leaves room for it
       onUnderChange: () => this.queueFlush(),
@@ -942,7 +943,7 @@ export class WemaBoard {
   /**
    * Call the `renderNote` option for a note again, with the
    * `renderNoteAccessory` option, and the `renderNoteFooter` option too
-   * while the notes are stacked. Use it when what you draw
+   * while the notes are stacked, and the `decorateNote` option. Use it when what you draw
    * depends on something outside the note's data and that changed.
    * (A change of the note's `text` or `meta` draws it again by itself.)
    * With the `noteLinks` option, the links under the note are drawn again,
@@ -966,6 +967,19 @@ export class WemaBoard {
    */
   refreshNoteAccessory(id: NoteId): void {
     this.noteManager.requestAccessory(id);
+  }
+
+  /**
+   * Call the `decorateNote` option again, for one note or, without `id`,
+   * for all of them, and put what it returns on their elements in place of
+   * what it returned before. Nothing else is drawn again. Use it when what
+   * the decoration depends on changed outside the notes' data (time went
+   * by, say). Like `refreshNote()`, it changes nothing in the data: no
+   * event, no history. Works in readOnly and viewOnly.
+   */
+  refreshNoteDecoration(id?: NoteId): void {
+    if (id === undefined) this.noteManager.decorateAll();
+    else this.noteManager.decorate(id);
   }
 
   /**

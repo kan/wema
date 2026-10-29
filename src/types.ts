@@ -260,6 +260,25 @@ export interface WemaBoardOptions {
    */
   renderNoteAccessory?: (note: WemaNote, container: HTMLElement) => boolean | void;
   /**
+   * Put classes and inline styles of your own on the element of a note
+   * (`.wema-note`): to fade old notes, say, by a value outside the note's
+   * data. Return the classes and styles for the note, or nothing for none.
+   * What was put on the note the last time is taken off first; the
+   * board's own classes and styles stay as they are.
+   *
+   * Called for every note when it is created (also by `importData()`,
+   * `applyRemote()` and undo), when its `text` or `meta` changes, and when
+   * `refreshNote()` or `refreshNoteDecoration()` is called for it. Called
+   * right there, as `renderNote` is: from the constructor too, before
+   * `new WemaBoard()` has returned. Also called in readOnly and viewOnly,
+   * and while the notes are stacked.
+   *
+   * Changes nothing in the data: no event, no history. The look should not
+   * change the size of the note (a measured note is not measured again for
+   * it). See `WemaNoteDecoration` for what is ignored.
+   */
+  decorateNote?: (note: WemaNote) => WemaNoteDecoration | undefined | void;
+  /**
    * While the notes are shown stacked (`setStacked()`, where the edges are
    * not shown), show under each note the notes it is connected to: one
    * button per edge, with the direction of the edge, its label, and the
@@ -338,6 +357,27 @@ export interface WemaBoardOptions {
   minZoom?: number;
   /** Largest zoom (default: 2) */
   maxZoom?: number;
+}
+
+/**
+ * What `decorateNote` puts on the element of a note (`.wema-note`).
+ */
+export interface WemaNoteDecoration {
+  /**
+   * Class names, separated by spaces. Names that start with `wema-` are
+   * the board's own and are ignored.
+   */
+  className?: string;
+  /**
+   * Inline styles, by CSS property name as written in CSS (`opacity`,
+   * `background-color`, `--my-fade`), each with a string value. The
+   * properties the board sets on the element itself (`left`, `top`,
+   * `width`, `height`, `z-index`, `display`), those that set them too
+   * (`inset` and the `inset-*` ones, `block-size`, `inline-size`, `all`)
+   * and custom properties that start with `--wema-` are ignored, as are
+   * values that are not strings.
+   */
+  style?: Readonly<Record<string, string>>;
 }
 
 /** How the notes a note is connected to are shown under it (the `noteLinks` option) */

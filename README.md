@@ -114,6 +114,7 @@ const board = new WemaBoard({
   onLinkClick?: (url: string, event: MouseEvent) => boolean | void,  // 付箋内のリンクのクリックを処理する
   renderNote?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋の中身を利用側が描く
   renderNoteAccessory?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 付箋のすぐ下に、利用側の小さな要素（印やボタン）を並べる
+  decorateNote?: (note: WemaNote) => { className?: string, style?: Record<string, string> } | void,  // 付箋の要素に、利用側の class と style を当てる
   renderNoteFooter?: (note: WemaNote, container: HTMLElement) => boolean | void,  // 縦に積んでいる間、付箋の下に利用側の要素を描く
   noteLinks?: boolean | { text?: (peer: WemaNote, edge: WemaEdge) => string | undefined | void, padding?: number },  // default: false（縦に積んでいる間、つながっている付箋を付箋の下に出す）
   labels?: Partial<WemaLabels>,  // 画面の文言（ボタンの説明、接続線のポップアップの見出しなど）。省略したキーは英語
@@ -191,7 +192,7 @@ const board = new WemaBoard({
 | `deleteNote(id)` | 付箋を削除 |
 | `getNote(id)` | IDで取得 |
 | `getNotes()` | 全付箋を取得 |
-| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteAccessory` / `renderNoteFooter` オプションで付箋の下に描いた要素を描き直す。`noteLinks` オプションでは、その付箋と、つながっている付箋のボタンを描き直す |
+| `refreshNote(id)` | `renderNote` オプションで描いた付箋と、`renderNoteAccessory` / `renderNoteFooter` オプションで付箋の下に描いた要素を描き直し、`decorateNote` オプションの class と style を当て直す。`noteLinks` オプションでは、その付箋と、つながっている付箋のボタンを描き直す |
 | `resizeNotesToContent(noteIds)` | 付箋をコンテンツに合うサイズへ 1 回だけ変更する（`autoSize` は変えない） |
 
 #### 長い本文を畳む（`foldable`）
@@ -340,6 +341,51 @@ board.refreshNoteAccessory(noteId);
 - 描き直しても、要素の高さが変わらなければ、列の積み直しは起きない
 - `renderNoteAccessory` の中から、描いている付箋に `refreshNoteAccessory()` / `refreshNote()` を呼んでも、何もしない（呼び出しが止まらなくなるのを防ぐため）
 - `renderNoteAccessory` が例外を投げたときは、コンソールにエラーを出し、その付箋には何も置かない
+
+#### 付箋ごとに class と style を当てる（`decorateNote`）
+
+付箋の要素（`.wema-note`）に、利用側の class と inline style を当てられる。古い付箋ほど薄くする、のように、付箋のデータの外にある値で見た目を変えるために使う。当てる class と style を返す。何も当てないときは何も返さない。
+
+```typescript
+const board = new WemaBoard({
+  container,
+  decorateNote: (note) => {
+    const age = ageOf(note.id);            // 利用側が持つ値（0: 新しい 〜 1: もうすぐ消える）
+    if (age === undefined) return;         // 何も当てない
+    return {
+      className: age > 0.8 ? 'stale' : undefined,
+      style: { opacity: String(1 - age * 0.7), '--age': String(age) },
+    };
+  },
+});
+
+// 時間の経過で全付箋の値が変わるので、ときどき全体を当て直す
+setInterval(() => board.refreshNoteDecoration(), 60 * 60 * 1000);
+```
+
+| メソッド | 説明 |
+|---------|------|
+| `refreshNoteDecoration(id?)` | `decorateNote` を呼び直し、前回当てた分を外してから当て直す。`id` を省くと全付箋。ほかは描き直さない。無い付箋の ID を渡しても、何もしない |
+
+- **前回当てた class と style は、外してから当て直す。** wema 自身の class と style は外さない
+- `className` は空白区切り。`wema-` で始まる名前は wema のものなので無視する
+- `style` のキーは CSS に書くときのプロパティ名（`opacity`、`background-color`、`--my-fade`）。値は文字列だけを当てる。wema が付箋の要素に自分で書くプロパティ（`left` / `top` / `width` / `height` / `z-index` / `display`）、それらを一緒に変えるプロパティ（`inset` と `inset-` で始まるもの、`block-size` / `inline-size` / `all`）、`--wema-` で始まるカスタムプロパティは無視する。大文字と小文字は区別しない（カスタムプロパティは区別する）
+- 呼び出すのは、付箋を作ったとき（`importData()`、`applyRemote()`、Undo での復活を含む）、付箋の `text` または `meta` が変わったとき、`refreshNote(id)` か `refreshNoteDecoration()` を呼んだとき。移動、リサイズ、色の変更では呼ばない。readOnly / viewOnly でも、縦に積んでいる間（`setStacked()`）も呼ぶ
+- **呼び出しは、その場で行う**（`renderNote` と同じ）。コンストラクタの中でも呼ぶので、関数の中で `new WemaBoard()` の戻り値を読まないこと
+- **付箋のデータは変わらない。** `note:update` / `history:commit` / `change` も発火しない
+- 当てた見た目で付箋の大きさを変えないこと（`padding`、`font-size` など）。`autoSize` / `foldable` の付箋は、これのために計測し直さない
+- `opacity` は当たり判定を変えない。薄くした付箋も、ふつうにクリック、選択、ドラッグできる
+- `opacity` は付箋の要素全体に掛かる。付箋の下に描いた要素（`renderNoteAccessory` / `renderNoteFooter` / `noteLinks`）も一緒に薄くなる
+- 選択中やホバー中だけ濃く戻すときは、利用側の CSS で書く。インラインの `opacity` を上書きするので `!important` を付けるか、`opacity` の代わりにカスタムプロパティを当てて CSS 側で使う
+
+  ```css
+  /* style: { '--age': String(age) } を当てて、CSS で薄くする */
+  .wema-note { opacity: calc(1 - var(--age, 0) * 0.7); transition: opacity 0.2s; }
+  .wema-note:hover,
+  .wema-note-selected { opacity: 1; }
+  ```
+
+- `decorateNote` が例外を投げたときは、コンソールにエラーを出し、その付箋には何も当てない。付箋の作成や `importData()` は止まらない
 
 #### 接続線（Edge）
 

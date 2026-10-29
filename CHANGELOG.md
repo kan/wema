@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`decorateNote` オプションを追加した。** 付箋の要素（`.wema-note`）に、利用側の class と inline style を付箋ごとに当てられる。古い付箋ほど薄くする、のように、付箋のデータの外にある値で見た目を変えるために使う
+  - 呼ぶのは、付箋を作ったとき（`importData()` / `applyRemote()` / Undo での復活を含む）、`text` または `meta` が変わったとき、`refreshNote()` / `refreshNoteDecoration()` を呼んだとき。readOnly / viewOnly でも、縦に積んでいる間も当てる
+  - 前回当てた分は外してから当て直す。wema 自身の class（`wema-` で始まる名前）と、wema が書く style（`left` / `top` / `width` / `height` / `z-index` / `display`、それらを一緒に変える `inset` など、`--wema-` で始まるカスタムプロパティ）には触れない
+  - 付箋のデータは変わらず、`note:update` / `history:commit` / `change` も発火しない
+- **`refreshNoteDecoration(id?)` を追加した。** `decorateNote` を呼び直して当て直す。`id` を省くと全付箋。時間の経過で全付箋の見た目が変わるときに使う
+
 ## [0.16.1] - 2026-10-27
 
 ### Changed

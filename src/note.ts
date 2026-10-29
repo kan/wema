@@ -1,4 +1,4 @@
-import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin } from './types.js';
+import type { NoteId, WemaNote, WemaEventMap, ChangeOrigin, WemaNoteDecoration } from './types.js';
 import { EventEmitter } from './events.js';
 import { generateId } from './utils/id.js';
 import type { WemaLabels } from './labels.js';
@@ -93,6 +93,8 @@ interface NoteManagerOptions {
   hostFooter?: HostDraw;
   /** Let the host draw the accessories of a note into `container`. Return true when it did (the `renderNoteAccessory` option). */
   hostAccessory?: HostDraw;
+  /** Classes and styles of the host for the element of a note (the `decorateNote` option) */
+  hostDecorate?: (note: WemaNote) => WemaNoteDecoration | undefined | void;
   /** What the host draws under the notes is to be drawn, or drawn again: `drawUnder()` is due */
   onUnderChange: () => void;
   /**
@@ -121,6 +123,28 @@ const HAS_FOOTER_CLASS = 'wema-note-has-footer';
  * (`renderNoteAccessory` option): `.wema-note-accessory` is shown
  */
 const HAS_ACCESSORY_CLASS = 'wema-note-has-accessory';
+
+/**
+ * Inline styles the board sets on the element of a note itself (`applyStyles`,
+ * and `display` for the hidden notes), and those that set them too: the
+ * host's `decorateNote` may not set them, or taking its styles off again
+ * would remove the board's
+ */
+const BOARD_STYLE_PROPERTIES = new Set([
+  'left', 'top', 'width', 'height', 'z-index', 'display', 'block-size', 'inline-size', 'all',
+]);
+
+/** Whether `decorateNote` may set an inline style (see `BOARD_STYLE_PROPERTIES`). `property` is lowercased unless custom. */
+function isHostStyleProperty(property: string): boolean {
+  if (property.startsWith('--')) return !property.startsWith('--wema-');
+  return !BOARD_STYLE_PROPERTIES.has(property) && !property.startsWith('inset');
+}
+
+/** What `decorateNote` put on the element of a note, to be taken off before it is put on again */
+interface AppliedDecoration {
+  classes: string[];
+  styles: string[];
+}
 
 /** A function of the host that draws something of a note into `container`, and returns true when it did */
 type HostDraw = (note: WemaNote, container: HTMLElement) => boolean | void;
@@ -211,6 +235,9 @@ export class NoteManager {
   /** Tells when what the host drew under a note changes its height by itself (a font that loads, the host's own update) */
   private underObserver: ResizeObserver | null = null;
   private labels: WemaLabels;
+  private hostDecorate?: (note: WemaNote) => WemaNoteDecoration | undefined | void;
+  /** What `decorateNote` put on each element, by element: gone with the element */
+  private decorations = new WeakMap<HTMLElement, AppliedDecoration>();
   /**
    * The foldable notes the user opened. A state of the display only: not in
    * the data, no event, no history. A note not in here is closed.
@@ -235,6 +262,7 @@ export class NoteManager {
     this.onPlacedMeasure = options.onPlacedMeasure;
     this.onLinkClick = options.onLinkClick;
     this.hostRender = options.hostRender;
+    this.hostDecorate = options.hostDecorate;
     this.onUnderChange = options.onUnderChange;
     this.onUnderResize = options.onUnderResize;
     this.accessory = {
@@ -361,6 +389,7 @@ export class NoteManager {
     // What the host draws depends on the text and the meta, not on the position
     if ('text' in params || 'meta' in params) {
       this.drawByHost(note);
+      this.decorate(id);
       this.requestUnder(id);
     }
     // Measure now when the change can resize a measured note, so the event
@@ -420,9 +449,60 @@ export class NoteManager {
     const note = this.notes.get(id);
     if (!note) return false;
     const switched = this.drawByHost(note);
+    this.decorate(id);
     if (isMeasured(note)) this.measure(id);
     this.requestUnder(id);
     return switched;
+  }
+
+  /**
+   * Put the host's classes and styles on the element of a note again
+   * (`decorateNote` option), after taking off those it put on the last
+   * time. The board's own classes and styles are left alone.
+   */
+  decorate(id: NoteId): void {
+    if (!this.hostDecorate) return;
+    const note = this.notes.get(id);
+    const el = this.elements.get(id);
+    if (!note || !el) return;
+    let decoration: WemaNoteDecoration | undefined | void;
+    try {
+      decoration = this.hostDecorate({ ...note });
+    } catch (error) {
+      // Called while a note is created or updated: an error here must not
+      // leave that half done. The note gets no decoration.
+      console.error(`Error in decorateNote for note "${id}":`, error);
+    }
+    const prev = this.decorations.get(el);
+    if (prev) {
+      el.classList.remove(...prev.classes);
+      for (const property of prev.styles) el.style.removeProperty(property);
+    }
+    const classes = typeof decoration?.className === 'string'
+      ? decoration.className.split(/\s+/).filter((name) => name !== '' && !name.startsWith('wema-'))
+      : [];
+    const styles: string[] = [];
+    const style = decoration?.style;
+    if (style && typeof style === 'object') {
+      for (const [key, value] of Object.entries(style)) {
+        if (typeof value !== 'string') continue;
+        // The names of the properties of CSS are not case-sensitive, those of custom ones are
+        const property = key.startsWith('--') ? key : key.toLowerCase();
+        if (!isHostStyleProperty(property)) continue;
+        el.style.setProperty(property, value);
+        styles.push(property);
+      }
+    }
+    el.classList.add(...classes);
+    if (classes.length > 0 || styles.length > 0) this.decorations.set(el, { classes, styles });
+    else this.decorations.delete(el);
+  }
+
+  /** Put the host's classes and styles on the elements of all the notes again (`decorateNote` option) */
+  decorateAll(): void {
+    if (!this.hostDecorate) return;
+    // A copy: the host may add or delete notes from the function
+    for (const id of [...this.notes.keys()]) this.decorate(id);
   }
 
   /** The element under a note that holds what the host draws there (both places) */
@@ -1235,7 +1315,10 @@ export class NoteManager {
     const prev = { ...current };
     current.text = contentEl.innerHTML;
     // Like any change of the text (the note is not one the host draws: it has a text element)
-    if (current.text !== prev.text) this.requestUnder(noteId);
+    if (current.text !== prev.text) {
+      this.decorate(noteId);
+      this.requestUnder(noteId);
+    }
     const resized = this.applyMeasuredSize(current);
     if (current.text !== prev.text || resized || this.unreportedSizeBase.has(noteId)) {
       this.emitUpdate(current, prev);
@@ -1497,6 +1580,7 @@ export class NoteManager {
     this.elements.set(note.id, el);
     this.applyEditable(note.id);
     this.drawByHost(note);
+    this.decorate(note.id);
     this.requestUnder(note.id);
     // The size of a measured note is the rendered one from the start (and in
     // the note:create that follows). A foldable note starts closed.
