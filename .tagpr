@@ -5,13 +5,13 @@
 	releaseBranch = main
 	vPrefix = true
 	# The version lives in package.json. tagpr does not touch
-	# package-lock.json; scripts/release-prepare.mjs brings it in line.
+	# package-lock.json; scripts/tagpr/release-prepare.mjs brings it in line.
 	versionFile = package.json
 	# CHANGELOG.md is written by hand under "## [Unreleased]" in each pull
-	# request; scripts/release-prepare.mjs turns that section into the
-	# release's.
+	# request; scripts/tagpr/release-prepare.mjs turns that section into the
+	# release's. scripts/tagpr/ is a git subtree of kan/tagpr-scripts.
 	changelog = false
-	postVersionCommand = node scripts/release-prepare.mjs
+	postVersionCommand = node scripts/tagpr/release-prepare.mjs
 	# release.yml creates the GitHub release after npm publish, so a release
 	# never exists for a version that failed to publish.
 	release = false

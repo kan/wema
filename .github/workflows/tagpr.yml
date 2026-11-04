@@ -5,7 +5,7 @@ name: tagpr
 #
 # - main への push ごとに、リリース PR（ブランチ `tagpr-from-v<前の版>`）を main の
 #   上に作り直す。`package.json` の版は tagpr が上げ、`package-lock.json` と
-#   `CHANGELOG.md` の見出しは `scripts/release-prepare.mjs` が直す
+#   `CHANGELOG.md` の見出しは `scripts/tagpr/release-prepare.mjs` が直す
 # - リリース PR がマージされると、次の run がマージコミットにタグを打ち、
 #   `release` ジョブが `release.yml` をそのタグで起動する
 # - `workflow_dispatch` はリリース PR の作り直し用（`tagpr:minor` を付けた後など）
@@ -27,7 +27,8 @@ jobs:
     #
     # それでも GitHub は待っている run を 1 つしか持たない。リリース PR の
     # マージの run が待っている間に push が来ると、その run は cancelled になり
-    # タグが打たれない。そのときはマージコミットの run を再実行する（CLAUDE.md）。
+    # タグが打たれない。後の push の run は `release-prepare.mjs` の検査（最新のタグ
+    # より新しい版の節がある）で赤になるので、マージコミットの run を再実行する（CLAUDE.md）。
     concurrency:
       group: tagpr
       cancel-in-progress: false
@@ -43,8 +44,8 @@ jobs:
           persist-credentials: false
 
       # **`npm ci` をしない。** このジョブは push できるトークンを持つので、依存の
-      # コードを走らせない。`release-prepare.mjs` は Node の組み込みだけで動く
-      # （ランナーに入っている Node を使う）。
+      # コードを走らせない。`scripts/tagpr/`（kan/tagpr-scripts の subtree）は
+      # Node の組み込みだけで動く（ランナーに入っている Node を使う）。
       #
       # **tagpr は SHA で固定する。** 書き込みの権限で動く第三者の action なので、
       # 付け替えられるタグを指さない。dependabot が末尾のコメントごと上げる。

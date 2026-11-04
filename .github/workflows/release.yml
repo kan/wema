@@ -7,6 +7,25 @@ name: Release
 # 普段は `tagpr.yml` がタグを ref にして `workflow_dispatch` で起動する
 # （GITHUB_TOKEN で push したタグでは `push: tags` が起動しないため）。
 # `push: tags` は手でタグを打ち直したとき用。
+# **このファイルの名前を変えない。** npmjs.com の Trusted Publisher に、この名前で登録してある
+#
+# **権限ごとにジョブを分ける。** 依存のコード（`npm ci` の install script、テスト、
+# ビルド）が走るのは `build` だけで、`build` は書き込みの権限を何も持たない。
+# 形は kan/lily の publish.yml と同じ。
+#
+# | ジョブ | 権限 | すること |
+# |---|---|---|
+# | `build` | `contents: read` | 検査、テスト、ビルド、`npm pack`。リリースノート（`notes`）、tgz（`package`）、`wema.html`（`standalone`）を artifact に置く |
+# | `publish` | `id-token: write` | `package` を `npm publish` するだけ。checkout も `npm ci` もしない |
+# | `release` | `contents: write` | `notes` と `standalone` で GitHub Release を作るだけ。npm に触らない |
+#
+# `id-token: write` のジョブで依存のコードが走ると、そのコードが npm 向けの OIDC
+# トークンを取り、Trusted Publisher 経由で好きな版や中身を publish できる
+# （`persist-credentials: false` でもトークンを取るための環境変数は残る）。
+#
+# **防げないこと:** `build` で走る依存のコード（vite のプラグインなど）が `dist/` を
+# 書き換えれば、その tgz と `wema.html` がそのまま出る。配るものはビルドの出力なので、
+# これは分割では防げない。分割で防ぐのは、依存のコードがトークンを手にすることだけ。
 on:
   push:
     tags: ['v*']
@@ -18,33 +37,27 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  # GitHub Release を作り、wema.html を添付するのに要る
-  contents: write
-  # **Trusted Publishing (OIDC)。** npm 側に「このリポジトリの release.yml からの
-  # publish を許す」と登録してある。ファイル名を変えると publish が通らなくなる
-  id-token: write
+# 既定は何も持たない。各ジョブが要るものだけを宣言する。
+permissions: {}
 
 jobs:
-  release:
-    # **ref がタグのときだけ動く。** `workflow_dispatch` を main などのブランチで
-    # 起動しても、publish まで進まない
+  build:
+    # **タグのときだけ動かす。** `workflow_dispatch` は main などでも起動できる。
+    # 版の一致の検査だけに頼らず、job ごと止める（後の 2 つは `needs` で止まる）。
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      # **書き込みのトークンを .git/config に残さない。** このジョブは依存のコードを
-      # 走らせる（npm ci 以降）。Release の作成は GH_TOKEN で渡す
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-          registry-url: https://registry.npmjs.org
 
-      # 次の 2 つの検査は Node の組み込みしか使わないので、npm の準備より先に置く
+      # 次の 2 つの検査は Node の組み込みしか使わないので、npm ci より先に置く
       # （手で打ったタグが誤っていたとき、依存の取得を待たずに落ちる）。
       #
       # **タグと `package.json` の版が一致すること。**
@@ -63,13 +76,23 @@ jobs:
       # **Release の本文は CHANGELOG の節。** 節が無ければ、npm へ出す前に止める
       # （出した後に止まると、npm にはあるのに Release が無い版ができる）。
       # リリース PR を通っていれば節はあるので、拾うのは手で打ったタグのとき。
+      # 出したものをそのまま Release の本文に使う（検査したもの = 本文）。
       - name: CHANGELOG の節を取り出す
         env:
           TAG: ${{ github.ref_name }}
-        run: node scripts/release-notes.mjs "$TAG" > "$RUNNER_TEMP/release-notes.md"
+        run: |
+          mkdir -p "$RUNNER_TEMP/notes"
+          node scripts/tagpr/release-notes.mjs "$TAG" > "$RUNNER_TEMP/notes/release-notes.md"
 
-      # Trusted Publishing (OIDC) には npm 11.5.1+ が必要
-      - run: npm install -g npm@latest
+      # **`npm ci` より前に置く。** 後に置くと、依存のコードが本文を書き換えられる。
+      # `overwrite` は「Re-run all jobs」で build がもう一度置くとき用。
+      - uses: actions/upload-artifact@v7
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
 
       - run: npm ci
       - run: npm run lint
@@ -77,14 +100,114 @@ jobs:
       - run: npm run build
       - run: npm run verify:package
 
-      - run: npm publish --access public
+      # **publish するのはこの tgz そのもの。** `prepack` は無いので、上の
+      # `npm run build` の `dist/` がそのまま入る。
+      - name: tgz を作る
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          npm pack --pack-destination "$RUNNER_TEMP/package"
 
-      # **npm publish の後に置く。** 逆にすると、publish が落ちた版の Release が
-      # 残り、「GitHub にはあるのに npm に無い」が成立する。
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: ${{ runner.temp }}/package/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+      # Release に添付するスタンドアロン版。tgz の中のものと同じビルドの出力
+      - uses: actions/upload-artifact@v7
+        with:
+          name: standalone
+          path: dist/wema.html
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # **Trusted Publishing (OIDC)。** token を secret に置かない代わりに、npm 側で
+      # 「このリポジトリの release.yml からの publish を許す」と登録してある。
+      # provenance（どのリポジトリのどのワークフローが出したか）も自動で付く。
+      id-token: write
+    steps:
+      # checkout しない。ここで走るのは Node と npm と、build が作った tgz だけ。
+      # tgz の publish では lifecycle script は走らない。
+      #
+      # `registry-url` は npm の Trusted Publishing の手順どおり。setup-node はこれで
+      # `.npmrc` に `NODE_AUTH_TOKEN` を読む行を書き、`NODE_AUTH_TOKEN` に仮の値
+      # （`XXXXX-...`）を入れる。npm は OIDC を先に使うので普段は効かないが、
+      # **OIDC の交換に失敗すると、npm はその仮の値で認証を試みて 401 / 404 で落ちる。**
+      # そのエラーを見たら、token ではなく OIDC の側（`id-token: write`、npm の
+      # Trusted Publisher の登録）を疑う。
+      # `check-latest` はランナーにある古い 24.x を使わないため（下の npm の版）。
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          check-latest: true
+          registry-url: https://registry.npmjs.org
+
+      # **Trusted Publishing は npm 11.5.1 以降にしか無い。** Node 24 に同梱の npm で
+      # 足りるので、`npm install -g npm@latest` はしない（固定していない版の npm を
+      # このジョブで取ってこない）。足りなければここで落ちる。
+      - name: npm の版を確かめる
+        run: |
+          npm_version="$(npm --version)"
+          if [ "$(printf '%s\n' 11.5.1 "$npm_version" | sort -V | head -n1)" != 11.5.1 ]; then
+            echo "npm $npm_version は Trusted Publishing に対応していない（11.5.1 以降が要る）" >&2
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: ${{ runner.temp }}/package
+
+      # すでに npm にある版は出さない（「Re-run all jobs」でやり直すとき、publish を
+      # 飛ばして release まで進める）。名前と版は tgz の中の package.json から読む
+      # （checkout していない）。
+      - name: npm へ出す
+        run: |
+          shopt -s nullglob
+          tgz=("$RUNNER_TEMP"/package/*.tgz)
+          if [ "${#tgz[@]}" -ne 1 ]; then
+            echo "tgz がちょうど 1 つではない: ${tgz[*]}" >&2
+            exit 1
+          fi
+          spec="$(tar -xOzf "${tgz[0]}" package/package.json | node -e 'const p = JSON.parse(require("node:fs").readFileSync(0, "utf8")); console.log(`${p.name}@${p.version}`)')"
+          if npm view "$spec" version >/dev/null 2>&1; then
+            echo "$spec は npm にあるので、publish しない"
+          else
+            npm publish "${tgz[0]}" --access public
+          fi
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      # GitHub Release を作り、wema.html を添付するのに要る
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes
+      - uses: actions/download-artifact@v8
+        with:
+          name: standalone
+          path: ${{ runner.temp }}/standalone
+
+      # **npm publish の後に置く**（`needs`）。逆にすると、publish が落ちた版の
+      # Release が残り、「GitHub にはあるのに npm に無い」が成立する。ジョブが
+      # 分かれているので、ここだけ落ちたら `gh run rerun <run-id> --failed` で
+      # このジョブだけをやり直せる。checkout しないので、repo は `GH_REPO` で渡す。
       #
       # `--verify-tag` はタグが実在することを確かめる。
       - name: GitHub Release を作る
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/wema.html --title "$TAG" --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md"
+        run: gh release create "$TAG" "$RUNNER_TEMP/standalone/wema.html" --title "$TAG" --verify-tag --notes-file "$RUNNER_TEMP/notes/release-notes.md"
