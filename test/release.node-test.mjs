@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { findSection, githubRepo, releaseDate } from '../changelog.mjs';
+import { compareVersions, findSection, githubRepo, releaseDate, versionHeadings } from '../changelog.mjs';
 
 const prepare = join(import.meta.dirname, '..', 'release-prepare.mjs');
 const notes = join(import.meta.dirname, '..', 'release-notes.mjs');
@@ -42,10 +42,11 @@ function makeRepo({
   return dir;
 }
 
-const run = (script, cwd, args = [], next = 'v1.2.4') =>
+// tagpr と同じく、最新のタグ（current）と提案する版（next）を渡す
+const run = (script, cwd, args = [], next = 'v1.2.4', current = 'v1.2.3') =>
   spawnSync(process.execPath, [script, ...args], {
     cwd,
-    env: { ...process.env, TAGPR_NEXT_VERSION: next },
+    env: { ...process.env, TAGPR_NEXT_VERSION: next, TAGPR_CURRENT_VERSION: current },
     encoding: 'utf8',
   });
 
@@ -103,15 +104,36 @@ test('prepare: leaves headings and link definitions inside code fences alone', (
 });
 
 // package-lock.json と CHANGELOG.md は、どの失敗でも書き換えない
-for (const { name, opts, message, next } of [
+for (const { name, opts, message, next, current } of [
   { name: 'an empty Unreleased', opts: { changelog: `${HEADER}## [Unreleased]\n\n## [1.2.3]\n\n- Old.\n` }, message: /is empty/ },
   { name: 'no Unreleased', opts: { changelog: `${HEADER}## [1.2.3]\n\n- Old.\n` }, message: /no "## \[Unreleased\]"/ },
   { name: 'two Unreleased sections', opts: { changelog: `${MINIMAL}\n## [Unreleased]\n\n- B.\n` }, message: /2 "## \[Unreleased\]" sections/ },
   {
     name: 'a section for the version that is already there',
     opts: { changelog: `${HEADER}## [Unreleased]\n\n## [1.2.4] - 2026-01-02\n\n- A.\n` },
-    message: /merged but not tagged/,
+    message: /already has "## \[1\.2\.4\]", newer than the latest tag v1\.2\.3: .*merged but not tagged/,
   },
+  {
+    // 1.2.4 のタグが無いまま enhancement の PR が入り、tagpr が 1.2.3 から数えて minor を提案した
+    name: 'an untagged section when tagpr proposes another version',
+    opts: {
+      version: '1.3.0',
+      changelog: `${HEADER}## [Unreleased]\n\n- B.\n\n## [1.2.4] - 2026-01-02\n\n- A.\n\n## [1.2.3] - 2026-01-01\n\n- Old.\n`,
+    },
+    message: /already has "## \[1\.2\.4\]", newer than the latest tag v1\.2\.3/,
+    next: 'v1.3.0',
+  },
+  {
+    // 2 つのマージの run がどちらも止められた。古い方から直すよう、両方を古い順に出す
+    name: 'two untagged sections',
+    opts: {
+      version: '1.2.6',
+      changelog: `${HEADER}## [Unreleased]\n\n- C.\n\n## [1.2.5]\n\n- B.\n\n## [1.2.4]\n\n- A.\n`,
+    },
+    message: /already has "## \[1\.2\.4\]", "## \[1\.2\.5\]", .*merge commit for 1\.2\.4 first/,
+    next: 'v1.2.6',
+  },
+  { name: 'a TAGPR_CURRENT_VERSION that is not vX.Y.Z', opts: {}, message: /TAGPR_CURRENT_VERSION must be vX\.Y\.Z/, current: '' },
   { name: 'CRLF line endings', opts: { changelog: MINIMAL.replaceAll('\n', '\r\n') }, message: /CR line endings/ },
   { name: 'package.json at another version', opts: { version: '1.2.5' }, message: /package\.json says 1\.2\.5/ },
   { name: 'a non-GitHub repository', opts: { repository: 'https://gitlab.com/o/r' }, message: /must point at a GitHub repository/ },
@@ -121,13 +143,21 @@ for (const { name, opts, message, next } of [
   test(`prepare: fails on ${name} and writes nothing`, () => {
     const dir = makeRepo(opts);
     const changelog = read(dir, 'CHANGELOG.md');
-    const r = run(prepare, dir, [], next);
+    const r = run(prepare, dir, [], next, current);
     assert.equal(r.status, 1);
     assert.match(r.stderr, message);
     assert.equal(read(dir, 'CHANGELOG.md'), changelog);
     assert.deepEqual(lockVersions(dir), ['1.2.3', '1.2.3']);
   });
 }
+
+test('prepare: skips the untagged check when there are no tags yet', () => {
+  // タグを打たずにリリースしてきた repo。tagpr は v0.0.0 を渡す
+  const dir = makeRepo({ changelog: `${HEADER}## [Unreleased]\n\n- A.\n\n## [1.0.0]\n\n- Old.\n` });
+  const r = run(prepare, dir, [], 'v1.2.4', 'v0.0.0');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(read(dir, 'CHANGELOG.md'), /^## \[1\.2\.4\] - /m);
+});
 
 test('prepare: says where to run it when a file is missing', () => {
   const r = run(prepare, makeRepo({ lock: false }));
@@ -171,6 +201,19 @@ test('findSection: a fence closes only on the same marker, at least as long', ()
     assert.equal(findSection(text, '1.2.4'), fence);
     assert.equal(findSection(text, '1.2.3'), '- Old.');
   }
+});
+
+test('versionHeadings: lists version headings outside fences and the link block', () => {
+  const text =
+    `${HEADER}## [Unreleased]\n\n- B.\n\n## [1.2.4] - 2026-01-02\n\n\`\`\`\n## [9.9.9]\n\`\`\`\n\n` +
+    `## [1.2.3]\n\n- Old.\n\n[1.2.4]: https://x\n`;
+  assert.deepEqual(versionHeadings(text), ['1.2.4', '1.2.3']);
+});
+
+test('compareVersions: compares each part as a number', () => {
+  assert.ok(compareVersions('1.10.0', '1.9.9') > 0);
+  assert.ok(compareVersions('1.2.3', '1.2.4') < 0);
+  assert.equal(compareVersions('1.2.3', '1.2.3'), 0);
 });
 
 test('githubRepo: takes the forms npm accepts for GitHub', () => {

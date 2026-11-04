@@ -84,6 +84,35 @@ export function linkBlockStart(rows) {
 }
 
 /**
+ * `## [X.Y.Z]` の見出しの版を、出てくる順に返す（`Unreleased` は入れない）。
+ * コードフェンスの中と、末尾のリンク定義のまとまりは見ない。
+ * @param {string} text CHANGELOG.md の中身
+ * @returns {string[]}
+ */
+export function versionHeadings(text) {
+  const rows = scan(text);
+  return rows
+    .slice(0, linkBlockStart(rows))
+    .flatMap(([line, fenced]) => {
+      const m = fenced ? null : /^## \[(\d+\.\d+\.\d+)\](?: |$)/.exec(line);
+      return m ? [m[1]] : [];
+    });
+}
+
+/**
+ * `X.Y.Z` どうしを比べる。`a` が新しければ正、古ければ負、同じなら 0。
+ * @param {string} a
+ * @param {string} b
+ */
+export function compareVersions(a, b) {
+  const [pa, pb] = [a, b].map((v) => v.split('.').map(Number));
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return pa[i] - pb[i];
+  }
+  return 0;
+}
+
+/**
  * `## [name]` の節の本文を、前後の空行を落として返す。節が無ければ `null`、
  * 空なら `''`。**重複だけは投げる**（どちらが正か決められないため）。
  * @param {string} text CHANGELOG.md の中身

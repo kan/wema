@@ -41,11 +41,24 @@ it fails. It fails when:
 - `## [Unreleased]` is missing, empty or duplicated. Right after a release this is
   expected, and every push to `main` gets a red tagpr run until a pull request adds an
   entry.
-- **`## [X.Y.Z]` is already there.** tagpr rebuilds the release branch from `main` every
-  time, so this means a release pull request was merged and its tag was never made —
-  usually because the tagpr run of the merge commit was cancelled by a later push. Re-run
-  that run. Merging a new release pull request would tag a later commit with changes the
-  CHANGELOG does not list.
+- **A version section newer than the latest tag is already there** (the latest tag is
+  `TAGPR_CURRENT_VERSION`, which tagpr passes along with `TAGPR_NEXT_VERSION`). tagpr
+  rebuilds the release branch from `main` every time, so this means a release pull request
+  was merged and its tag was never made — usually because the tagpr run of the merge
+  commit was cancelled by a later push, or because the tag was deleted to be made again.
+  Re-run that run (or push the tag again). Merging a new release pull request would tag a
+  later commit with changes the CHANGELOG does not list.
+
+  It checks every section, not only the proposed version's. tagpr counts from the latest
+  tag, so if a pull request labelled for a minor release lands while `1.2.4` is untagged,
+  it proposes `1.3.0`; a check for `## [1.3.0]` alone would pass and stack `1.3.0` on an
+  untagged `1.2.4`.
+
+  It only compares with the latest tag. **Once a later tag exists, an older untagged
+  section is no longer caught** (tag `v1.2.5` by hand while `1.2.4` is untagged, and
+  `1.2.4` never gets a tag). That is why the message lists every untagged section, oldest
+  first: tag them in that order. With no tags at all (tagpr passes `v0.0.0`) the check is
+  skipped, so a repository that released without tags can adopt tagpr.
 - `package.json` is not at the version tagpr proposes, or its `repository` is not GitHub.
 
 tagpr still updates the release pull request when the command fails, so **do not merge a
