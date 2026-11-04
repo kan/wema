@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- リリースを [tagpr](https://github.com/Songmu/tagpr) のリリース PR で行うようにした（ライブラリ実体に影響なし）。GitHub Release の本文は、この CHANGELOG のその版の節になる
+
 ## [0.17.0] - 2026-10-29
 
 ### Added

@@ -1,0 +1,21 @@
+# tagpr: keeps a release pull request open against main and tags the release
+# when it is merged. The workflow is .github/workflows/tagpr.yml; the release
+# steps and the reasons behind them are in CLAUDE.md ("リリース手順").
+[tagpr]
+	releaseBranch = main
+	vPrefix = true
+	# The version lives in package.json. tagpr does not touch
+	# package-lock.json; scripts/release-prepare.mjs brings it in line.
+	versionFile = package.json
+	# CHANGELOG.md is written by hand under "## [Unreleased]" in each pull
+	# request; scripts/release-prepare.mjs turns that section into the
+	# release's.
+	changelog = false
+	postVersionCommand = node scripts/release-prepare.mjs
+	# release.yml creates the GitHub release after npm publish, so a release
+	# never exists for a version that failed to publish.
+	release = false
+	# A merged pull request labelled enhancement makes the release a minor one.
+	# Otherwise it is a patch, unless tagpr:minor / tagpr:major is put on the
+	# release pull request.
+	minorLabels = enhancement

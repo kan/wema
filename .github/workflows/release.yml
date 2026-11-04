@@ -1,17 +1,42 @@
 name: Release
 
+# **タグを打ったときだけ npm へ出す。** main への push で自動 publish しないのは、
+# 版を上げる判断とコードを直す判断が別だから。版を上げる判断は、tagpr の
+# リリース PR をマージすることで行う（CLAUDE.md「リリース手順」）。
+#
+# 普段は `tagpr.yml` がタグを ref にして `workflow_dispatch` で起動する
+# （GITHUB_TOKEN で push したタグでは `push: tags` が起動しないため）。
+# `push: tags` は手でタグを打ち直したとき用。
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+
+# **1 つのタグに 1 run。止めない。** publish の途中で止めると、npm には出たのに
+# Release が無い、が残る。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  # GitHub Release を作り、wema.html を添付するのに要る
+  contents: write
+  # **Trusted Publishing (OIDC)。** npm 側に「このリポジトリの release.yml からの
+  # publish を許す」と登録してある。ファイル名を変えると publish が通らなくなる
+  id-token: write
 
 jobs:
   release:
+    # **ref がタグのときだけ動く。** `workflow_dispatch` を main などのブランチで
+    # 起動しても、publish まで進まない
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
     steps:
+      # **書き込みのトークンを .git/config に残さない。** このジョブは依存のコードを
+      # 走らせる（npm ci 以降）。Release の作成は GH_TOKEN で渡す
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v7
         with:
@@ -19,14 +44,47 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      # 次の 2 つの検査は Node の組み込みしか使わないので、npm の準備より先に置く
+      # （手で打ったタグが誤っていたとき、依存の取得を待たずに落ちる）。
+      #
+      # **タグと `package.json` の版が一致すること。**
+      # ずれたまま出すと、`v0.1.1` のタグで 0.1.0 が publish されて（あるいは
+      # 「同じ版は出せない」で落ちて）、どちらも原因がタグ名から読めない。
+      - name: タグと版の一致を見る
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="v$(node -p 'require("./package.json").version')"
+          if [ "$TAG" != "$version" ]; then
+            echo "タグ ($TAG) と package.json の版 ($version) が違う" >&2
+            exit 1
+          fi
+
+      # **Release の本文は CHANGELOG の節。** 節が無ければ、npm へ出す前に止める
+      # （出した後に止まると、npm にはあるのに Release が無い版ができる）。
+      # リリース PR を通っていれば節はあるので、拾うのは手で打ったタグのとき。
+      - name: CHANGELOG の節を取り出す
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release-notes.mjs "$TAG" > "$RUNNER_TEMP/release-notes.md"
+
       # Trusted Publishing (OIDC) には npm 11.5.1+ が必要
       - run: npm install -g npm@latest
 
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
-
-      - uses: softprops/action-gh-release@v3
-        with:
-          files: dist/wema.html
+      - run: npm run verify:package
 
       - run: npm publish --access public
+
+      # **npm publish の後に置く。** 逆にすると、publish が落ちた版の Release が
+      # 残り、「GitHub にはあるのに npm に無い」が成立する。
+      #
+      # `--verify-tag` はタグが実在することを確かめる。
+      - name: GitHub Release を作る
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/wema.html --title "$TAG" --verify-tag --notes-file "$RUNNER_TEMP/release-notes.md"
