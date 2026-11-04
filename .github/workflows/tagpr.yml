@@ -27,10 +27,8 @@ jobs:
     #
     # それでも GitHub は待っている run を 1 つしか持たない。リリース PR の
     # マージの run が待っている間に push が来ると、その run は cancelled になり
-    # タグが打たれない。そのときはマージコミットの run を再実行する（CLAUDE.md）。
-    # 後の push の run は、同じ版を提案すれば `release-prepare.mjs` の検査（版の節が
-    # 既にある）で赤になるが、`enhancement` が入って版が変わると緑のまま通る。
-    # run の色ではなく、タグが打たれたかで確かめる。
+    # タグが打たれない。後の push の run は `release-prepare.mjs` の検査（最新のタグ
+    # より新しい版の節がある）で赤になるので、マージコミットの run を再実行する（CLAUDE.md）。
     concurrency:
       group: tagpr
       cancel-in-progress: false
