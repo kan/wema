@@ -38,21 +38,89 @@ npm run verify:package    # npm pack の成果物に公開エントリが揃っ�
 npm run lint         # リント (tsc --noEmit)
 ```
 
+## PR 運用
+
+**変更はブランチを切って PR にし、マージして main に入れる。** リリースは tagpr がマージ済みの PR から組み立てるので、**main へ直接 push しない。** ruleset では強制していないので、守るのは手順の側。
+
+- ブランチの push、PR の作成、マージは、それぞれユーザーの承認を得てから行う
+- **CHANGELOG はその PR の中で、`## [Unreleased]` の下に書く。** リリース PR のブランチでは書かない（tagpr が main から作り直すたびに消える）
+- **次のリリースを minor にする PR（機能の追加）には `enhancement` ラベルを付ける。** tagpr がマージ済みの PR のラベルを見て、リリース PR に `tagpr:minor` を付ける（`.tagpr` の `minorLabels`）。付いていなければ patch
+- dependabot の PR も同じくマージで入れる。開発依存だけの更新は利用者に届かないので、CHANGELOG に書くかは中身で決める（脆弱性の修正は書く）。書くときは、dependabot のブランチへ CHANGELOG のコミットを足してからマージする
+
 ## リリース手順
 
-リリースは、ユーザーから指示されたときだけ行う。バージョン番号は、作業を始める前にユーザーへ確認する（npm への公開は取り消せない）。
+**リリースは、ユーザーから指示されたときだけ行う。リリースは tagpr のリリース PR をマージして始める**（0.17.0 の次の版から）。版上げ（`package.json` / `package-lock.json`）、`CHANGELOG.md` の見出しとリンク定義、タグは、リリース PR とワークフローが行う。**`npm version` を手で回さない。タグも手で打たない**（打ち直すときを除く。下の「やり直し」）。
 
-1. `CHANGELOG.md` の `## [Unreleased]` を `## [X.Y.Z] - YYYY-MM-DD` に書き換える
-2. `CHANGELOG.md` の末尾に、リンク定義 `[X.Y.Z]: https://github.com/kan/wema/releases/tag/vX.Y.Z` を足す（新しい版が上）
-3. `npm version X.Y.Z --no-git-tag-version` で `package.json` と `package-lock.json` を更新する
-4. `npm run lint && npm test && npm run build && npm run verify:package` を通す
-5. `CHANGELOG.md` / `package.json` / `package-lock.json` を `Release vX.Y.Z: 内容の要約` としてコミットする
-6. `git tag vX.Y.Z` でタグを付け、`main` とタグを push する（`git push origin main` と `git push origin vX.Y.Z`）
-7. push のあとは GitHub Actions に任せる。タグの push で動く `release.yml` は、GitHub Release の作成（`wema.html` を添付）と `npm publish` を行う。`main` の push で動く `pages.yml` は、デモページを更新する
-8. 公開された結果を確かめる
-   - `gh run list` で Release / CI / Pages のワークフローが成功していること
+1. **リリース PR を確かめる**
+
+   ```bash
+   gh pr list --label tagpr --state open --json number,title,headRefName
+   gh run list --workflow tagpr.yml --branch main -L 3
+   ```
+
+   - **最新の tagpr の run が success であること。** 失敗していたら `scripts/release-prepare.mjs` の出力を読む。多いのは `## [Unreleased]` が空のとき。CHANGELOG を書く PR をマージすると作り直される
+   - **版（PR のタイトル）をユーザーに確認する**（npm への公開は取り消せない）。既定は patch。`enhancement` の PR が入っていれば minor になる。手で変えるときはリリース PR にラベルを付けて作り直す
+
+     ```bash
+     gh pr edit <番号> --add-label tagpr:minor
+     gh workflow run tagpr.yml --ref main
+     ```
+
+   - Files changed が `package.json` / `package-lock.json`（版の行だけ）と `CHANGELOG.md`（見出しとリンク定義）だけであること
+   - **ラベルを付け外ししたら、作り直してからマージする。** タグの版はマージの時点の `package.json` で決まり（tagpr は `versionFile` をマージ時に読む）、`package.json` と CHANGELOG の見出しは最後に作り直した時点の版のまま。作り直さずにマージすると、**ラベルの版ではなく前の版がそのまま出る**（どこも食い違わないので、何も止まらない）
+   - リリース PR の CI は承認待ち（`action_required`）で止まることがある（GITHUB_TOKEN が作った PR のため）。そのときは今の head の run を承認する（`gh api -X POST repos/kan/wema/actions/runs/<id>/approve`）
+
+2. **CHANGELOG の節を確かめる**
+
+   **この節がそのまま GitHub のリリースノートになる。** 前回のタグからの変更と突き合わせ、利用者に届く変更が載っているかを見る。直すときはリリース PR のブランチではなく、**main の `## [Unreleased]` を直す PR を入れる**。
+
+   ```bash
+   git fetch origin
+   git show origin/<ブランチ>:CHANGELOG.md | sed -n '1,60p'
+   git log --oneline <前回のタグ>..origin/main
+   ```
+
+   見出しの日付は、tagpr が最後にリリース PR を作り直した日（日本時間）。マージする日と違えば `gh workflow run tagpr.yml --ref main` で作り直す。
+
+3. **リリース PR をマージする**（ユーザーの承認を得てから）
+
+   ```bash
+   gh pr merge <番号> --squash --delete-branch
+   git switch main && git pull --ff-only
+   gh run list --workflow tagpr.yml --commit "$(git rev-parse HEAD)" -L 1
+   gh run list --workflow release.yml -L 1
+   ```
+
+   マージの push で走る tagpr の run がマージコミットにタグを打ち、`release` ジョブが `release.yml` をそのタグで起動する。`release.yml` は、タグと版の一致と CHANGELOG の節を確かめ、lint・テスト・ビルドを通してから `npm publish` し、その後に GitHub Release（本文は CHANGELOG の節、`wema.html` を添付）を作る。`main` の push で動く `pages.yml` は、デモページを更新する。
+
+   **タグが打たれるまで main へ何もマージしない。** tagpr の run は前の run が終わるまで待ち、待っている run は新しい push の run に置き換えられる（cancelled になる）。置き換えられたら、マージコミットの run を `gh run rerun <run-id>` で再実行するとタグが打たれる。
+
+   リリースの直後は `## [Unreleased]` が空なので、次に CHANGELOG を書くまで main への push ごとに tagpr の run が失敗する。これは想定どおりで、その間のリリース PR はマージしない。
+
+4. **公開された結果を確かめる**
+   - `gh run list` で tagpr / Release / CI / Pages のワークフローが成功していること
    - `npm view @kanf/wema dist-tags --prefer-online` の `latest` が新しい版であること（公開の直後は古い値を返すことがある）
-   - `gh release view vX.Y.Z` に `wema.html` が付いていること
+   - `gh release view vX.Y.Z` に `wema.html` が付いていて、本文が CHANGELOG の節であること
+
+**やり直し**
+
+- `release.yml` が npm へ出す前に落ちたら、直してから `gh workflow run release.yml --ref vX.Y.Z` で起動し直す
+- npm へは出て Release の作成だけが落ちたら、再実行しない（同じ版は publish できずに落ちる）。タグを checkout して `npm run build` で `dist/wema.html` を作り、`gh release create vX.Y.Z dist/wema.html --title vX.Y.Z --verify-tag --notes-file <(node scripts/release-notes.mjs vX.Y.Z)` を手で回す（ノートのファイルを作業ツリーに残さない）
+- **`release.yml` はタグの指すコミットで動く。** npm へ出る前に落ちた原因がコードや CHANGELOG にあるなら、直した PR をマージしてタグを打ち直す（`git push origin :refs/tags/vX.Y.Z && git tag -d vX.Y.Z` で消し、直したマージコミットに打って push する。`push: tags` で起動する）。CHANGELOG は main ではもう `## [X.Y.Z] - 日付` になっている節を直す。**タグを消している間に main へ入ると、tagpr がリリース PR を作り直す。** 打ち直しが済むまで他の PR をマージせず、作り直されたリリース PR はタグを打ち直した後に閉じる
+- **npm へ出た版は打ち直せない**（同じ版は二度と publish できない）。次の版で直す
+
+### リリース PR（tagpr）の仕組み
+
+- **main に push があるたびに `tagpr.yml` がリリース PR を作り直す。** ブランチは `tagpr-from-v<前回の版>`。マージすると、次の run がマージコミットにタグを打つ。設定は `.tagpr`
+- **版は `package.json` で持つ**（`versionFile`）。**tagpr は `package-lock.json` を書き換えない**ので、`scripts/release-prepare.mjs`（`postVersionCommand`）が揃える
+- **`release-prepare.mjs` は `## [Unreleased]` を `## [X.Y.Z] - 日付` にし、その上に空の `## [Unreleased]` を置き直し、リンク定義を足す。** 作り直しのたびに走るので、自分の出力に対してもう一度走らせても何も変えない。`## [Unreleased]` が無いか空なら失敗する。失敗しても tagpr はリリース PR を作るので、run が赤ならマージしない
+- **tagpr のジョブでは依存のコードを走らせない。** リポジトリへ push できるトークンを持つため。`npm ci` をせず、`scripts/release-*.mjs` は Node の組み込みだけで書く。tagpr の action は SHA で固定する
+- **CHANGELOG と GitHub の Release は tagpr に作らせない**（`changelog = false` / `release = false`）。tagpr の CHANGELOG は PR のタイトルを並べるだけ。Release は `release.yml` が npm publish の**後**に作る（publish に失敗した版の Release を残さない）。`.github/release.yml` は、リリース PR の本文に並ぶ PR の分類にだけ使う
+- **CHANGELOG の読み方（節の見出し、コードフェンス、末尾のリンク定義）は `scripts/release-notes.mjs` の 1 か所に置く。** `release-prepare.mjs` は節の検査をそちらに任せる。2 か所に書くと、リリース PR は通るのに `release.yml` の検査で落ちる。リンク定義の行で節が終わるので、**項目の中のリンクは参照形式ではなくインラインで書く**
+- **`release.yml` は `workflow_dispatch` でタグを ref にして起動する**（`tagpr.yml` の `release` ジョブ）。GITHUB_TOKEN で push したタグでは `push: tags` が起動しないが、`workflow_dispatch` は例外として起動できる。`workflow_call` で同じ run から呼ぶ形にしないこと。run の主体が `tagpr.yml`、ref が `refs/heads/main` になり、npm の Trusted Publisher（`release.yml` を登録してある）と provenance がそれを名乗る。**`release.yml` のファイル名を変えると、npm 側の登録も変えるまで publish が通らない**
+- **`workflow_dispatch` の権限（`actions: write`）は `release` ジョブだけに付け、tagpr のジョブには付けない**
+- **`tagpr` ジョブの `concurrency` は `cancel-in-progress: false`。** 同じブランチを作り直し合わないように並べず、タグを打った直後に止めて publish されないタグを残さないように止めない
+- GitHub 側の設定: 「Allow GitHub Actions to create and approve pull requests」を ON にしてある（tagpr が GITHUB_TOKEN でリリース PR を作るのに要る）
 
 ## リポジトリ構成
 
@@ -62,15 +130,18 @@ wema/
 ├── .claude/rules/            # 領域ごとの実装ルール (対象のファイルを読んだときに読み込まれる)
 ├── README.md
 ├── index.html                # 開発用ページ (npm run dev が serve する)
-├── CHANGELOG.md              # Keep a Changelog 形式
+├── CHANGELOG.md              # Keep a Changelog 形式 (各 PR で ## [Unreleased] に書く)
 ├── LICENSE                   # MIT
 ├── SECURITY.md               # 脆弱性報告ポリシー
+├── .tagpr                    # tagpr の設定 (リリース PR)
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
 ├── scripts/
 │   ├── build-standalone.ts   # wema.html ビルドスクリプト
-│   └── verify-package.ts     # 公開物にエントリファイルが揃っているか検証
+│   ├── verify-package.ts     # 公開物にエントリファイルが揃っているか検証
+│   ├── release-prepare.mjs   # リリース PR の中身 (lock の版、CHANGELOG の見出し)。tagpr が呼ぶ
+│   └── release-notes.mjs     # CHANGELOG の 1 節を出す (Release の本文)
 ├── src/                      # ライブラリ本体
 │   ├── index.ts              # public API re-export
 │   ├── types.ts              # 型定義
@@ -134,9 +205,11 @@ wema/
 │   └── viewport.test.ts
 └── .github/
     ├── dependabot.yml        # 依存の自動更新 (npm + GitHub Actions)
+    ├── release.yml           # リリース PR の本文に並ぶ PR の分類 (tagpr が使う)
     └── workflows/
         ├── ci.yml            # テスト・ビルド + npm audit
-        ├── release.yml       # リリース (HTML配布 + npm publish)
+        ├── tagpr.yml         # リリース PR の作成、マージ後のタグ付けと release.yml の起動
+        ├── release.yml       # リリース (npm publish → GitHub Release に wema.html を添付)
         └── pages.yml         # GitHub Pages デプロイ (https://kan.github.io/wema/)
 ```
 
