@@ -48,6 +48,17 @@ npm run lint         # リント (tsc --noEmit)
 - **次のリリースを minor にする PR（機能の追加）には `enhancement` ラベルを付ける。** tagpr がマージ済みの PR のラベルを見て、リリース PR に `tagpr:minor` を付ける（`.tagpr` の `minorLabels`）。付いていなければ patch
 - dependabot の PR も同じくマージで入れる。開発依存だけの更新は利用者に届かないので、CHANGELOG に書くかは中身で決める（脆弱性の修正は書く）。書くときは、dependabot のブランチへ CHANGELOG のコミットを足してからマージする
 
+## action の固定
+
+**ワークフローの action の固定は `.github/workflows/actions.lock`（`gh actions-lock` が作る）に任せる。** 実行時には、Actions が lockfile に記録した commit 以外を動かさない。`.github/workflows/verify-lockfile.yml` が、PR と main への push で lockfile と `uses:` の食い違いを確かめる。
+
+- **ステップの `uses:` は完全な版のタグ（`@v7.0.1`）で書き、SHA も major のタグ（`@v7`）も書かない**
+- **`uses:` を足したり変えたりしたら `gh actions-lock` を再実行し、lockfile も同じコミットに入れる。lockfile は手で編集しない**
+- Dependabot は Actions の更新 PR で lockfile の該当行も作り直す
+- 検査が入れる拡張の版（`verify-lockfile.yml` の `--pin`）は、Dependabot と lockfile のどちらも追わない。lockfile の形式が上がって `--verify` が落ちたら、手元の `gh actions-lock` と同じ版に手で上げる
+- 別の repo の reusable workflow を呼ぶ行（`jobs.<id>.uses: owner/repo/...`）は lockfile では固定されない。足すときは commit の SHA で書く
+- `scripts/tagpr/.github/` は kan/tagpr-scripts の写しで、GitHub は読まない。ここでは触らない
+
 ## リリース手順
 
 **リリースは、ユーザーから指示されたときだけ行う。リリースは tagpr のリリース PR をマージして始める**（0.17.0 の次の版から）。版上げ（`package.json` / `package-lock.json`）、`CHANGELOG.md` の見出しとリンク定義、タグは、リリース PR とワークフローが行う。**`npm version` を手で回さない。タグも手で打たない**（打ち直すときを除く。下の「やり直し」）。
@@ -116,7 +127,7 @@ npm run lint         # リント (tsc --noEmit)
 - **main に push があるたびに `tagpr.yml` がリリース PR を作り直す。** ブランチは `tagpr-from-v<前回の版>`。マージすると、次の run がマージコミットにタグを打つ。設定は `.tagpr`
 - **版は `package.json` で持つ**（`versionFile`）。**tagpr は `package-lock.json` を書き換えない**ので、`scripts/tagpr/release-prepare.mjs`（`postVersionCommand`）が揃える
 - **`release-prepare.mjs` は `## [Unreleased]` を `## [X.Y.Z] - 日付` にし、その上に空の `## [Unreleased]` を置き直し、末尾のリンク定義の先頭にその版のリンクを足す。** 検査をすべて済ませてから書き、落ちるときは何も書き換えない。落ちるのは `## [Unreleased]` が無いか空か重複しているとき、最新のタグ（tagpr が渡す `TAGPR_CURRENT_VERSION`）より新しい版の節が既にあるとき（タグが打たれていない）、`package.json` の版や `repository` が合わないとき。失敗しても tagpr はリリース PR を作るので、**run が赤ならマージしない**
-- **tagpr のジョブでは依存のコードを走らせない。** リポジトリへ push できるトークンを持つため。`npm ci` をせず、`scripts/tagpr/` は Node の組み込みだけで書く。tagpr の action は SHA で固定する
+- **tagpr のジョブでは依存のコードを走らせない。** リポジトリへ push できるトークンを持つため。`npm ci` をせず、`scripts/tagpr/` は Node の組み込みだけで書く。tagpr の action の commit は `actions.lock` が固定する（「action の固定」）
 - **CHANGELOG と GitHub の Release は tagpr に作らせない**（`changelog = false` / `release = false`）。tagpr の CHANGELOG は PR のタイトルを並べるだけ。Release は `release.yml` が npm publish の**後**に作る（publish に失敗した版の Release を残さない）。`.github/release.yml` は、リリース PR の本文に並ぶ PR の分類にだけ使う
 - **CHANGELOG の読み方（節の見出し、コードフェンス、末尾のリンク定義）は `scripts/tagpr/changelog.mjs` の 1 か所に置く。** `release-prepare.mjs` と `release-notes.mjs` はそれを import する。2 か所に書くと、リリース PR は通るのに `release.yml` の検査で落ちる。リンク定義の行で節が終わるので、**項目の中のリンクは参照形式ではなくインラインで書く**
 - **`scripts/tagpr/` は [kan/tagpr-scripts](https://github.com/kan/tagpr-scripts) の git subtree**（lily / wema-kake と共有）。**ここでは編集しない。** upstream を直してから取り込む
@@ -219,6 +230,8 @@ wema/
     ├── dependabot.yml        # 依存の自動更新 (npm + GitHub Actions)
     ├── release.yml           # リリース PR の本文に並ぶ PR の分類 (tagpr が使う)
     └── workflows/
+        ├── actions.lock      # action の固定 (gh actions-lock が作る。手で編集しない)
+        ├── verify-lockfile.yml  # actions.lock と uses: の食い違いの検査
         ├── ci.yml            # テスト・ビルド + npm audit
         ├── tagpr.yml         # リリース PR の作成、マージ後のタグ付けと release.yml の起動
         ├── release.yml       # リリース (build → npm publish → GitHub Release に wema.html を添付。権限ごとにジョブを分ける)

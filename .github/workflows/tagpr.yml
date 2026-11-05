@@ -39,7 +39,7 @@ jobs:
     outputs:
       tag: ${{ steps.tagpr.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
@@ -47,11 +47,12 @@ jobs:
       # コードを走らせない。`scripts/tagpr/`（kan/tagpr-scripts の subtree）は
       # Node の組み込みだけで動く（ランナーに入っている Node を使う）。
       #
-      # **tagpr は SHA で固定する。** 書き込みの権限で動く第三者の action なので、
-      # 付け替えられるタグを指さない。dependabot が末尾のコメントごと上げる。
+      # **tagpr の commit は `actions.lock` が固定する。** 書き込みの権限で動く第三者の
+      # action なので、タグが付け替えられても、記録した commit 以外は動かさない
+      # （CLAUDE.md「action の固定」）。
       - name: Run tagpr
         id: tagpr
-        uses: Songmu/tagpr@e1250d6c84e4425db82b5e90549d62dfe23e9ebe # v1.21.4
+        uses: Songmu/tagpr@v1.21.4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
