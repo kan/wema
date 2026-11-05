@@ -3,15 +3,23 @@
  * main からリリース PR を作り直すたびに走らせる。**repo のルートで実行する。**
  *
  *     TAGPR_CURRENT_VERSION=vX.Y.Z TAGPR_NEXT_VERSION=vX.Y.Z node scripts/tagpr/release-prepare.mjs
+ *     TAGPR_CURRENT_VERSION=vX.Y.Z TAGPR_NEXT_VERSION=vX.Y.Z node scripts/tagpr/release-prepare.mjs --changelog-only
+ *     TAGPR_CURRENT_VERSION=vX.Y.Z TAGPR_NEXT_VERSION=vX.Y.Z node scripts/tagpr/release-prepare.mjs --cargo src-tauri
  *
  * `TAGPR_CURRENT_VERSION` は最新のタグ、`TAGPR_NEXT_VERSION` は tagpr が提案する版。
  * どちらも tagpr が渡す。
  *
- * 1. `package-lock.json` の版を `package.json` に揃える。**tagpr は lock を
- *    書き換えない**（版のファイルとして扱わない一覧に入っている）
- * 2. `CHANGELOG.md` の `## [Unreleased]` を `## [X.Y.Z] - <日本時間の日付>` にし、
+ * 0. `.tagpr` の `versionFile` の全部のファイルが、提案の版になっているかを確かめる
+ *    （`version-files.mjs`。tagpr は各ファイルで今の版の最初の 1 か所だけを書き換えるため）
+ * 1. `package-lock.json` の版を `package.json` に揃える（`npm-lock.mjs`）。
+ *    `--changelog-only` では `package.json` も lock も読まない（版のファイルが無い repo や、
+ *    版と lock を自分のラッパーで揃える repo 向け）
+ * 2. `--cargo <dir>` を付けたら、`<dir>/Cargo.lock` の自分のパッケージの版を
+ *    `<dir>/Cargo.toml` に揃える（`cargo-lock.mjs`）。Cargo.toml は tagpr が `versionFile` として書く
+ * 3. `CHANGELOG.md` の `## [Unreleased]` を `## [X.Y.Z] - <日本時間の日付>` にし、
  *    その上に空の `## [Unreleased]` を置き直し、末尾のリンク定義の先頭にその版の
- *    リンクを足す。リンク先の repo は `package.json` の `repository` から決める
+ *    リンクを足す（`changelog.mjs` の `stampRelease`）。リンク先の repo は
+ *    Actions では `GITHUB_REPOSITORY`、それ以外では `origin` から決める
  *
  * **検査をすべて済ませてから書く。** 落ちるときは何も書き換えない（tagpr は失敗しても
  * リリース PR を更新するので、版だけ上がった PR を残さない）。それでも run が赤なら、
@@ -21,19 +29,35 @@
  * 持つので、依存のコードを走らせない。
  */
 import { writeFileSync } from 'node:fs';
-import {
-  ReleaseError,
-  changelogPath,
-  compareVersions,
-  githubRepo,
-  isSectionHeading,
-  linkBlockStart,
-  readRootFile,
-  readSection,
-  releaseDate,
-  scan,
-  versionHeadings,
-} from './changelog.mjs';
+import { relative } from 'node:path';
+import { parseArgs } from 'node:util';
+import { ReleaseError, changelogPath, currentGithubRepo, readRootFile, releaseDate, stampRelease } from './changelog.mjs';
+import { syncCargoLock } from './cargo-lock.mjs';
+import { lockPath, syncPackageLock } from './npm-lock.mjs';
+import { checkVersionFiles } from './version-files.mjs';
+
+/** `[--changelog-only] [--cargo <dir>]` を読む。知らない引数や値の無い `--cargo` は使い方を出して落とす */
+function readArgs(args) {
+  // 取り込み先では repo のルートから見たパス（`scripts/tagpr/release-prepare.mjs`）になる
+  const usage = () =>
+    new ReleaseError(
+      `usage: node ${relative(process.cwd(), import.meta.filename)} [--changelog-only] [--cargo <dir>] (got: ${args.join(' ')})`,
+    );
+  let values;
+  try {
+    // --cargo は複数を受けてから 1 つに限る（parseArgs は既定で最後の 1 つを黙って残す）
+    ({ values } = parseArgs({
+      args,
+      options: { 'changelog-only': { type: 'boolean' }, cargo: { type: 'string', multiple: true } },
+      strict: true,
+    }));
+  } catch {
+    // 知らない引数、値の無い --cargo。parseArgs の文言は Node の版で変わるので出さない
+    throw usage();
+  }
+  if ((values.cargo?.length ?? 0) > 1) throw usage();
+  return { changelogOnly: values['changelog-only'] === true, cargoDir: values.cargo?.[0] ?? null };
+}
 
 /** 環境変数の `vX.Y.Z` から `X.Y.Z` を取り出す。形が違えば落とす */
 function versionFromEnv(name) {
@@ -46,80 +70,33 @@ function versionFromEnv(name) {
 }
 
 try {
+  const { changelogOnly, cargoDir } = readArgs(process.argv.slice(2));
   const version = versionFromEnv('TAGPR_NEXT_VERSION');
   const current = versionFromEnv('TAGPR_CURRENT_VERSION');
 
   // --- 検査（ここでは何も書かない） ---
 
-  const pkg = JSON.parse(readRootFile('package.json'));
-  // tagpr が package.json を書き換えた後に走るので、ずれていたら tagpr の設定の誤り
-  if (pkg.version !== version) {
-    throw new ReleaseError(`package.json says ${pkg.version}, but tagpr proposes ${version} (check versionFile in .tagpr)`);
-  }
-  const repo = githubRepo(pkg.repository);
-  if (!repo) {
-    throw new ReleaseError(`package.json "repository" must point at a GitHub repository, got ${JSON.stringify(pkg.repository)}`);
-  }
-
-  const lock = JSON.parse(readRootFile('package-lock.json'));
-  const self = lock.packages?.[''];
-  if (!self) throw new ReleaseError('package-lock.json has no packages[""] (lockfileVersion 2 or later is required)');
-
-  const text = readRootFile(changelogPath);
-  // **最新のタグより新しい版の節があれば落とす。** tagpr はリリース PR のブランチを毎回
-  // main から作り直すので、その節があるのは、main にリリース PR が入ったのにタグが
-  // 打たれていないとき（タグを打ち直すために消している間も同じ）。
-  //
-  // 提案する版の節だけを見ると、間に `enhancement` の PR が入ったときに通ってしまう。
-  // tagpr は最新のタグから数えるので、0.17.1 のタグが無いまま minor の 0.18.0 を提案し、
-  // 「タグの無い 0.17.1 の上に 0.18.0 を積んだ」リリース PR が緑のまま作られる。
-  //
-  // タグが 1 つも無いと tagpr は `v0.0.0` を渡す。そのときは比べる相手が無いので見ない
-  // （タグを打たずにリリースしてきた repo が tagpr へ移ると、古い節がすべて引っかかる）。
-  const untagged =
-    current === '0.0.0'
-      ? []
-      : versionHeadings(text)
-          .filter((v) => compareVersions(v, current) > 0)
-          .sort(compareVersions);
-  if (untagged.length > 0) {
-    // 古い順にすべて出す。新しい方だけ直すと、古い方はそのタグより古くなって見えなくなる
-    const sections = untagged.map((v) => `"## [${v}]"`).join(', ');
-    throw new ReleaseError(
-      `CHANGELOG.md already has ${sections}, newer than the latest tag v${current}: ` +
-        'a release pull request was merged but not tagged. ' +
-        `Re-run the tagpr run of the merge commit for ${untagged[0]} first (or push the tag again) ` +
-        'instead of merging a new release pull request',
-    );
-  }
-  // 無いか空なら、ここで理由を出して落ちる
-  readSection(text, 'Unreleased');
+  checkVersionFiles(version);
+  const lock = changelogOnly ? null : syncPackageLock(version);
+  const cargoLock = cargoDir === null ? null : syncCargoLock(version, cargoDir);
+  const changelog = stampRelease(readRootFile(changelogPath), {
+    version,
+    current,
+    repo: currentGithubRepo(),
+    date: releaseDate(),
+  });
 
   // --- 書き換え ---
 
-  const rows = scan(text);
-  const linkAt = linkBlockStart(rows);
-  const link = `[${version}]: https://github.com/${repo}/releases/tag/v${version}`;
-  const out = [];
-  rows.forEach(([line, fenced], i) => {
-    if (i === linkAt) out.push(link);
-    out.push(line);
-    if (!fenced && isSectionHeading(line, 'Unreleased')) out.push('', `## [${version}] - ${releaseDate()}`);
-  });
-  if (linkAt === rows.length) {
-    // 末尾の改行の手前に置く
-    while (out.length > 0 && out[out.length - 1] === '') out.pop();
-    out.push('', link, '');
+  if (lock !== null) {
+    writeFileSync(lockPath, lock);
+    console.log(`${lockPath}: -> ${version}`);
   }
-
-  if (lock.version !== version || self.version !== version) {
-    lock.version = version;
-    self.version = version;
-    // npm と同じ書き方（2 スペース + 末尾の改行）。違うと差分が全行に出る
-    writeFileSync('package-lock.json', `${JSON.stringify(lock, null, 2)}\n`);
-    console.log(`package-lock.json: -> ${version}`);
+  if (cargoLock !== null) {
+    writeFileSync(cargoLock.path, cargoLock.text);
+    console.log(`${cargoLock.path}: -> ${version}`);
   }
-  writeFileSync(changelogPath, out.join('\n'));
+  writeFileSync(changelogPath, changelog);
   console.log(`CHANGELOG.md: "## [Unreleased]" -> "## [${version}]"`);
 } catch (e) {
   if (!(e instanceof ReleaseError)) throw e;
