@@ -3,11 +3,16 @@ name: tagpr
 # **リリース PR を作り直し、マージされたらタグを打って release.yml を起動する。**
 # 設定は `.tagpr`、手順は CLAUDE.md の「リリース手順」。
 #
+# 中身は kan/tagpr-scripts の共通の workflow（`scripts/tagpr/.github/workflows/tagpr.yml` が
+# その写し）。動き、入力、落ちたときの扱いは tagpr-scripts の README の「The tagpr workflow」。
+#
 # - main への push ごとに、リリース PR（ブランチ `tagpr-from-v<前の版>`）を main の
 #   上に作り直す。`package.json` の版は tagpr が上げ、`package-lock.json` と
-#   `CHANGELOG.md` の見出しは `scripts/tagpr/release-prepare.mjs` が直す
-# - リリース PR がマージされると、次の run がマージコミットにタグを打ち、
-#   `release` ジョブが `release.yml` をそのタグで起動する
+#   `CHANGELOG.md` の見出しは `scripts/tagpr/release-prepare.mjs` が直す。落ちた run では
+#   リリース PR を draft にし、次に成功した run で ready に戻す
+# - リリース PR がマージされると、次の run がマージコミットに annotated のタグを打ち、
+#   `release.yml` をそのタグで `workflow_dispatch` する（GITHUB_TOKEN で打ったタグでは
+#   `push: tags` が起動しないため）
 # - `workflow_dispatch` はリリース PR の作り直し用（`tagpr:minor` を付けた後など）
 on:
   push:
@@ -17,63 +22,19 @@ on:
 permissions:
   contents: read
 
+# **この workflow に `concurrency` を付けない。** 共通の workflow の tagpr のジョブが、
+# run を 1 つずつ並べる。同じ名前の group を呼ぶ側にも付けると、GitHub が deadlock として止める
 jobs:
   tagpr:
-    name: Prepare the release pull request
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # **並べず、止めない。** 並べると同じブランチを作り直し合う。止めると、
-    # タグを打った直後に止まって publish されないタグが残る。
-    #
-    # それでも GitHub は待っている run を 1 つしか持たない。リリース PR の
-    # マージの run が待っている間に push が来ると、その run は cancelled になり
-    # タグが打たれない。後の push の run は `release-prepare.mjs` の検査（最新のタグ
-    # より新しい版の節がある）で赤になるので、マージコミットの run を再実行する（CLAUDE.md）。
-    concurrency:
-      group: tagpr
-      cancel-in-progress: false
+    # **SHA は `scripts/tagpr/` に取り込んだ tagpr-scripts の commit にする。** subtree を
+    # 取り込む PR で一緒に上げる（CLAUDE.md「リリース PR（tagpr）の仕組み」）。別の repo の
+    # reusable workflow は `actions.lock` では固定されず、Dependabot には上げさせない（dependabot.yml）
+    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@776734198ce4cade40332a9d1772ef8a2fd01c2f
+    # 共通の workflow が使える権限の上限。4 つとも書く
     permissions:
       contents: write       # リリース PR のブランチとタグを push する
       pull-requests: write  # リリース PR を作る・更新する
       issues: read          # ラベルを読む
-    outputs:
-      tag: ${{ steps.tagpr.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-
-      # **`npm ci` をしない。** このジョブは push できるトークンを持つので、依存の
-      # コードを走らせない。`scripts/tagpr/`（kan/tagpr-scripts の subtree）は
-      # Node の組み込みだけで動く（ランナーに入っている Node を使う）。
-      #
-      # **tagpr の commit は `actions.lock` が固定する。** 書き込みの権限で動く第三者の
-      # action なので、タグが付け替えられても、記録した commit 以外は動かさない
-      # （CLAUDE.md「action の固定」）。
-      - name: Run tagpr
-        id: tagpr
-        uses: Songmu/tagpr@v1.21.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # **GITHUB_TOKEN で push したタグでは `push: tags` が起動しない。**
-  # `workflow_dispatch` はその例外なので、タグを ref にして `release.yml` を起動する。
-  #
-  # `workflow_call` で同じ run から呼ばない。そうすると run の主体は `tagpr.yml`、
-  # ref は `refs/heads/main` になり、OIDC のトークンも provenance もそれを名乗る。
-  # npmjs.com の Trusted Publisher に登録してあるのは `release.yml` で、
-  # provenance にはタグが残ってほしい。dispatch ならどちらもそのままで済む。
-  release:
-    name: Start the release
-    needs: tagpr
-    if: needs.tagpr.outputs.tag != ''
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write  # workflow_dispatch
-    steps:
-      - name: Dispatch release.yml on the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.tagpr.outputs.tag }}
-        run: gh workflow run release.yml --ref "$TAG"
+      actions: write        # release.yml を workflow_dispatch する
+    with:
+      release-workflow: release.yml
