@@ -27,6 +27,9 @@ jobs:
       - run: npm run verify:package
       - run: npm audit --audit-level=high
 
+      - name: Check scripts/tagpr/ against the tagpr workflow pin
+        run: node scripts/tagpr/verify-subtree.mjs
+
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: wema-html
