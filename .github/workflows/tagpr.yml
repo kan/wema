@@ -31,7 +31,7 @@ jobs:
     # **SHA は `scripts/tagpr/` に取り込んだ tagpr-scripts の commit にする。** subtree を
     # 取り込む PR で、`tagpr-label.yml` の行と一緒に上げる（CLAUDE.md「リリース PR（tagpr）の仕組み」）。
     # 別の repo の reusable workflow は `actions.lock` では固定されず、Dependabot には上げさせない（dependabot.yml）
-    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@231fe768bce55eb24fed1e10a4b27907ebf7a306
+    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@acd6fdd62871cc7acc6c33fc7e1ceb314e82e428
     # 共通の workflow が使える権限の上限。4 つとも書く
     permissions:
       contents: write       # リリース PR のブランチとタグを push する
