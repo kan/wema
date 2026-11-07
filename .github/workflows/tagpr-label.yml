@@ -1,0 +1,19 @@
+name: tagpr-label
+
+# **開いているリリース PR のラベル（`tagpr:minor` など）が付け外しされたら、リリース PR を
+# draft にし、`tagpr.yml` を `workflow_dispatch` で起動して作り直させる。** 中身は kan/tagpr-scripts の
+# 共通の workflow で、動きは `scripts/tagpr/README.md` の「The tagpr workflow」にある。ここに書き写さない。
+# checkout しないので、`pull_request_target` でも PR のコードは走らない
+on:
+  pull_request_target:
+    types: [labeled, unlabeled]
+
+permissions: {}
+
+jobs:
+  rebuild:
+    # **SHA は `tagpr.yml` の呼ぶ行と同じにする**（`scripts/tagpr/verify-subtree.mjs` が照合する）
+    uses: kan/tagpr-scripts/.github/workflows/tagpr-label.yml@231fe768bce55eb24fed1e10a4b27907ebf7a306
+    permissions:
+      actions: write        # tagpr.yml を起動する
+      pull-requests: write  # リリース PR を draft にする

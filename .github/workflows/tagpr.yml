@@ -14,7 +14,8 @@ name: tagpr
 # - タグを打った run は `release.yml` をそのタグで `workflow_dispatch` する（GITHUB_TOKEN で
 #   打ったタグでは `push: tags` が起動しないため）。`release.yml` は `push: tags` も持つので、
 #   手でタグを push すると、それだけで起動する
-# - `workflow_dispatch` はリリース PR の作り直し用（`tagpr:minor` を付けた後など）
+# - `workflow_dispatch` はリリース PR の作り直し用。リリース PR のラベルを付け外しすると、
+#   `tagpr-label.yml` がこれで起動する。**このファイルの名前と `workflow_dispatch:` を変えない**
 on:
   push:
     branches: [main]
@@ -28,9 +29,9 @@ permissions:
 jobs:
   tagpr:
     # **SHA は `scripts/tagpr/` に取り込んだ tagpr-scripts の commit にする。** subtree を
-    # 取り込む PR で一緒に上げる（CLAUDE.md「リリース PR（tagpr）の仕組み」）。別の repo の
-    # reusable workflow は `actions.lock` では固定されず、Dependabot には上げさせない（dependabot.yml）
-    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@966347b01e86b2aea4d71da0604588b17642b880
+    # 取り込む PR で、`tagpr-label.yml` の行と一緒に上げる（CLAUDE.md「リリース PR（tagpr）の仕組み」）。
+    # 別の repo の reusable workflow は `actions.lock` では固定されず、Dependabot には上げさせない（dependabot.yml）
+    uses: kan/tagpr-scripts/.github/workflows/tagpr.yml@231fe768bce55eb24fed1e10a4b27907ebf7a306
     # 共通の workflow が使える権限の上限。4 つとも書く
     permissions:
       contents: write       # リリース PR のブランチとタグを push する

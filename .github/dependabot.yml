@@ -9,7 +9,7 @@ updates:
     schedule:
       interval: "weekly"
     ignore:
-      # tagpr.yml が呼ぶ kan/tagpr-scripts の共通の workflow の SHA は、
+      # tagpr.yml と tagpr-label.yml が呼ぶ kan/tagpr-scripts の共通の workflow の SHA は、
       # scripts/tagpr/ の subtree と揃える。subtree pull と同じ PR でだけ上げ、
       # Dependabot には上げさせない（tagpr-scripts の README「The tagpr workflow」）。
       # 今はタグが無いので上げに来ないが、タグを打つと SHA だけ上げる PR が来る。
