@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - リリースを [tagpr](https://github.com/Songmu/tagpr) のリリース PR で行うようにした（ライブラリ実体に影響なし）。GitHub Release の本文は、この CHANGELOG のその版の節になる
+- 依存関係の更新（開発依存のみ、ライブラリ実体に影響なし）
+  - vitest 5.0.5 → 5.1.0
+  - vite 8.3.5 → 8.3.6
+  - jsdom 30.1.3 → 31.0.0
 
 ## [0.17.0] - 2026-10-29
 
