@@ -792,7 +792,8 @@ describe('Viewport', () => {
       board.destroy();
       createBoard({ maxZoom: 0.5 });
       expect(board.getViewport()).toEqual({ x: 0, y: 0, zoom: 0.5 });
-      expect(viewportEl().style.transform).toBe('translate(0px, 0px) scale(0.5)');
+      // jsdom 31 からは、y が 0 の translate を translate(0px) と書き出す
+      expect(viewportEl().style.transform).toMatch(/^translate\(0px(, 0px)?\) scale\(0\.5\)$/);
 
       board.setViewport({ x: 30 });
       expect(board.getViewport()).toEqual({ x: 30, y: 0, zoom: 0.5 });
