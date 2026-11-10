@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-10
+
 ### Changed
 
 - リリースを [tagpr](https://github.com/Songmu/tagpr) のリリース PR で行うようにした（ライブラリ実体に影響なし）。GitHub Release の本文は、この CHANGELOG のその版の節になる
@@ -515,6 +517,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.17.1]: https://github.com/kan/wema/releases/tag/v0.17.1
 [0.17.0]: https://github.com/kan/wema/releases/tag/v0.17.0
 [0.16.1]: https://github.com/kan/wema/releases/tag/v0.16.1
 [0.16.0]: https://github.com/kan/wema/releases/tag/v0.16.0
