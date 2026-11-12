@@ -30,6 +30,14 @@ export interface AutoLayoutOptions {
    * largest scale.
    */
   aspectRatio?: number;
+  /**
+   * The order in which notes are placed wherever the edges leave it open
+   * (default: their current position, left to right, then top to bottom).
+   * Notes without edges wrap into rows in this order, and so do the groups
+   * of connected notes, by their first note. Notes left out come after
+   * these, in the order of their current position. Unknown ids are ignored.
+   */
+  order?: NoteId[];
 }
 
 /** A new position and width for a note, as computed by `computeStackLayout` */
@@ -71,20 +79,12 @@ const STACK_GAP = 16;
 export function computeStackLayout(notes: LayoutNote[], options: StackLayoutOptions = {}): NotePlacement[] {
   if (notes.length === 0) return [];
 
-  const byId = new Map(notes.map((n) => [n.id, n]));
-  const ordered: LayoutNote[] = [];
-  for (const id of options.order ?? []) {
-    const note = byId.get(id);
-    // Deleting it also drops an id that is listed twice
-    if (note && byId.delete(id)) ordered.push(note);
-  }
-  // The sort is stable: notes at the same place keep the order they came in
-  ordered.push(...[...byId.values()].sort((a, b) => a.y - b.y || a.x - b.x));
+  const stack = ordered(notes, options.order, (a, b) => a.y - b.y || a.x - b.x);
 
   const x = options.x ?? Math.min(...notes.map((n) => n.x));
   const gap = options.gap ?? STACK_GAP;
   let y = options.y ?? Math.min(...notes.map((n) => n.y));
-  return ordered.map((note) => {
+  return stack.map((note) => {
     const placement = { id: note.id, x, y, width: options.width ?? note.width };
     y += note.height + gap;
     return placement;
@@ -232,7 +232,7 @@ interface Unit {
 
 /** The edges between the target notes, with the cycles removed */
 interface Graph {
-  /** The notes that have an edge, ordered by position */
+  /** The notes that have an edge, in the order of the targets */
   nodes: LayoutNote[];
   children: Map<NoteId, NoteId[]>;
   parentCount: Map<NoteId, number>;
@@ -242,6 +242,29 @@ interface Graph {
 
 /** Left to right, then top to bottom: the order wherever nothing else decides */
 const byPosition = (a: LayoutNote, b: LayoutNote): number => a.x - b.x || a.y - b.y;
+
+/**
+ * A sorted copy of `notes`: the ones in `order` first, in that order (an id
+ * listed twice counts where it first appears), then the rest by `compare`.
+ * The sort is stable, so notes that tie keep the order they came in.
+ */
+function ordered(
+  notes: LayoutNote[],
+  order: NoteId[] | undefined,
+  compare: (a: LayoutNote, b: LayoutNote) => number,
+): LayoutNote[] {
+  const rank = new Map<NoteId, number>();
+  (order ?? []).forEach((id, i) => {
+    if (!rank.has(id)) rank.set(id, i);
+  });
+  const rankOf = (n: LayoutNote): number => rank.get(n.id) ?? Infinity;
+  return [...notes].sort((a, b) => {
+    const ra = rankOf(a);
+    const rb = rankOf(b);
+    if (ra !== rb) return ra < rb ? -1 : 1;
+    return ra === Infinity ? compare(a, b) : 0;
+  });
+}
 
 const shifted = (places: NotePosition[], dx: number, dy: number): NotePosition[] =>
   places.map((p) => ({ id: p.id, x: p.x + dx, y: p.y + dy }));
@@ -494,13 +517,15 @@ function arrange(groups: Block[], loose: Block[], aspect: number): NotePosition[
 }
 
 /**
- * Read the edges between `targets` (given in position order) as an acyclic
+ * Read the edges between `targets` (given in layout order) as an acyclic
  * graph. Duplicate edges and self-loops are ignored. A depth-first search
  * drops the edges that close a cycle (an edge back to a note that is still
  * being visited).
  */
 function buildGraph(targets: LayoutNote[], edges: LayoutEdge[]): Graph {
-  const targetIds = new Set(targets.map((n) => n.id));
+  // Position in layout order: children are visited, and so placed, in this order
+  const rank = new Map(targets.map((n, i) => [n.id, i]));
+  const targetIds = new Set(rank.keys());
   const out = new Map<NoteId, Set<NoteId>>();
   const hasParent = new Set<NoteId>();
   for (const { from, to } of edges) {
@@ -520,7 +545,8 @@ function buildGraph(targets: LayoutNote[], edges: LayoutEdge[]): Graph {
   const enter = (id: NoteId): void => {
     seen.add(id);
     visiting.add(id);
-    stack.push({ id, next: [...(out.get(id) ?? [])], at: 0 });
+    const next = [...(out.get(id) ?? [])].sort((a, b) => rank.get(a)! - rank.get(b)!);
+    stack.push({ id, next, at: 0 });
   };
   // Start from the notes nothing points to; what is left after that is cycles
   const roots = nodes.filter((n) => !hasParent.has(n.id));
@@ -591,8 +617,8 @@ function buildUnits({ nodes, children, parentCount }: Graph, levelOf: Map<NoteId
       .get(id)!
       .filter((c) => children.get(c)!.length === 0 && parentCount.get(c) === 1)
       .map((c) => noteById.get(c)!);
+    // `children` lists them in layout order already (buildGraph)
     if (leaves.length < WRAP_MIN) continue;
-    leaves.sort(byPosition);
     const unit = newUnit(gridBlock(leaves, Math.ceil(Math.sqrt(leaves.length))), levelOf.get(id)! + 1);
     for (const leaf of leaves) unitOf.set(leaf.id, unit);
   }
@@ -653,7 +679,9 @@ function groupUnits(nodes: LayoutNote[], unitOf: Map<NoteId, Unit>): Unit[][] {
  * - Notes never overlap each other, whatever their sizes are
  * - The current arrangement is the starting point: the result keeps the
  *   top-left corner of the area the notes occupy now, and ties are ordered
- *   by the notes' current position (left to right, then top to bottom)
+ *   by `options.order`, then by the notes' current position (left to right,
+ *   then top to bottom). The same order picks which edge of a cycle is
+ *   dropped: the search starts from the first note of a cycle in this order
  *
  * Pure function: does not touch the DOM. Returns a position for every
  * target note.
@@ -664,7 +692,11 @@ export function computeAutoLayout(
   options?: AutoLayoutOptions,
 ): NotePosition[] {
   const wanted = options?.noteIds ? new Set(options.noteIds) : null;
-  const targets = notes.filter((n) => !wanted || wanted.has(n.id)).sort(byPosition);
+  const targets = ordered(
+    notes.filter((n) => !wanted || wanted.has(n.id)),
+    options?.order,
+    byPosition,
+  );
   if (targets.length === 0) return [];
 
   const graph = buildGraph(targets, edges);
