@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`computeAutoLayout()` に `order` オプションを追加した。** 接続線で決まらない順（接続線のない付箋の並び、まとまり同士の並び、同じ親の子を折り返すときの並び）を、ID の配列で指定できる。`order` に無い付箋は、その後ろにいまの位置の順で並ぶ。同じ順は、接続線の循環を切るときにどの線を外すかにも使う
+
+### Fixed
+
+- `computeAutoLayout()`（`autoLayout()`）で、同じ親の子の並びが、いまの位置の順ではなく接続線を引いた順になることがあった。親がまとまりの中で最初に並ぶ付箋のとき（親が子より左にあるときなど）に起きていた
+
 ## [0.17.1] - 2026-11-10
 
 ### Changed

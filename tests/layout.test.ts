@@ -399,6 +399,55 @@ describe('Layout functions (no board)', () => {
       expect(pos.a.x).toBe((pos.b.x + pos.c.x) / 2);
     });
 
+    it('wraps notes without edges in options.order, then the rest by position', () => {
+      const notes = [note('a', 0, 0), note('b', 300, 0), note('c', 600, 0), note('d', 900, 0), note('e', 0, 300)];
+      const result = computeAutoLayout(notes, [], { order: ['d', 'missing', 'b', 'd'] });
+      // Row by row, left to right
+      const read = [...result].sort((p, q) => p.y - q.y || p.x - q.x).map((p) => p.id);
+      expect(read).toEqual(['d', 'b', 'a', 'e', 'c']);
+      expect(Math.min(...result.map((r) => r.x))).toBe(0);
+      expect(Math.min(...result.map((r) => r.y))).toBe(0);
+    });
+
+    it('orders siblings by options.order, with the parent listed first', () => {
+      const pos = Object.fromEntries(
+        computeAutoLayout(
+          [note('a', 300, 0), note('b', 0, 300), note('c', 600, 300)],
+          [edge('a', 'b'), edge('a', 'c')],
+          { order: ['a', 'c', 'b'] },
+        ).map((r) => [r.id, r]),
+      );
+      expect(pos.c.x).toBeLessThan(pos.b.x);
+    });
+
+    it('orders siblings by position, not by edge order, when the parent comes first', () => {
+      // a is the leftmost note, so it is the first node; the edges list c first
+      const pos = layout(
+        [note('a', 0, 0), note('b', 300, 300), note('c', 600, 300)],
+        [edge('a', 'c'), edge('a', 'b')],
+      );
+      expect(pos.b.x).toBeLessThan(pos.c.x);
+    });
+
+    it('keeps notes that share an id', () => {
+      expect(computeAutoLayout([note('a', 0, 0), note('a', 500, 0)], [], { order: ['a'] })).toHaveLength(2);
+    });
+
+    it('wraps many childless children in options.order', () => {
+      const kids = Array.from({ length: 16 }, (_, i) => note(`k${i}`, i * 10, 500));
+      const order = kids.map((k) => k.id).reverse();
+      const result = computeAutoLayout(
+        [note('p', 0, 0), ...kids],
+        kids.map((k) => edge('p', k.id)),
+        { order },
+      );
+      const read = result
+        .filter((r) => r.id !== 'p')
+        .sort((p, q) => p.y - q.y || p.x - q.x)
+        .map((p) => p.id);
+      expect(read).toEqual(order);
+    });
+
     it('points every edge downward and keeps a shortcut edge clear of the notes it passes', () => {
       const pos = layout(
         [note('a', 0, 0), note('b', 0, 0), note('c', 0, 0)],

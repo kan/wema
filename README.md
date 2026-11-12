@@ -781,7 +781,7 @@ board.on('note:measure', stack);
 |------|------|
 | `computeAlignment(notes, alignment)` | 整列後の位置。全付箋の位置を返す |
 | `computeDistribution(notes, direction)` | 均等配置後の位置。両端を除く付箋の位置を返す |
-| `computeAutoLayout(notes, edges, options?)` | 自動レイアウト後の位置。`options.noteIds` で対象を絞れる。`options.aspectRatio` で、収めたい範囲の縦横比（幅 ÷ 高さ、既定値 1.6）を渡せる |
+| `computeAutoLayout(notes, edges, options?)` | 自動レイアウト後の位置。`options.noteIds` で対象を絞れる。`options.aspectRatio` で、収めたい範囲の縦横比（幅 ÷ 高さ、既定値 1.6）を渡せる。`options.order` で並べる順（ID の配列）を渡せる |
 | `computeStackLayout(notes, options?)` | 縦 1 列に積んだ位置と幅。`options` は `x` / `y`（1 枚目の左上。省略時は付箋のある範囲の左上）、`width`（全部の付箋の幅。省略時はそれぞれの幅のまま）、`gap`（付箋の間隔。既定値 16）、`order`（上から並べる順の ID の配列） |
 
 `computeStackLayout()` の並び順は、`order` を省略すると、いまの位置の上から順（同じ高さなら左から順）になる。`order` に無い付箋は、`order` の後ろに同じ規則で並べる。列から漏れる付箋は無い。付箋を積む高さには、渡された `height` を使う。幅を変えると高さが変わる付箋（`autoSize` / `foldable`）があるときは、`stackNotes()` を使う。
@@ -800,6 +800,7 @@ const wide = computeAutoLayout(data.notes, data.edges, { aspectRatio: 16 / 9 });
 - 接続線のない付箋は、左から詰めて折り返し、まとまりの下か右に置く。付箋の大きさが違っていても、付箋同士は重ならない
 - 折り返す幅と、接続線のない付箋を下と右のどちらに置くかは、全体が `aspectRatio` の範囲に最も大きく収まるように選ぶ。`autoLayout()` は、ボードの要素の縦横比を使う
 - 接続線の鎖は折り返さない。段の数が多いボードは、縦横比を渡しても縦に長くなる
+- 接続線で決まらない順（接続線のない付箋の並び、まとまり同士の並び、同じ親の子を折り返すときの並び）は、`order` の順になる。`order` を省略すると、いまの位置の左から順（同じ列なら上から順）になる。`order` に無い付箋は、`order` の後ろに同じ規則で並べる。日付順など、付箋の内容で並べたいときに使う
 
 #### Undo/Redo
 
