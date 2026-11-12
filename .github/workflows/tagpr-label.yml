@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   rebuild:
     # **SHA は `tagpr.yml` の呼ぶ行と同じにする**（`scripts/tagpr/verify-subtree.mjs` が照合する）
-    uses: kan/tagpr-scripts/.github/workflows/tagpr-label.yml@acd6fdd62871cc7acc6c33fc7e1ceb314e82e428
+    uses: kan/tagpr-scripts/.github/workflows/tagpr-label.yml@3fb536bb107b6b08940ee49f0a8d5a69e68df211
     permissions:
       actions: write        # tagpr.yml を起動する
       pull-requests: write  # リリース PR を draft にする
