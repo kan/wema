@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-12
+
 ### Added
 
 - **`computeAutoLayout()` に `order` オプションを追加した。** 接続線で決まらない順（接続線のない付箋の並び、まとまり同士の並び、同じ親の子を折り返すときの並び）を、ID の配列で指定できる。`order` に無い付箋は、その後ろにいまの位置の順で並ぶ。同じ順は、接続線の循環を切るときにどの線を外すかにも使う
@@ -525,6 +527,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **イベントシステム** — `note:*` / `edge:*` / `change` / `history:change` イベント
 - **CSS カスタマイズ** — CSS 変数によるスタイル調整
 
+[0.18.0]: https://github.com/kan/wema/releases/tag/v0.18.0
 [0.17.1]: https://github.com/kan/wema/releases/tag/v0.17.1
 [0.17.0]: https://github.com/kan/wema/releases/tag/v0.17.0
 [0.16.1]: https://github.com/kan/wema/releases/tag/v0.16.1
